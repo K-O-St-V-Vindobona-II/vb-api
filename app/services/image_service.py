@@ -9,14 +9,16 @@ from fastapi.responses import Response
 from PIL import Image as PILImage
 from sqlalchemy.orm import Session
 
-from app.core.storage import StorageClient, generate_thumbnail
+from app.core.storage import (
+    S3_PATH_STANDESDB_CACHE,
+    S3_PATH_STANDESDB_IMAGES,
+    StorageClient,
+    generate_thumbnail,
+)
 from app.models.standesdb_image import StandesdbImage
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
-
-IMAGES_PREFIX = "standesdb/images"
-CACHE_PREFIX = "standesdb/cache"
 
 STANDESDB_THUMB_SIZE = 400
 
@@ -49,7 +51,7 @@ def serve_download(
     img: StandesdbImage,
     storage: StorageClient,
 ) -> Response:
-    key = f"{IMAGES_PREFIX}/{img.sha256_hash}"
+    key = f"{S3_PATH_STANDESDB_IMAGES}/{img.sha256_hash}"
     try:
         content = storage.download(key)
     except ClientError:
@@ -76,9 +78,9 @@ def get_presigned_url(
 ) -> str:
     if thumb:
         _ensure_cache(img, storage)
-        key = f"{CACHE_PREFIX}/{img.sha256_hash}"
+        key = f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}"
     else:
-        key = f"{IMAGES_PREFIX}/{img.sha256_hash}"
+        key = f"{S3_PATH_STANDESDB_IMAGES}/{img.sha256_hash}"
     filename = f"{img.owner_type}_{img.owner_id}_{img.id}.{img.extension or 'jpg'}"
     return storage.generate_presigned_url(
         key,
@@ -108,11 +110,11 @@ def _ensure_cache(
     img: StandesdbImage,
     storage: StorageClient,
 ) -> None:
-    cache_key = f"{CACHE_PREFIX}/{img.sha256_hash}"
+    cache_key = f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}"
     if storage.exists(cache_key):
         return
 
-    original_key = f"{IMAGES_PREFIX}/{img.sha256_hash}"
+    original_key = f"{S3_PATH_STANDESDB_IMAGES}/{img.sha256_hash}"
     try:
         data = storage.download(original_key)
     except ClientError:
@@ -169,7 +171,7 @@ def upload_image(
 
     sha256 = hashlib.sha256(content).hexdigest()
 
-    key = f"{IMAGES_PREFIX}/{sha256}"
+    key = f"{S3_PATH_STANDESDB_IMAGES}/{sha256}"
     if not storage.exists(key):
         storage.upload(key, content, content_type)
 
@@ -233,5 +235,7 @@ def delete_image(
     db: Session,
     img: StandesdbImage,
 ) -> None:
+    # Intentional: soft-delete only. The S3 object (keyed by sha256_hash)
+    # is never removed, even after hard-deletion of the owning record.
     img.deleted_at = datetime.now(UTC)
     db.commit()

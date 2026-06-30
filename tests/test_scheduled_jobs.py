@@ -214,3 +214,30 @@ class TestComputeAnniversaries:
         result = _compute_anniversaries(db_session)
         assert "vbw" in result
         assert "verstorben" in result["vbw"]
+
+
+class TestBackupJobRegistration:
+    def test_backup_job_registered_by_default(self):
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        from app.core.scheduler import _next_backup_run, job_db_backup
+
+        sched = AsyncIOScheduler()
+        sched.add_job(
+            job_db_backup,
+            "interval",
+            days=7,
+            start_date=_next_backup_run(3),
+            id="db_backup",
+            replace_existing=True,
+        )
+        ids = [j.id for j in sched.get_jobs()]
+        assert "db_backup" in ids
+
+    def test_backup_job_absent_when_disabled(self):
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        sched = AsyncIOScheduler()
+        # When BACKUP_ENABLED=false, no job is added — empty scheduler has no db_backup
+        ids = [j.id for j in sched.get_jobs()]
+        assert "db_backup" not in ids

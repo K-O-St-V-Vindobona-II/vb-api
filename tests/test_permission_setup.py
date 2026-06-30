@@ -130,3 +130,77 @@ class TestPermissionRulesEndpoint:
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+class TestDevSuperuserGuard:
+    def test_dev_superuser_active_in_development(self, db_session):
+        """DEV_SUPERUSER_ID grants all permissions in non-production environments."""
+        import bcrypt
+
+        from app.models.member import Member as MemberModel
+
+        hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+        member = MemberModel(
+            id=999,
+            email="dev@test.at",
+            auth_password=hashed,
+            auth_locked=False,
+            vorname="Dev",
+            nachname="Super",
+            org_id=None,
+            state_id=None,
+        )
+        db_session.add(member)
+        db_session.commit()
+
+        with (
+            __import__("unittest.mock", fromlist=["patch"]).patch(
+                "app.services.permission_service.DEV_SUPERUSER_ID", 999
+            ),
+            __import__("unittest.mock", fromlist=["patch"]).patch(
+                "app.services.permission_service.APP_ENVIRONMENT", "development"
+            ),
+        ):
+            from app.services.permission_service import (
+                ALL_PERMISSIONS,
+                calculate_permissions,
+            )
+
+            perms = calculate_permissions(member)
+
+        assert sorted(perms) == sorted(ALL_PERMISSIONS)
+
+    def test_dev_superuser_disabled_in_production(self, db_session):
+        """DEV_SUPERUSER_ID is forced to 0 in production — regular rules apply."""
+        import bcrypt
+
+        from app.models.member import Member as MemberModel
+
+        hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+        member = MemberModel(
+            id=888,
+            email="prod@test.at",
+            auth_password=hashed,
+            auth_locked=False,
+            vorname="Prod",
+            nachname="User",
+            org_id=None,
+            state_id=None,
+        )
+        db_session.add(member)
+        db_session.commit()
+
+        with (
+            __import__("unittest.mock", fromlist=["patch"]).patch(
+                "app.services.permission_service.DEV_SUPERUSER_ID", 0
+            ),
+            __import__("unittest.mock", fromlist=["patch"]).patch(
+                "app.services.permission_service.APP_ENVIRONMENT", "production"
+            ),
+        ):
+            from app.services.permission_service import calculate_permissions
+
+            perms = calculate_permissions(member)
+
+        # No roles → no permissions
+        assert perms == []

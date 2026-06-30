@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
     SESSION_IDLE_TIMEOUT_MINUTES,
 )
+from app.core.storage import get_storage
 from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import SessionLocal
 from app.models.client_user_agent import ClientUserAgent
@@ -22,11 +24,16 @@ from app.models.password_reset import PasswordResetToken
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
+from app.services.backup_service import cleanup_old_backups, run_backup
 from app.services.p4x_service import (
     apply_all_category_filters,
     calculate_fee_balance,
     fee_for_month,
 )
+
+BACKUP_ENABLED: bool = os.environ.get("BACKUP_ENABLED", "true").lower() != "false"
+BACKUP_INTERVAL_DAYS: int = int(os.environ.get("BACKUP_INTERVAL_DAYS", "7"))
+BACKUP_HOUR: int = int(os.environ.get("BACKUP_HOUR", "3"))
 
 logger = logging.getLogger(__name__)
 
@@ -570,6 +577,37 @@ def _compute_anniversaries(
 
 
 # -------------------------------------------------------------------
+# DB backup
+# -------------------------------------------------------------------
+
+
+def _next_backup_run(hour: int) -> datetime:
+    """Return the next occurrence of `hour:00` UTC (today or tomorrow)."""
+    now = datetime.now(UTC)
+    candidate = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+async def job_db_backup() -> None:
+    storage = get_storage()
+    try:
+        backup_name = run_backup(storage)
+        logger.info("Scheduled DB backup succeeded: %s", backup_name)
+    except Exception:
+        logger.exception("Scheduled DB backup failed.")
+        return
+
+    try:
+        deleted = cleanup_old_backups(storage)
+        if deleted:
+            logger.info("Cleaned up %d expired backup(s).", len(deleted))
+    except Exception:
+        logger.exception("Backup retention cleanup failed.")
+
+
+# -------------------------------------------------------------------
 # Register all jobs
 # -------------------------------------------------------------------
 
@@ -606,6 +644,15 @@ JOB_DESCRIPTIONS: dict[str, str] = {
         " Philistrierungen) an alle"
         " Mitglieder, die den Versand"
         " aktiviert haben."
+    ),
+    "db_backup": (
+        "Erstellt alle BACKUP_INTERVAL_DAYS Tage"
+        " (Default 7) um BACKUP_HOUR Uhr (Default 03:00)"
+        " eine vollständige PostgreSQL-Sicherung"
+        " und lädt sie auf S3 hoch."
+        " Dateiname: [environment]-YYYY-MM-DD_HH-MM-SS.dump."
+        " Löscht anschließend Backups, die älter als"
+        " BACKUP_RETENTION_DAYS (Default 90) sind."
     ),
 }
 
@@ -652,6 +699,18 @@ def start_scheduler() -> None:
         id="standesdb_chronicles",
         replace_existing=True,
     )
+    if BACKUP_ENABLED:
+        scheduler.add_job(
+            job_db_backup,
+            "interval",
+            days=BACKUP_INTERVAL_DAYS,
+            start_date=_next_backup_run(BACKUP_HOUR),
+            id="db_backup",
+            replace_existing=True,
+        )
+    else:
+        logger.info("DB backup job disabled via BACKUP_ENABLED=false.")
+
     scheduler.start()
     logger.info(
         "Scheduler started with %d jobs.",
