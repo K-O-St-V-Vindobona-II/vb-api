@@ -42,9 +42,7 @@ def backup_bucket(_moto_env):
 def _clean_backup_prefix(backup_bucket):
     """Wipe the backup prefix before each test for isolation."""
     client = boto3.client("s3", **_S3_CREDS)
-    resp = client.list_objects_v2(
-        Bucket=backup_bucket, Prefix=f"{S3_PATH_DB_BACKUPS}/"
-    )
+    resp = client.list_objects_v2(Bucket=backup_bucket, Prefix=f"{S3_PATH_DB_BACKUPS}/")
     for obj in resp.get("Contents", []):
         client.delete_object(Bucket=backup_bucket, Key=obj["Key"])
     return

@@ -18,12 +18,8 @@ S3_PATH_STANDESDB_IMAGES: str = os.environ.get(
 S3_PATH_STANDESDB_CACHE: str = os.environ.get(
     "S3_PATH_STANDESDB_CACHE", "standesdb/cache"
 )
-S3_PATH_ARCHIVE_STORE: str = os.environ.get(
-    "S3_PATH_ARCHIVE_STORE", "archive/store"
-)
-S3_PATH_ARCHIVE_CACHE: str = os.environ.get(
-    "S3_PATH_ARCHIVE_CACHE", "archive/cache"
-)
+S3_PATH_ARCHIVE_STORE: str = os.environ.get("S3_PATH_ARCHIVE_STORE", "archive/store")
+S3_PATH_ARCHIVE_CACHE: str = os.environ.get("S3_PATH_ARCHIVE_CACHE", "archive/cache")
 S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
 
 

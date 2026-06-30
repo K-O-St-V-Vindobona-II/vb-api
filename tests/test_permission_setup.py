@@ -165,6 +165,7 @@ class TestDevSuperuserGuard:
                 ALL_PERMISSIONS,
                 calculate_permissions,
             )
+
             perms = calculate_permissions(member)
 
         assert sorted(perms) == sorted(ALL_PERMISSIONS)

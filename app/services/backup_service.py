@@ -182,8 +182,6 @@ def cleanup_old_backups(
             continue
         storage.delete(key)
         deleted.append(name)
-        logger.info(
-            "Deleted expired backup (older than %dd): %s", retention_days, name
-        )
+        logger.info("Deleted expired backup (older than %dd): %s", retention_days, name)
 
     return deleted
