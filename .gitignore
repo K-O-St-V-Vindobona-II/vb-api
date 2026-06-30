@@ -1,0 +1,42 @@
+# Environments & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+
+# SQLite Databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Python Byte-compiled / Optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test / Coverage artifacts
+.coverage
+coverage.xml
+.cache/
+htmlcov/
+
+# pip / local installs
+.local/

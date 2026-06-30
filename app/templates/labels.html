@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+@page {
+    size: A4;
+    margin: 0;
+}
+body {
+    margin: 0;
+    padding: 0;
+}
+.page {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    page-break-after: always;
+}
+.page:last-child {
+    page-break-after: avoid;
+}
+div.label {
+    position: absolute;
+    width: 7cm;
+    height: 3.6cm;
+    overflow: hidden;
+}
+div.recipient {
+    padding-top: 4mm;
+    padding-left: 4mm;
+    font-style: italic;
+    font-size: 8pt;
+    line-height: 9pt;
+}
+div.sender {
+    padding-top: 2mm;
+    padding-left: 4mm;
+    font-family: Verdana, sans-serif;
+    font-size: 6pt;
+    line-height: 7pt;
+    color: #555;
+}
+</style>
+</head>
+<body>
+{% for page in pages %}
+<div class="page">
+{% for label in page %}
+<div class="label" style="left: {{ label.col * 7 }}cm; top: {{ label.row * 3.6 + 0.4 }}cm;">
+    <div class="recipient">
+        {% if label.anrede %}<div>{{ label.anrede }}</div>{% endif %}
+        <div>{{ label.name }}</div>
+        {% if label.address %}<div>{{ label.address }}</div>{% endif %}
+        {% if label.plz_ort %}<div>{{ label.plz_ort }}</div>{% endif %}
+        {% if label.land %}<div>{{ label.land }}</div>{% endif %}
+    </div>
+    <div class="sender">
+        <div style="margin-bottom: 1mm;"><u>Absender:</u></div>
+        <div>K.&Ouml;.St.V. Vindobona II und K.&Ouml;.St.V. Vindobona nova</div>
+        <div>Rooseveltplatz 8 / Sout; 1090 Wien; &Ouml;sterreich</div>
+    </div>
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+</body>
+</html>

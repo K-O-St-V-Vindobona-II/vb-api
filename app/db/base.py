@@ -1,0 +1,39 @@
+# pyright: reportUnusedImport=false
+from app.db.database import Base  # noqa: F401
+
+# All models must be imported here so SQLAlchemy registers them
+from app.models.archive_dir import ArchiveDir  # noqa: F401
+from app.models.archive_file import ArchiveFile  # noqa: F401
+from app.models.archive_file_comment import ArchiveFileComment  # noqa: F401
+from app.models.archive_file_version import ArchiveFileVersion  # noqa: F401
+from app.models.archive_permission import ArchivePermission  # noqa: F401
+from app.models.archive_store_item import ArchiveStoreItem  # noqa: F401
+from app.models.badge import Badge  # noqa: F401
+from app.models.client_user_agent import ClientUserAgent  # noqa: F401
+from app.models.contact import Contact  # noqa: F401
+from app.models.contacts_log import ContactsLog  # noqa: F401
+from app.models.key import Key  # noqa: F401
+from app.models.member import Member  # noqa: F401
+from app.models.member_badge import MemberBadge  # noqa: F401
+from app.models.member_key import MemberKey  # noqa: F401
+from app.models.member_role import MemberRole  # noqa: F401
+from app.models.members_log import MembersLog  # noqa: F401
+from app.models.members_oauth2binding import MembersOauth2Binding  # noqa: F401
+from app.models.org import Org  # noqa: F401
+from app.models.p4x_account import P4xAccount  # noqa: F401
+from app.models.p4x_category import P4xCategory  # noqa: F401
+from app.models.p4x_category_direct import P4xCategoryDirect  # noqa: F401
+from app.models.p4x_category_filter import P4xCategoryFilter  # noqa: F401
+from app.models.p4x_category_filter_hit import P4xCategoryFilterHit  # noqa: F401
+from app.models.p4x_fee import P4xFee  # noqa: F401
+from app.models.p4x_partner import P4xPartner  # noqa: F401
+from app.models.p4x_specialcontact import P4xSpecialcontact  # noqa: F401
+from app.models.p4x_summary_order import P4xSummaryOrder  # noqa: F401
+from app.models.p4x_transaction import P4xTransaction  # noqa: F401
+from app.models.password_reset import PasswordResetToken  # noqa: F401
+from app.models.personal_access_token import PersonalAccessToken  # noqa: F401
+from app.models.request_log import RequestLog  # noqa: F401
+from app.models.role import Role  # noqa: F401
+from app.models.sent_email import SentEmail  # noqa: F401
+from app.models.standesdb_image import StandesdbImage  # noqa: F401
+from app.models.state import State  # noqa: F401

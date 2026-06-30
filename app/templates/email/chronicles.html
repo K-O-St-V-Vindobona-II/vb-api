@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head></head>
+<body>
+<div style="font-size:1em;font-family:Courier;margin:1.5em 0;">
+Mit dieser E-Mail bekommst Du die Jahrestage der kommenden Woche zugesandt.
+</div>
+<div style="font-size:0.8em;font-family:Verdana;border:2px solid #05370C;background-color:#F2E69C;padding:2em;line-height:1.7em;">
+<div style="font-size:20px;color:#05370C;font-style:italic;margin-bottom:10px;">
+Chroniken vom {{ start }} bis zum {{ end }}
+</div>
+{% for org_id, org_label in [("vbw", "II"), ("vbn", "nova")] %}
+  {% set org_data = anniversaries.get(org_id, {}) %}
+  {% if org_data %}
+  <div style="font-size:16px;color:red;margin-top:10px;margin-bottom:10px;">
+    Jahrestage für die K.Ö.St.V. Vindobona {{ org_label }}
+  </div>
+  {% set prefix = "Bbr." if org_id == "vbw" else "Bsr." %}
+  {% set pron_sein = "seinen" if org_id == "vbw" else "ihren" %}
+  {% set pron_seiner = "seiner" if org_id == "vbw" else "ihrer" %}
+  {% for status in ["lebend", "verstorben"] %}
+    {% set status_data = org_data.get(status, {}) %}
+    {% set color = "05370C" if status == "lebend" else "A0AE7F" %}
+    {% for ann_type in ["geburtsdatum", "aufnahmedatum", "burschungsdatum", "philistrierungsdatum"] %}
+      {% for entry in status_data.get(ann_type, []) %}
+      <div style="color:#{{ color }};">
+        {% if ann_type == "geburtsdatum" %}
+          {% if status == "lebend" %}
+        <strong>{{ prefix }} {{ entry.cn }}</strong> begeht am {{ entry.date }} {{ pron_sein }} {{ entry.years }}. <strong>Geburtstag</strong>.
+          {% else %}
+        {% if org_id == "vbw" %}Der{% else %}Die{% endif %} verstorbene <strong>{{ prefix }} {{ entry.cn }}</strong> hätte am {{ entry.date }} {{ pron_sein }} {{ entry.years }}. <strong>Geburtstag</strong>.
+          {% endif %}
+        {% elif ann_type == "aufnahmedatum" %}
+        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>Aufnahme</strong>.
+        {% elif ann_type == "burschungsdatum" %}
+        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>{% if org_id == "vbw" %}Burschung{% else %}Filiierung{% endif %}</strong>.
+        {% elif ann_type == "philistrierungsdatum" %}
+        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>Philistrierung</strong>.
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% endfor %}
+  {% endfor %}
+  {% endif %}
+{% endfor %}
+</div>
+<div style="font-size:1em;font-family:Courier;margin:1.5em 0;">
+Wenn Du diese wöchentliche Email nicht mehr erhalten möchtest,
+melde Dich bitte im internen Bereich unserer Homepage an und
+deaktiviere den Versand im Bereich "Mein Benutzerkonto".
+</div>
+</body>
+</html>

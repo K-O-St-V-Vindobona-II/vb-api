@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+@page {
+    size: 148mm 210mm;
+    margin: 15mm 10mm 10mm 10mm;
+    @top-center {
+        content: counter(page);
+        font-size: 7px;
+        color: #777;
+    }
+}
+@page :first {
+    @top-center { content: none; }
+}
+@page cover {
+    @top-center { content: none; }
+}
+@page blank {
+    @top-center { content: none; }
+}
+body, pre {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 11px;
+}
+div, table, th, tr, td, span {
+    margin: 0;
+    padding: 0;
+}
+h3 {
+    font-size: 13px;
+    font-weight: bold;
+}
+div.title {
+    text-align: center;
+    padding-top: 10em;
+}
+div.name {
+    text-align: center;
+    margin-bottom: 10px;
+}
+.portrait, .portraitdeceased {
+    height: 150px;
+    width: auto;
+}
+.portrait {
+    border: 6px double #DAA520;
+}
+.portraitdeceased {
+    border: 6px double #000000;
+}
+.light {
+    color: #999;
+}
+table.datalist {
+    width: 100%;
+}
+table.datalist td.left {
+    font-weight: bold;
+    vertical-align: top;
+    padding-bottom: 5px;
+}
+table.datalist td.right {
+    text-align: right;
+    vertical-align: top;
+    padding-bottom: 5px;
+}
+.page-break {
+    page-break-before: always;
+}
+</style>
+</head>
+<body>
+
+{# === COVER === #}
+<div class="title" style="page: cover;">
+{% if has_members %}
+    <div style="margin-bottom: 10px;"><h2>Mitgliederverzeichnis</h2></div>
+    {% if has_vbw %}<div><h1>K.&Ouml;.St.V. Vindobona II</h1></div>{% endif %}
+    {% if has_vbn %}<div><h1>K.&Ouml;.St.V. Vindobona nova</h1></div>{% endif %}
+    {% if has_contacts %}<div style="padding-top: 2em;"><h3>mit Kontakten</h3></div>{% endif %}
+{% elif has_contacts %}
+    <div><h1>Kontakte</h1></div>
+{% endif %}
+</div>
+
+{# === BLANK PAGE === #}
+<div class="page-break" style="page: blank;">&nbsp;</div>
+
+{# === FRONT MATTER === #}
+<div class="page-break title" style="page: blank;">
+Dieses Mitgliederverzeichnis wurde aus den Daten der<br/>
+<strong>VB-Standesdatenbank</strong><br/>
+erstellt.<br/><br/>
+Erstellungsdatum:<br/>
+<h4>{{ today }}</h4>
+<small class="light">
+Erstellt von<br/>
+{{ created_by }}
+</small>
+</div>
+
+{# === BLANK PAGE === #}
+<div class="page-break" style="page: blank;">&nbsp;</div>
+
+{# === MEMBERS INTERTITLE (if both) === #}
+{% if has_members and has_contacts %}
+<div class="page-break title"><h3>Mitglieder</h3></div>
+{% endif %}
+
+{# === MEMBER PAGES === #}
+{% for m in members %}
+<div class="page-break">
+
+{# Name #}
+<div class="name">
+    {% if m.gruender %}
+    <div style="font-weight: bold; color: darkgreen; font-style: italic; margin-bottom: 3px;">Gr&uuml;ndungsmitglied</div>
+    {% endif %}
+    <h3 style="margin-bottom: 0;">{{ m.cn_full }}</h3>
+    {% if m.nachname_geburt %}
+    <div><small class="light">(geb. {{ m.nachname_geburt }})</small></div>
+    {% endif %}
+</div>
+
+{# Vital dates #}
+<div style="text-align: center; margin-top: 1em; margin-bottom: 2em;">
+    {% if m.geburtsdatum_fmt %}geboren {{ m.geburtsdatum_fmt }}{% endif %}
+    {% if m.geburtsdatum_fmt and m.sterbedatum_fmt %}<br/>{% endif %}
+    {% if m.sterbedatum_fmt %}verstorben {{ m.sterbedatum_fmt }}<br/>
+    <div style="text-align: center; font-weight: bold;">R.I.P.</div>
+    {% endif %}
+</div>
+
+{# Portrait #}
+{% if m.img_base64 %}
+<div style="text-align: center; display: block; margin-bottom: 30px;">
+    <img height="150" class="{{ 'portraitdeceased' if m.verstorben else 'portrait' }}" src="data:image/jpeg;base64, {{ m.img_base64 }}"/>
+</div>
+{% endif %}
+
+{# Org data #}
+<table class="datalist">
+    <tr><td class="left">Mitgliedschaft</td><td class="right">{{ m.state_id|upper }}</td></tr>
+    {% for date_key, label in m.org_dates %}
+    {% if date_key %}
+    <tr><td class="left">{{ label }}</td><td class="right">{{ date_key }}</td></tr>
+    {% endif %}
+    {% endfor %}
+    {% if m.parent_cn %}
+    <tr><td class="left">{{ 'Mater' if m.org_id == 'vbn' else 'Leibbursch' }}</td><td class="right">{{ m.parent_cn }}</td></tr>
+    {% endif %}
+</table>
+
+{# Address #}
+{% if m.verstorben and m.grabadresse %}
+<table class="datalist">
+    <tr><td class="left">Grab-Adresse</td><td class="right"><pre>{{ m.grabadresse }}</pre></td></tr>
+</table>
+{% elif m.addr_anschrift %}
+<table class="datalist">
+    <tr><td class="left">Adresse</td><td class="right">
+        {{ m.addr_anschrift }}<br/>
+        {{ m.addr_plz_ort }}<br/>
+        {{ m.addr_land }}
+    </td></tr>
+</table>
+{% endif %}
+
+{# Misc (contact info, job, notes) #}
+<table class="datalist">
+    {% if not m.verstorben %}
+        {% for key, label in [('email', 'E-Mail-Adresse'), ('url', 'Webseite'), ('rufnummer_privat', 'Rufnummer (privat)'), ('rufnummer_beruf', 'Rufnummer (beruflich)'), ('rufnummer_mobil', 'Rufnummer (mobil)')] %}
+        {% if m[key] %}<tr><td class="left">{{ label }}</td><td class="right">{{ m[key] }}</td></tr>{% endif %}
+        {% endfor %}
+    {% endif %}
+    {% for key, label in [('arbeitgeber', 'Arbeitgeber'), ('taetigkeit', 'T&auml;tigkeit')] %}
+    {% if m[key] %}<tr><td class="left">{{ label }}</td><td class="right">{{ m[key] }}</td></tr>{% endif %}
+    {% endfor %}
+    {% for key, label in [('mitgliedschaften', 'Mitgliedschaften'), ('verbandchargen', 'Verbandchargen'), ('anmerkungen', 'Anmerkungen')] %}
+    {% if m[key] %}<tr><td class="left">{{ label }}</td><td class="right"><pre>{{ m[key] }}</pre></td></tr>{% endif %}
+    {% endfor %}
+</table>
+
+{# Badges #}
+{% if m.jubelbaender %}
+<table class="datalist">
+    <tr><td class="left">Jubelb&auml;nder</td><td class="right">
+    {% for b in m.jubelbaender %}<div>{{ b.name }}{% if b.date %} ({{ b.date }}){% endif %}</div>{% endfor %}
+    </td></tr>
+</table>
+{% endif %}
+{% if m.ehrenzeichen %}
+<table class="datalist">
+    <tr><td class="left">Ehrenzeichen</td><td class="right">
+    {% for b in m.ehrenzeichen %}<div>{{ b.name }}{% if b.date %} ({{ b.date }}){% endif %}</div>{% endfor %}
+    </td></tr>
+</table>
+{% endif %}
+
+</div>
+{% endfor %}
+
+{# === CONTACTS INTERTITLE (if both) === #}
+{% if has_members and has_contacts %}
+<div class="page-break title"><h3>Kontakte</h3></div>
+{% endif %}
+
+{# === CONTACT PAGES === #}
+{% for c in contacts %}
+<div class="page-break">
+
+<h3 class="name">{{ c.cn }}</h3>
+
+{% if c.img_base64 %}
+<div style="text-align: center; display: block; margin-bottom: 30px;">
+    <img height="150" class="portrait" src="data:image/jpeg;base64, {{ c.img_base64 }}"/>
+</div>
+{% endif %}
+
+<table class="datalist">
+    <tr><td class="left">Kontakttyp</td><td class="right">{{ c.kontakttyp|capitalize }}</td></tr>
+    {% if c.org_id %}<tr><td class="left">Referenz</td><td class="right">K.&Ouml;.St.V. Vindobona {{ 'nova' if c.org_id == 'vbn' else 'II' }}</td></tr>{% endif %}
+    {% for key, label in [('anrede', 'Anrede'), ('email', 'E-Mail-Adresse'), ('rufnummer', 'Rufnummer')] %}
+    {% if c[key] %}<tr><td class="left">{{ label }}</td><td class="right">{{ c[key] }}</td></tr>{% endif %}
+    {% endfor %}
+</table>
+
+<table class="datalist">
+    <tr><td class="left">Adresse</td><td class="right">
+        {{ c.adresse_anschrift or '' }}<br/>
+        {{ c.addr_plz_ort }}<br/>
+        {{ c.adresse_land or '' }}
+    </td></tr>
+</table>
+
+<table class="datalist">
+    {% if c.datum_fmt %}<tr><td class="left">Datum</td><td class="right">{{ c.datum_fmt }}</td></tr>{% endif %}
+    {% if c.anmerkungen %}<tr><td class="left">Anmerkungen</td><td class="right"><pre>{{ c.anmerkungen }}</pre></td></tr>{% endif %}
+</table>
+
+</div>
+{% endfor %}
+
+{# === END PAGES === #}
+<div class="page-break">&nbsp;</div>
+<div class="page-break">&nbsp;</div>
+
+</body>
+</html>

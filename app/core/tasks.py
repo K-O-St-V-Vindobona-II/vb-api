@@ -1,0 +1,3 @@
+import os
+
+TRACKING_RETENTION_MONTHS = int(os.environ.get("TRACKING_RETENTION_MONTHS", "6"))

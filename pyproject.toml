@@ -1,0 +1,90 @@
+[project]
+name = "vb-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "B", "S", "UP", "SIM", "PT", "C90", "FAST", "RUF", "ANN",
+    "RET", "ARG", "ERA", "T20", "BLE",
+    "DTZ", "A", "PTH", "FBT", "N", "TRY"
+]
+ignore = [
+    "E402",    # logging setup before imports
+    "E741",    # ambiguous-variable-name
+]
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+suppress-dummy-args = true
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body",
+    "fastapi.Header", "fastapi.Cookie", "fastapi.Security",
+    "Depends", "Query", "Path", "Body", "Header", "Cookie", "Security",
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.mccabe]
+max-complexity = 7
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802"]
+"alembic/**" = ["F401", "UP035", "ANN"]
+"scripts/**" = ["T201", "FBT"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
+filterwarnings = [
+    "error",
+    "default::DeprecationWarning",
+    "error::DeprecationWarning:app.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "alembic/*",
+    "tests/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "def __repr__",
+    "raise NotImplementedError",
+    "pass",
+]
+
+[tool.pyright]
+include = ["app", "scripts"]
+exclude = [
+    "alembic",
+    "**/__pycache__",
+]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+useLibraryCodeForTypes = true
+reportMissingTypeStubs = false
+
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
