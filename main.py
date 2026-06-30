@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -15,15 +16,20 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.system import system_router
+from app.core.config import APP_ENVIRONMENT
 from app.core.rate_limit import limiter
 from app.core.scheduler import start_scheduler, stop_scheduler
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    logger.info("*** Application starting — environment: %s ***", APP_ENVIRONMENT)
     start_scheduler()
     yield
     stop_scheduler()
+    logger.info("Application shutdown complete.")
 
 
 from app.api.router import OPENAPI_TAGS

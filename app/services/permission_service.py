@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -5,9 +6,19 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.config import APP_ENVIRONMENT
 from app.models.member import Member
 
-DEV_SUPERUSER_ID = int(os.environ.get("DEV_SUPERUSER_ID", "0"))
+logger = logging.getLogger(__name__)
+
+_raw_dev_superuser_id: int = int(os.environ.get("DEV_SUPERUSER_ID", "0"))
+if _raw_dev_superuser_id and APP_ENVIRONMENT == "production":
+    logger.warning(
+        "DEV_SUPERUSER_ID is set but will be IGNORED in production. "
+        "Remove it from the production env file."
+    )
+# Forced to 0 in production — existing check already short-circuits for 0.
+DEV_SUPERUSER_ID: int = _raw_dev_superuser_id if APP_ENVIRONMENT != "production" else 0
 
 
 @dataclass(frozen=True)

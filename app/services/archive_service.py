@@ -7,7 +7,12 @@ from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.core.storage import StorageClient, generate_thumbnail
+from app.core.storage import (
+    S3_PATH_ARCHIVE_CACHE,
+    S3_PATH_ARCHIVE_STORE,
+    StorageClient,
+    generate_thumbnail,
+)
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import (
@@ -28,9 +33,6 @@ from app.models.state import State
 from app.services.permission_service import (
     calculate_permissions,
 )
-
-STORE_PREFIX = "archive/store"
-CACHE_PREFIX = "archive/cache"
 
 THUMB_SIZES = {"xs": 16, "sm": 128, "md": 256, "lg": 550}
 
@@ -479,6 +481,8 @@ def delete_dir(
     if not has_children and not has_files:
         db.delete(dir_obj)
     else:
+        # Intentional: only the DB row is soft-deleted. The S3 object is never
+        # removed — files in the content-addressed store are kept indefinitely.
         dir_obj.deleted_at = _now()
     db.commit()
 
@@ -708,6 +712,8 @@ def delete_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Datei nicht gefunden.",
         )
+    # Intentional: only the DB row is soft-deleted. The S3 object is never
+    # removed — files in the content-addressed store are kept indefinitely.
     file_obj.deleted_at = _now()
     db.commit()
 
@@ -779,7 +785,7 @@ def serve_download(
         if thumb_response is not None:
             return thumb_response
 
-    key = f"{STORE_PREFIX}/{item.sha256_hash}"
+    key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
     try:
         data = storage.download(key)
     except ClientError:
@@ -827,13 +833,13 @@ def get_presigned_url(
 
     if size and size in THUMB_SIZES and item.is_image:
         _get_or_create_thumbnail(item, size, storage)
-        cache_key = f"{CACHE_PREFIX}/{item.sha256_hash}.thumb_{size}"
+        cache_key = f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}.thumb_{size}"
         return storage.generate_presigned_url(
             cache_key,
             content_type="image/jpeg",
         )
 
-    key = f"{STORE_PREFIX}/{item.sha256_hash}"
+    key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
     filename = f"{item.name}.{item.extension}"
     return storage.generate_presigned_url(
         key,
@@ -847,11 +853,11 @@ def _get_or_create_thumbnail(
     size: str,
     storage: StorageClient,
 ) -> bytes | None:
-    cache_key = f"{CACHE_PREFIX}/{item.sha256_hash}.thumb_{size}"
+    cache_key = f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}.thumb_{size}"
     if storage.exists(cache_key):
         return storage.download(cache_key)
 
-    source_key = f"{STORE_PREFIX}/{item.sha256_hash}"
+    source_key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
     if not storage.exists(source_key):
         return None
 
@@ -961,7 +967,7 @@ def upload_file(
             ),
         )
 
-    key = f"{STORE_PREFIX}/{sha256}"
+    key = f"{S3_PATH_ARCHIVE_STORE}/{sha256}"
     storage.upload(
         key,
         content,

@@ -12,6 +12,20 @@ PILImage.MAX_IMAGE_PIXELS = 100_000_000
 MAX_PRESIGNED_EXPIRY = 86400
 MIN_PRESIGNED_EXPIRY = 60
 
+S3_PATH_STANDESDB_IMAGES: str = os.environ.get(
+    "S3_PATH_STANDESDB_IMAGES", "standesdb/images"
+)
+S3_PATH_STANDESDB_CACHE: str = os.environ.get(
+    "S3_PATH_STANDESDB_CACHE", "standesdb/cache"
+)
+S3_PATH_ARCHIVE_STORE: str = os.environ.get(
+    "S3_PATH_ARCHIVE_STORE", "archive/store"
+)
+S3_PATH_ARCHIVE_CACHE: str = os.environ.get(
+    "S3_PATH_ARCHIVE_CACHE", "archive/cache"
+)
+S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
+
 
 class StorageClient:
     def __init__(
@@ -111,10 +125,22 @@ class StorageClient:
         )
 
     def delete(self, key: str) -> None:
+        # Reserved for explicit, deliberate operations only (e.g. backup retention
+        # cleanup in backup_service.py). Application code must NEVER call this to
+        # remove archive/standesdb objects — see archive_service.py and
+        # image_service.py for the intentional S3 retention policy.
         self._client.delete_object(
             Bucket=self._bucket,
             Key=key,
         )
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Return all object keys under prefix (handles S3 pagination)."""
+        keys: list[str] = []
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+        return keys
 
 
 def generate_thumbnail(

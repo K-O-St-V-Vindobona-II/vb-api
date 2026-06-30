@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     sqlite3 libsqlite3-dev \
     libpq-dev \
+    postgresql-client \
     libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 

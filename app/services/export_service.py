@@ -10,7 +10,12 @@ from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import Session
 from weasyprint import HTML
 
-from app.core.storage import StorageClient, generate_thumbnail
+from app.core.storage import (
+    S3_PATH_STANDESDB_CACHE,
+    S3_PATH_STANDESDB_IMAGES,
+    StorageClient,
+    generate_thumbnail,
+)
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_badge import MemberBadge
@@ -19,8 +24,6 @@ from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-IMAGES_PREFIX = "standesdb/images"
-CACHE_PREFIX = "standesdb/cache"
 
 _jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -393,12 +396,12 @@ def _get_image_base64(
     if not img or img.deleted_at:
         return None
 
-    cache_key = f"{CACHE_PREFIX}/{img.sha256_hash}"
+    cache_key = f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}"
     if storage.exists(cache_key):
         data = storage.download(cache_key)
         return base64.b64encode(data).decode("ascii")
 
-    original_key = f"{IMAGES_PREFIX}/{img.sha256_hash}"
+    original_key = f"{S3_PATH_STANDESDB_IMAGES}/{img.sha256_hash}"
     if not storage.exists(original_key):
         return None
 
