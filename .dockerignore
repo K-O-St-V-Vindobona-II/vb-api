@@ -12,7 +12,5 @@ htmlcov
 .sqlite_history
 .env.example
 tests
-scripts
 Dockerfile
-Dockerfile.prod
 *.md

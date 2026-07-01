@@ -441,7 +441,7 @@ def main() -> None:
         print(f"ERROR: AWS_BUCKET not set in {SECRETS_PATH}")
         sys.exit(1)
 
-    minio_bucket = os.environ.get("S3_BUCKET", "vb-intern")
+    minio_bucket = os.environ.get("S3_BUCKET", "vindobona2-at")
     aws = get_aws_client(secrets)
     minio = get_minio_client()
 

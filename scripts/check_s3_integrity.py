@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.standesdb_image import StandesdbImage
 
@@ -43,7 +44,7 @@ def get_s3_client() -> tuple[BaseClient, str]:
             region_name=os.environ.get("S3_REGION", "us-east-1"),
             config=Config(signature_version="s3v4"),
         ),
-        os.environ.get("S3_BUCKET", "vb-intern"),
+        os.environ.get("S3_BUCKET", "vindobona2-at"),
     )
 
 

@@ -5,7 +5,7 @@ Usage (inside the backend container):
     python scripts/sqlite2pg.py
 
 Or from the host:
-    podman exec vb-intern-backend python scripts/sqlite2pg.py
+    podman exec vb-api python scripts/sqlite2pg.py
 """
 
 import os
