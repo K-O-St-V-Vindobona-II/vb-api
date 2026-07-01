@@ -29,7 +29,7 @@ def get_s3_client() -> tuple[BaseClient, str]:
     endpoint = os.environ.get("S3_ENDPOINT_URL", "http://localhost:9000")
     access_key = os.environ.get("S3_ACCESS_KEY", "")
     secret_key = os.environ.get("S3_SECRET_KEY", "")
-    bucket = os.environ.get("S3_BUCKET", "vb-intern")
+    bucket = os.environ.get("S3_BUCKET", "vindobona2-at")
     client = boto3.client(
         "s3",
         endpoint_url=endpoint,

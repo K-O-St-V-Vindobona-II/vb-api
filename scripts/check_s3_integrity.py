@@ -43,7 +43,7 @@ def get_s3_client() -> tuple[BaseClient, str]:
             region_name=os.environ.get("S3_REGION", "us-east-1"),
             config=Config(signature_version="s3v4"),
         ),
-        os.environ.get("S3_BUCKET", "vb-intern"),
+        os.environ.get("S3_BUCKET", "vindobona2-at"),
     )
 
 

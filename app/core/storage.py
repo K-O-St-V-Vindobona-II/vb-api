@@ -186,7 +186,7 @@ def _get_storage_singleton() -> StorageClient:
             ),
             access_key=os.environ.get("S3_ACCESS_KEY", ""),
             secret_key=os.environ.get("S3_SECRET_KEY", ""),
-            bucket=os.environ.get("S3_BUCKET", "vb-intern"),
+            bucket=os.environ.get("S3_BUCKET", "vindobona2-at"),
             public_endpoint_url=os.environ.get(
                 "S3_PUBLIC_ENDPOINT_URL",
             ),
