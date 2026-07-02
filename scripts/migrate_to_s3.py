@@ -26,7 +26,7 @@ from app.models.standesdb_image import StandesdbImage
 
 
 def get_s3_client() -> tuple[BaseClient, str]:
-    endpoint = os.environ.get("S3_ENDPOINT_URL", "http://localhost:9000")
+    endpoint = os.environ.get("S3_ENDPOINT_URL")
     access_key = os.environ.get("S3_ACCESS_KEY", "")
     secret_key = os.environ.get("S3_SECRET_KEY", "")
     bucket = os.environ.get("S3_BUCKET", "vindobona2-at")
@@ -35,7 +35,7 @@ def get_s3_client() -> tuple[BaseClient, str]:
         endpoint_url=endpoint,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
-        region_name="us-east-1",
+        region_name=os.environ.get("S3_REGION", "us-east-1"),
         config=Config(signature_version="s3v4"),
     )
     return client, bucket
