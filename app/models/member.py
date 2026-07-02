@@ -38,7 +38,9 @@ class Member(Base):
     gruender: Mapped[bool | None] = mapped_column(default=False)
     entlassen: Mapped[bool | None] = mapped_column(default=False)
     verstorben: Mapped[bool | None] = mapped_column(default=False)
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("members.id"), default=0)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id"), default=None
+    )
 
     # --- Fuzzy Dates ---
     geburtsdatum: Mapped[date | None] = mapped_column(FlexibleDate)

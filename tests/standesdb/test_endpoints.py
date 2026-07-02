@@ -224,6 +224,30 @@ class TestMemberCRUD:
         assert "id" in resp.json()
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
+    def test_create_member_without_parent_stores_null_not_zero(
+        self, mock_mail, client, db_session
+    ):
+        """The API contract uses 0 as the "no parent" sentinel
+        (MemberSaveRequest.parent_id defaults to 0), but parent_id is a
+        nullable self-referencing FK where 0 is never a valid member id.
+        _normalize_member_input must convert 0 -> None before it's
+        persisted, otherwise every member created without an explicit
+        parent would violate the FK constraint as soon as it's enforced
+        (e.g. by pg_restore recreating constraints from a dump)."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        headers = _headers(client, db_session, admin)
+        resp = client.post(
+            "/api/standesdb/members",
+            json=_member_payload(vorname="Ohne", nachname="Elternteil"),
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        member = db_session.get(Member, resp.json()["id"])
+        assert member.parent_id is None
+
+    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_create_member_duplicate_rejected(self, mock_mail, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)

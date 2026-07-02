@@ -13,10 +13,11 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 sys.path.insert(0, str(Path(__file__).parent / ".."))
 
-from sqlalchemy import Table, create_engine, event, inspect, text
+from sqlalchemy import CursorResult, Table, create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.orm import Session, sessionmaker
@@ -133,6 +134,48 @@ def _reset_table_sequence(
     pg_session.execute(text(f"SELECT setval('{seq_result}', {next_val}, false)"))
 
 
+def _fix_known_legacy_data_issues(pg_session: Session) -> None:
+    """Clean up referential-integrity quirks inherited from the legacy
+    schema, which the FK constraints created by Base.metadata.create_all()
+    would otherwise reject.
+
+    This migration disables constraint checking during the bulk copy
+    (session_replication_role='replica'), so these rows load without
+    error here — but the same data later fails when pg_dump/pg_restore
+    recreates the constraints from scratch (ALTER TABLE ADD CONSTRAINT
+    validates existing rows). Fixing it here, not just once via a manual
+    UPDATE/DELETE, matters because this script TRUNCATEs and reloads
+    everything from the legacy SQLite on every run — a one-off manual fix
+    would be silently wiped out by the next migration run.
+    """
+    # Legacy convention: parent_id=0 meant "no parent" (a non-nullable FK
+    # default in the old schema). Member.parent_id is nullable here, and
+    # 0 is never a valid member id, so it must become NULL instead.
+    result = cast(
+        "CursorResult[Any]",
+        pg_session.execute(
+            text("UPDATE members SET parent_id = NULL WHERE parent_id = 0")
+        ),
+    )
+    if result.rowcount:
+        print(f"  Fixed {result.rowcount} members.parent_id=0 -> NULL")
+
+    # Audit-log rows for members that were hard-deleted from the legacy
+    # DB without cascading the cleanup to their log entries. members_logs
+    # is a pure leaf table (nothing references it), safe to drop.
+    result = cast(
+        "CursorResult[Any]",
+        pg_session.execute(
+            text(
+                "DELETE FROM members_logs "
+                "WHERE member_id NOT IN (SELECT id FROM members)"
+            )
+        ),
+    )
+    if result.rowcount:
+        print(f"  Deleted {result.rowcount} orphaned members_logs row(s)")
+
+
 def migrate() -> None:
     pg_url = get_pg_url()
     print(f"Source:  {SQLITE_URL}")
@@ -163,6 +206,7 @@ def migrate() -> None:
         total_rows = _copy_table_data(sqlite_session, pg_session, tables)
         _reset_sequences(pg_session, pg_engine, tables)
         pg_session.execute(text("SET session_replication_role = 'origin'"))
+        _fix_known_legacy_data_issues(pg_session)
         pg_session.commit()
     except Exception:
         pg_session.rollback()
