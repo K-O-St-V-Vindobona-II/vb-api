@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.system import system_router
-from app.core.config import APP_ENVIRONMENT
+from app.core.config import APP_ENVIRONMENT, CORS_ORIGINS
 from app.core.rate_limit import limiter
 from app.core.scheduler import start_scheduler, stop_scheduler
 
@@ -87,17 +87,12 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS Configuration: Explicitly whitelist our frontend domain.
+# CORS Configuration: Explicitly whitelist our frontend domain(s).
 # This prevents the browser from blocking requests from the Vue app.
-origins = [
-    "https://app.vb-intern.dev.schimpl.cc",
-    "http://localhost:20001",
-    "http://127.0.0.1:20001",
-]
-
+# Configured via the CORS_ORIGINS env var, see app/core/config.py.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],

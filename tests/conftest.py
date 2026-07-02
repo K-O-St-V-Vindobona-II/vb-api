@@ -2,6 +2,7 @@ import os
 from unittest.mock import patch
 
 os.environ["APP_ENVIRONMENT"] = "test"
+os.environ["CORS_ORIGINS"] = "http://localhost:20001,http://127.0.0.1:20001"
 
 import bcrypt
 import boto3
