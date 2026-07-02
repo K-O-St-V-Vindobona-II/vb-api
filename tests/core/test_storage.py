@@ -1,10 +1,12 @@
 """Tests for S3 storage client and thumbnail generation."""
 
 import io
+from unittest.mock import patch
 
 import pytest
 from PIL import Image as PILImage
 
+from app.core import storage as storage_module
 from app.core.storage import (
     generate_thumbnail,
 )
@@ -135,3 +137,42 @@ class TestStorageClient:
             pytest.raises(RuntimeError, match="S3 upload failed"),
         ):
             mock_s3.upload("k", b"d")
+
+
+class TestGetStorageSingleton:
+    """Regression tests for the S3_ENDPOINT_URL default.
+
+    A hardcoded "http://localhost:9000" fallback here would silently make
+    production (where S3_ENDPOINT_URL is intentionally left unset to use
+    real AWS S3) try to talk to a local MinIO instance instead.
+    """
+
+    def test_defaults_to_none_endpoint_when_unset(self, monkeypatch):
+        # Also clear S3_PUBLIC_ENDPOINT_URL: if it were set, __init__ would
+        # make a *second* boto3.client() call for the public client, and
+        # call_args (last call) would then reflect that one instead.
+        monkeypatch.delenv("S3_ENDPOINT_URL", raising=False)
+        monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with patch.object(storage_module.boto3, "client") as mock_client:
+                storage_module._get_storage_singleton()
+                assert mock_client.call_args.kwargs["endpoint_url"] is None
+        finally:
+            storage_module._storage = old_singleton
+
+    def test_uses_explicit_endpoint_when_set(self, monkeypatch):
+        monkeypatch.setenv("S3_ENDPOINT_URL", "https://minio.dev.example.com")
+        monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with patch.object(storage_module.boto3, "client") as mock_client:
+                storage_module._get_storage_singleton()
+                assert (
+                    mock_client.call_args.kwargs["endpoint_url"]
+                    == "https://minio.dev.example.com"
+                )
+        finally:
+            storage_module._storage = old_singleton

@@ -26,7 +26,7 @@ S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
 class StorageClient:
     def __init__(
         self,
-        endpoint_url: str,
+        endpoint_url: str | None,
         access_key: str,
         secret_key: str,
         bucket: str,
@@ -180,10 +180,7 @@ def _get_storage_singleton() -> StorageClient:
     global _storage
     if _storage is None:
         _storage = StorageClient(
-            endpoint_url=os.environ.get(
-                "S3_ENDPOINT_URL",
-                "http://localhost:9000",
-            ),
+            endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
             access_key=os.environ.get("S3_ACCESS_KEY", ""),
             secret_key=os.environ.get("S3_SECRET_KEY", ""),
             bucket=os.environ.get("S3_BUCKET", "vindobona2-at"),
