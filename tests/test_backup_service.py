@@ -12,6 +12,7 @@ import pytest
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 from app.services.backup_service import (
     _parse_backup_timestamp,
+    _parse_db_url,
     cleanup_old_backups,
     run_backup,
     run_restore,
@@ -84,6 +85,53 @@ class TestParseBackupTimestamp:
 
     def test_invalid_empty(self):
         assert _parse_backup_timestamp("") is None
+
+
+class TestParseDbUrl:
+    def test_simple_url(self):
+        host, user, password, port, dbname = _parse_db_url(
+            "postgresql://user:secret@localhost:5432/testdb"
+        )
+        assert (host, user, password, port, dbname) == (
+            "localhost",
+            "user",
+            "secret",
+            5432,
+            "testdb",
+        )
+
+    def test_default_port_when_missing(self):
+        _, _, _, port, _ = _parse_db_url("postgresql://user:secret@localhost/testdb")
+        assert port == 5432
+
+    def test_password_containing_slash(self):
+        """Regression test: urllib.parse.urlparse treats the first '/'
+        after '://' as the start of the path, so a password containing
+        '/' (common in randomly-generated passwords, e.g. base64-derived)
+        makes it misparse the whole netloc and raise `ValueError: Port
+        could not be cast to integer value` — exactly what happened
+        against a real production password. make_url() (the same parser
+        create_engine() already uses successfully for this DATABASE_URL
+        elsewhere in the app) handles it correctly."""
+        host, user, password, port, dbname = _parse_db_url(
+            "postgresql://vb:has/slash@localhost:5432/vb"
+        )
+        assert (host, user, password, port, dbname) == (
+            "localhost",
+            "vb",
+            "has/slash",
+            5432,
+            "vb",
+        )
+
+    def test_password_containing_other_reserved_characters(self):
+        host, _user, password, port, dbname = _parse_db_url(
+            "postgresql://vb:has#hash?and=query@localhost:5432/vb"
+        )
+        assert password == "has#hash?and=query"
+        assert host == "localhost"
+        assert port == 5432
+        assert dbname == "vb"
 
 
 class TestRunBackup:
