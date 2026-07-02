@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.standesdb_image import StandesdbImage
 

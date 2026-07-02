@@ -1,23 +1,23 @@
 """Regression tests for scripts/check_s3_integrity.py."""
 
-import importlib
 from unittest.mock import patch
 
-from sqlalchemy.orm import configure_mappers
-
 import scripts.check_s3_integrity as check_s3_integrity
+from tests.scripts._subprocess_helpers import (
+    assert_module_imports_and_configures_mappers,
+)
 
 
-def test_module_import_configures_mappers_without_error() -> None:
-    """Importing the module must register all models (e.g. via
-    app.db.base) so that relationships like ArchiveStoreItem.created_by
-    -> Member can be resolved. Without that import, SQLAlchemy raises
-    InvalidRequestError as soon as a query touching the relationship is
-    configured.
+def test_standalone_import_configures_mappers_without_error() -> None:
+    """Run as a fresh process (not sharing pytest's conftest-populated
+    SQLAlchemy registry) — a plain in-process import can't detect a
+    missing `import app.db.base`, since conftest.py already registers
+    every model for the whole test session before this test body even
+    runs. Relationships like ArchiveStoreItem.created_by -> Member would
+    otherwise only fail in real standalone execution
+    (`python scripts/check_s3_integrity.py`), not under pytest.
     """
-    importlib.import_module("scripts.check_s3_integrity")
-
-    configure_mappers()
+    assert_module_imports_and_configures_mappers("scripts.check_s3_integrity")
 
 
 def test_get_s3_client_defaults_to_none_endpoint_when_unset(monkeypatch) -> None:
