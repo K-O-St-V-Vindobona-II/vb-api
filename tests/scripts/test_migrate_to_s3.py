@@ -1,8 +1,11 @@
 """Regression tests for scripts/migrate_to_s3.py."""
 
-from unittest.mock import patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import scripts.migrate_to_s3 as migrate_to_s3
+from app.models.archive_store_item import ArchiveStoreItem
+from app.models.standesdb_image import StandesdbImage
 from tests.scripts._subprocess_helpers import (
     assert_module_imports_and_configures_mappers,
 )
@@ -44,3 +47,76 @@ def test_get_s3_client_region_defaults_to_us_east_1(monkeypatch) -> None:
     with patch.object(migrate_to_s3.boto3, "client") as mock_client:
         migrate_to_s3.get_s3_client()
         assert mock_client.call_args.kwargs["region_name"] == "us-east-1"
+
+
+def test_build_content_type_map_reads_correct_columns(db_session) -> None:
+    """Regression test for the column-only rewrite: build_content_type_map
+    must still return the same {sha256_hash: content_type} mapping as
+    before, now via db.query(Model.col1, Model.col2) instead of
+    db.query(Model).all() (the latter eagerly joins ArchiveStoreItem.member
+    and OOM-killed the process in production on 27k+ rows)."""
+    now = datetime.now(UTC)
+    db_session.add(
+        StandesdbImage(
+            owner_type="member",
+            owner_id=1,
+            type="image/jpeg",
+            sha256_hash="img_hash_1",
+        )
+    )
+    db_session.add(
+        StandesdbImage(
+            owner_type="member",
+            owner_id=1,
+            type=None,
+            sha256_hash="img_hash_no_type",
+        )
+    )
+    db_session.add(
+        ArchiveStoreItem(
+            name="testfile",
+            extension="pdf",
+            mime_type="application/pdf",
+            size=100,
+            sha256_hash="arch_hash_1",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.commit()
+
+    image_types, archive_types = migrate_to_s3.build_content_type_map(db_session)
+
+    assert image_types == {"img_hash_1": "image/jpeg"}
+    assert archive_types == {"arch_hash_1": "application/pdf"}
+
+
+def test_verify_excludes_soft_deleted_standesdb_images(db_session) -> None:
+    """The deleted_at filter must survive the column-only rewrite."""
+    db_session.add(
+        StandesdbImage(
+            owner_type="member",
+            owner_id=1,
+            sha256_hash="active_hash",
+        )
+    )
+    db_session.add(
+        StandesdbImage(
+            owner_type="member",
+            owner_id=1,
+            sha256_hash="deleted_hash",
+            deleted_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    mock_client = MagicMock()
+    mock_client.head_object.return_value = {}
+
+    migrate_to_s3.verify(mock_client, "test-bucket", db_session)
+
+    checked_keys = {
+        call.kwargs["Key"] for call in mock_client.head_object.call_args_list
+    }
+    assert "standesdb/images/active_hash" in checked_keys
+    assert "standesdb/images/deleted_hash" not in checked_keys
