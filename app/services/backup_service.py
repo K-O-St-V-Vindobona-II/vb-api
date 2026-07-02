@@ -5,7 +5,8 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
+
+from sqlalchemy.engine import make_url
 
 from app.core.config import APP_ENVIRONMENT
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
@@ -32,14 +33,23 @@ def _resolve_pg_tool(name: str) -> str:
 
 
 def _parse_db_url(database_url: str) -> tuple[str, str, str, int, str]:
-    """Return (host, username, password, port, dbname)."""
-    parsed = urlparse(database_url)
+    """Return (host, username, password, port, dbname).
+
+    Uses SQLAlchemy's own connection-string parser (the same one
+    `create_engine(DATABASE_URL)` uses elsewhere in this app) rather than
+    `urllib.parse.urlparse` — the latter is built for generic HTTP-style
+    URLs and can misparse passwords containing URL-reserved characters
+    (e.g. raised `ValueError: Port could not be cast to integer value`
+    against a real production password that `create_engine()` handles
+    without issue).
+    """
+    url = make_url(database_url)
     return (
-        parsed.hostname or "localhost",
-        parsed.username or "",
-        parsed.password or "",
-        parsed.port or 5432,
-        parsed.path.lstrip("/"),
+        url.host or "localhost",
+        url.username or "",
+        url.password or "",
+        url.port or 5432,
+        url.database or "",
     )
 
 
