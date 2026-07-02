@@ -42,3 +42,16 @@ def test_member_permissions_properties(db_session):
     assert "p4xAdmin" in perms_vbw
     assert "keylist" in perms_vbw
     assert "standesdbExport" in perms_vbw
+
+
+def test_parent_id_defaults_to_none_not_zero(db_session):
+    """Regression test: parent_id is a nullable self-referencing FK to
+    members.id — a default of 0 (the old value) is never a valid member
+    id and violates the FK constraint as soon as it's enforced (e.g. on
+    pg_restore, which recreates constraints from scratch)."""
+    member = Member(email="no_parent@vindobona.at", org_id="vbn")
+    db_session.add(member)
+    db_session.commit()
+    db_session.refresh(member)
+
+    assert member.parent_id is None

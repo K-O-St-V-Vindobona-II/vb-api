@@ -357,6 +357,15 @@ def _persist_change_log(
 
 
 def _normalize_member_input(input_dict: dict[str, object]) -> None:
+    # The API contract uses 0 as the "no parent" sentinel (matches how
+    # MemberDetailResponse serializes it back out via `parent_id or 0`),
+    # but parent_id is a nullable self-referencing FK — 0 is never a
+    # valid member id and violates the FK constraint once enforced (see
+    # scripts/sqlite2pg.py's _fix_known_legacy_data_issues for the same
+    # issue in migrated legacy data).
+    if input_dict.get("parent_id") == 0:
+        input_dict["parent_id"] = None
+
     if input_dict["entlassen"] or input_dict["verstorben"]:
         input_dict["auth_locked"] = True
         input_dict["zustellungen"] = "deaktiviert"
@@ -867,7 +876,10 @@ def search_parent(
         .filter(
             Member.org_id == member.org_id,
             Member.id != member.id,
-            Member.parent_id != member.id,
+            # NULL-safe: plain `!=` evaluates to UNKNOWN (excludes the row)
+            # for parent_id IS NULL, even though "no parent" trivially
+            # isn't equal to member.id and should stay a valid candidate.
+            Member.parent_id.is_distinct_from(member.id),
             (Member.vorname.ilike(f"%{term}%"))
             | (Member.nachname.ilike(f"%{term}%"))
             | (Member.couleurname.ilike(f"%{term}%")),
