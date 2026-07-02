@@ -101,6 +101,34 @@ podman exec vb-api python scripts/check_s3_integrity.py
 
 ---
 
+## `backup_db.py`
+
+CLI wrapper around `backup_service.run_backup()` to manually trigger a
+PostgreSQL backup to S3 — the same operation the scheduled `db_backup` job
+(see `app/core/scheduler.py`) runs automatically every `BACKUP_INTERVAL_DAYS`
+days. Useful before risky operations (e.g. a cutover or a restore rehearsal)
+where you want an on-demand, up-to-date backup rather than waiting for the
+next scheduled run. Retention cleanup (deleting backups older than
+`BACKUP_RETENTION_DAYS`) is opt-in via `--cleanup`, so a manual backup never
+deletes other backups as a side effect unless explicitly requested.
+
+**Usage:**
+```bash
+# Inside the container
+python scripts/backup_db.py [--list] [--cleanup]
+
+# Via podman exec
+podman exec vb-api python scripts/backup_db.py [--list] [--cleanup]
+```
+
+**Parameters:**
+- `--list` — print all available backup keys in S3 and exit, without creating a backup.
+- `--cleanup` — after a successful backup, also delete backups older than `BACKUP_RETENTION_DAYS` (same cleanup the scheduled job performs).
+
+**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`. `BACKUP_RETENTION_DAYS` only matters when `--cleanup` is passed.
+
+---
+
 ## `restore_db.py`
 
 CLI wrapper around `backup_service.run_restore()` to restore the PostgreSQL
@@ -260,6 +288,35 @@ podman exec vb-api python scripts/check_s3_integrity.py
 **Parameter:** keine (Verhalten wird vollständig über Env-Vars gesteuert).
 
 **Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_STANDESDB_IMAGES`, `S3_PATH_ARCHIVE_STORE`, `DATABASE_URL`.
+
+---
+
+## `backup_db.py`
+
+CLI-Wrapper um `backup_service.run_backup()`, um manuell ein PostgreSQL-
+Backup nach S3 anzustoßen — dieselbe Operation, die der geplante
+`db_backup`-Job (siehe `app/core/scheduler.py`) automatisch alle
+`BACKUP_INTERVAL_DAYS` Tage ausführt. Nützlich vor riskanten Operationen
+(z. B. einem Cutover oder einer Restore-Generalprobe), wenn man ein
+aktuelles Backup auf Abruf braucht, statt auf den nächsten geplanten Lauf zu
+warten. Die Retention-Bereinigung (Löschen von Backups älter als
+`BACKUP_RETENTION_DAYS`) ist über `--cleanup` opt-in, damit ein manuelles
+Backup nie ungefragt andere Backups als Nebeneffekt löscht.
+
+**Aufruf:**
+```bash
+# Im Container
+python scripts/backup_db.py [--list] [--cleanup]
+
+# Via podman exec
+podman exec vb-api python scripts/backup_db.py [--list] [--cleanup]
+```
+
+**Parameter:**
+- `--list` — listet alle verfügbaren Backup-Keys in S3 auf und beendet sich, ohne ein Backup zu erstellen.
+- `--cleanup` — löscht nach einem erfolgreichen Backup zusätzlich Backups, die älter als `BACKUP_RETENTION_DAYS` sind (dieselbe Bereinigung wie im geplanten Job).
+
+**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars. `BACKUP_RETENTION_DAYS` ist nur relevant, wenn `--cleanup` übergeben wird.
 
 ---
 
