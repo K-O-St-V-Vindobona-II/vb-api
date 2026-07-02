@@ -1,9 +1,7 @@
 """Regression tests for scripts/check_s3_integrity.py."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
-
-from botocore.exceptions import ClientError
+from unittest.mock import patch
 
 import scripts.check_s3_integrity as check_s3_integrity
 from app.models.archive_store_item import ArchiveStoreItem
@@ -35,14 +33,16 @@ def test_get_s3_client_defaults_to_none_endpoint_when_unset(monkeypatch) -> None
         assert mock_client.call_args.kwargs["endpoint_url"] is None
 
 
-def test_check_completeness_reports_missing_by_id(db_session) -> None:
-    """Regression test for the column-only rewrite: check_completeness
-    must still report the correct count and the correct
-    StandesdbImage.id/ArchiveStoreItem.id in its output, now via
-    db.query(Model.id, Model.sha256_hash) instead of
-    db.query(Model).all() (the latter eagerly joins
-    ArchiveStoreItem.member and OOM-killed the sibling migrate_to_s3.py
-    in production on 27k+ rows)."""
+def test_check_completeness_reports_missing_by_id(db_session, capsys) -> None:
+    """Regression test for the column-only + bulk-listing rewrite:
+    check_completeness must still report the correct count and the
+    correct StandesdbImage.id/ArchiveStoreItem.id in its output — now via
+    db.query(Model.id, Model.sha256_hash) plus a set-membership check
+    against a pre-fetched S3 key set, instead of one head_object() call
+    per DB row. The per-row HEAD approach took tens of minutes over the
+    network for ~27k rows in production; the ArchiveStoreItem variant also
+    eagerly joined ArchiveStoreItem.member (lazy="joined") and OOM-killed
+    the sibling migrate_to_s3.py, which had the same query pattern."""
     now = datetime.now(UTC)
     db_session.add(
         StandesdbImage(
@@ -64,17 +64,24 @@ def test_check_completeness_reports_missing_by_id(db_session) -> None:
     )
     db_session.commit()
 
-    mock_client = MagicMock()
-
-    def head_object(Bucket, Key):  # noqa: N803, ARG001 — must match boto3's kwarg names
-        if Key.endswith("present_arch_hash"):
-            return {}
-        raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
-
-    mock_client.head_object.side_effect = head_object
+    s3_standesdb: set[str] = set()
+    s3_archive = {f"{check_s3_integrity.ARCHIVE_PREFIX}/present_arch_hash"}
 
     missing = check_s3_integrity.check_completeness(
-        mock_client, "test-bucket", db_session
+        db_session, s3_standesdb, s3_archive
     )
 
     assert missing == 1
+    assert "MISSING:" in capsys.readouterr().out
+
+
+def test_check_completeness_never_calls_head_object(db_session) -> None:
+    """The whole point of the bulk-listing rewrite: completeness checking
+    must be a pure in-memory set comparison, issuing zero S3 API calls
+    per DB row."""
+    db_session.add(StandesdbImage(owner_type="member", owner_id=1, sha256_hash="hash1"))
+    db_session.commit()
+
+    with patch.object(check_s3_integrity, "list_prefix") as mock_list_prefix:
+        check_s3_integrity.check_completeness(db_session, set(), set())
+        mock_list_prefix.assert_not_called()
