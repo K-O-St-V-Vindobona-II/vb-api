@@ -177,8 +177,13 @@ class TestRunBackup:
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
             patch(PATCH_WHICH, return_value=FAKE_PG_DUMP),
-            patch("subprocess.run", side_effect=CalledProcessError(1, "pg_dump")),
-            pytest.raises(CalledProcessError),
+            patch(
+                "subprocess.run",
+                side_effect=CalledProcessError(
+                    1, "pg_dump", stderr=b"FATAL: password authentication failed"
+                ),
+            ),
+            pytest.raises(RuntimeError, match="password authentication failed"),
         ):
             run_backup(storage)
 
@@ -276,11 +281,18 @@ class TestRunRestore:
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
             patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
-            patch("subprocess.run", side_effect=CalledProcessError(1, "pg_restore")),
+            patch(
+                "subprocess.run",
+                side_effect=CalledProcessError(
+                    1, "pg_restore", stderr=b"pg_restore: error: could not connect"
+                ),
+            ),
             patch.object(Path, "unlink") as mock_unlink,
-            pytest.raises(CalledProcessError),
+            pytest.raises(RuntimeError, match="could not connect"),
         ):
             run_restore(storage, backup_name=backup_name)
+
+        mock_unlink.assert_called_once()
 
         mock_unlink.assert_called_once()
 
