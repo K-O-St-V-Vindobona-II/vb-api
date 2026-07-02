@@ -71,16 +71,25 @@ def list_prefix(client: BaseClient, bucket: str, prefix: str) -> set[str]:
 
 def check_completeness(client: BaseClient, bucket: str, db: Session) -> int:
     """Return count of missing files (DB-referenced but absent in S3)."""
+    # Column-only queries, not full ORM entities: ArchiveStoreItem.member
+    # uses lazy="joined", so `db.query(ArchiveStoreItem)` would eagerly
+    # join and materialize the full (73-column) Member row for every one
+    # of tens of thousands of items — this caused an OOM kill (~2.1GB RSS)
+    # in the sibling migrate_to_s3.py, which had the same pattern.
     missing = 0
-    for img in db.query(StandesdbImage).all():
-        key = f"{STANDESDB_PREFIX}/{img.sha256_hash}"
+    for item_id, sha256_hash in db.query(
+        StandesdbImage.id, StandesdbImage.sha256_hash
+    ).all():
+        key = f"{STANDESDB_PREFIX}/{sha256_hash}"
         if not object_exists(client, bucket, key):
-            print(f"  MISSING: {key} (StandesdbImage.id={img.id})")
+            print(f"  MISSING: {key} (StandesdbImage.id={item_id})")
             missing += 1
-    for item in db.query(ArchiveStoreItem).all():
-        key = f"{ARCHIVE_PREFIX}/{item.sha256_hash}"
+    for item_id, sha256_hash in db.query(
+        ArchiveStoreItem.id, ArchiveStoreItem.sha256_hash
+    ).all():
+        key = f"{ARCHIVE_PREFIX}/{sha256_hash}"
         if not object_exists(client, bucket, key):
-            print(f"  MISSING: {key} (ArchiveStoreItem.id={item.id})")
+            print(f"  MISSING: {key} (ArchiveStoreItem.id={item_id})")
             missing += 1
     return missing
 

@@ -109,15 +109,25 @@ def upload_directory(
 
 
 def build_content_type_map(db: Session) -> tuple[dict[str, str], dict[str, str]]:
+    # Select only the two needed columns rather than full ORM entities:
+    # ArchiveStoreItem.member uses lazy="joined", so `db.query(ArchiveStoreItem)`
+    # eagerly joins and materializes the full (73-column) Member row for
+    # every one of tens of thousands of items — this is what caused an
+    # OOM kill (~2.1GB RSS) in production. Column-only queries never touch
+    # the relationship.
     image_types: dict[str, str] = {}
-    for img in db.query(StandesdbImage).all():
-        if img.sha256_hash and img.type:
-            image_types[img.sha256_hash] = img.type
+    for sha256_hash, image_type in db.query(
+        StandesdbImage.sha256_hash, StandesdbImage.type
+    ).all():
+        if sha256_hash and image_type:
+            image_types[sha256_hash] = image_type
 
     archive_types: dict[str, str] = {}
-    for item in db.query(ArchiveStoreItem).all():
-        if item.sha256_hash and item.mime_type:
-            archive_types[item.sha256_hash] = item.mime_type
+    for sha256_hash, mime_type in db.query(
+        ArchiveStoreItem.sha256_hash, ArchiveStoreItem.mime_type
+    ).all():
+        if sha256_hash and mime_type:
+            archive_types[sha256_hash] = mime_type
 
     return image_types, archive_types
 
@@ -127,14 +137,14 @@ def verify(client: BaseClient, bucket: str, db: Session) -> tuple[int, int]:
     missing = 0
 
     print("\nVerifying standesdb images...")
-    for img in (
-        db.query(StandesdbImage)
+    for (sha256_hash,) in (
+        db.query(StandesdbImage.sha256_hash)
         .filter(
             StandesdbImage.deleted_at.is_(None),
         )
         .all()
     ):
-        key = f"standesdb/images/{img.sha256_hash}"
+        key = f"standesdb/images/{sha256_hash}"
         if object_exists(client, bucket, key):
             found += 1
         else:
@@ -142,8 +152,8 @@ def verify(client: BaseClient, bucket: str, db: Session) -> tuple[int, int]:
             missing += 1
 
     print("Verifying archive store items...")
-    for item in db.query(ArchiveStoreItem).all():
-        key = f"archive/store/{item.sha256_hash}"
+    for (sha256_hash,) in db.query(ArchiveStoreItem.sha256_hash).all():
+        key = f"archive/store/{sha256_hash}"
         if object_exists(client, bucket, key):
             found += 1
         else:
