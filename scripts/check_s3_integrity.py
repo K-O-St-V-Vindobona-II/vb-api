@@ -20,7 +20,6 @@ from pathlib import Path
 
 import boto3
 from botocore.client import BaseClient, Config
-from botocore.exceptions import ClientError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -53,14 +52,6 @@ def get_db_session() -> Session:
     return sessionmaker(bind=create_engine(db_url))()
 
 
-def object_exists(client: BaseClient, bucket: str, key: str) -> bool:
-    try:
-        client.head_object(Bucket=bucket, Key=key)
-    except ClientError:
-        return False
-    return True
-
-
 def list_prefix(client: BaseClient, bucket: str, prefix: str) -> set[str]:
     keys: set[str] = set()
     paginator = client.get_paginator("list_objects_v2")
@@ -69,32 +60,42 @@ def list_prefix(client: BaseClient, bucket: str, prefix: str) -> set[str]:
     return keys
 
 
-def check_completeness(client: BaseClient, bucket: str, db: Session) -> int:
-    """Return count of missing files (DB-referenced but absent in S3)."""
-    # Column-only queries, not full ORM entities: ArchiveStoreItem.member
-    # uses lazy="joined", so `db.query(ArchiveStoreItem)` would eagerly
-    # join and materialize the full (73-column) Member row for every one
-    # of tens of thousands of items — this caused an OOM kill (~2.1GB RSS)
-    # in the sibling migrate_to_s3.py, which had the same pattern.
+def check_completeness(
+    db: Session, s3_standesdb: set[str], s3_archive: set[str]
+) -> int:
+    """Return count of missing files (DB-referenced but absent in S3).
+
+    Compares against the pre-fetched S3 key sets (one paginated
+    list_objects_v2 per prefix, done once in main()) instead of issuing a
+    head_object() call per DB row — with ~27k rows, per-row HEAD requests
+    took tens of minutes over the network; a bulk listing + set lookup
+    takes seconds. Column-only queries, not full ORM entities:
+    ArchiveStoreItem.member uses lazy="joined", so `db.query(ArchiveStoreItem)`
+    would eagerly join and materialize the full (73-column) Member row for
+    every item — this caused an OOM kill (~2.1GB RSS) in the sibling
+    migrate_to_s3.py, which had the same pattern.
+    """
     missing = 0
     for item_id, sha256_hash in db.query(
         StandesdbImage.id, StandesdbImage.sha256_hash
     ).all():
         key = f"{STANDESDB_PREFIX}/{sha256_hash}"
-        if not object_exists(client, bucket, key):
+        if key not in s3_standesdb:
             print(f"  MISSING: {key} (StandesdbImage.id={item_id})")
             missing += 1
     for item_id, sha256_hash in db.query(
         ArchiveStoreItem.id, ArchiveStoreItem.sha256_hash
     ).all():
         key = f"{ARCHIVE_PREFIX}/{sha256_hash}"
-        if not object_exists(client, bucket, key):
+        if key not in s3_archive:
             print(f"  MISSING: {key} (ArchiveStoreItem.id={item_id})")
             missing += 1
     return missing
 
 
-def find_orphans(client: BaseClient, bucket: str, db: Session) -> list[str]:
+def find_orphans(
+    db: Session, s3_standesdb: set[str], s3_archive: set[str]
+) -> list[str]:
     """Return S3 keys not referenced by any DB row (active or soft-deleted)."""
     referenced_standesdb = {
         f"{STANDESDB_PREFIX}/{h}"
@@ -104,9 +105,6 @@ def find_orphans(client: BaseClient, bucket: str, db: Session) -> list[str]:
         f"{ARCHIVE_PREFIX}/{h}"
         for (h,) in db.query(ArchiveStoreItem.sha256_hash).distinct()
     }
-    s3_standesdb = list_prefix(client, bucket, STANDESDB_PREFIX)
-    s3_archive = list_prefix(client, bucket, ARCHIVE_PREFIX)
-
     return sorted(
         (s3_standesdb - referenced_standesdb) | (s3_archive - referenced_archive)
     )
@@ -144,12 +142,18 @@ def main() -> None:
     client, bucket = get_s3_client()
     db = get_db_session()
 
-    print("=== Checking completeness (DB → S3) ===")
-    missing = check_completeness(client, bucket, db)
+    print("=== Listing S3 objects ===")
+    s3_standesdb = list_prefix(client, bucket, STANDESDB_PREFIX)
+    s3_archive = list_prefix(client, bucket, ARCHIVE_PREFIX)
+    print(f"  {len(s3_standesdb)} object(s) under {STANDESDB_PREFIX}/")
+    print(f"  {len(s3_archive)} object(s) under {ARCHIVE_PREFIX}/")
+
+    print("\n=== Checking completeness (DB → S3) ===")
+    missing = check_completeness(db, s3_standesdb, s3_archive)
     print(f"\n{missing} missing file(s).")
 
     print("\n=== Checking for orphaned files (S3 → DB) ===")
-    orphans = find_orphans(client, bucket, db)
+    orphans = find_orphans(db, s3_standesdb, s3_archive)
     print_orphan_report(client, bucket, orphans)
 
     db.close()

@@ -83,6 +83,13 @@ Read-only consistency check between the database and S3. Reports two things:
 1. **Completeness** — every `sha256_hash` referenced by a `StandesdbImage` or `ArchiveStoreItem` row must exist as an object in S3; missing ones are printed and cause a non-zero exit code.
 2. **Orphans** — S3 objects under the image/store prefixes that are referenced by no DB row at all (active or soft-deleted), listed with size/content-type/last-modified for manual review.
 
+Both checks compare against a bulk `list_objects_v2` listing of each prefix
+(done once, ~1 request per 1000 objects) rather than issuing one
+`head_object()` call per DB row — with tens of thousands of rows, per-row
+HEAD requests took tens of minutes over the network; the bulk-listing
+comparison takes seconds. Only metadata is read either way — it never
+downloads file contents, so S3 cost is negligible regardless.
+
 The script never deletes anything — cleanup of orphans, if desired, must be
 done manually via the S3 web console.
 
@@ -272,6 +279,14 @@ podman exec vb-api python scripts/downsync_from_prod_aws.py --verify-only
 Read-only-Konsistenzprüfung zwischen Datenbank und S3. Meldet zwei Dinge:
 1. **Vollständigkeit** — jeder von einer `StandesdbImage`- oder `ArchiveStoreItem`-Zeile referenzierte `sha256_hash` muss als Objekt in S3 existieren; fehlende werden ausgegeben und führen zu einem Exit-Code ungleich 0.
 2. **Waisen** — S3-Objekte unter den Image-/Store-Präfixen, die von keiner DB-Zeile referenziert werden (weder aktiv noch soft-deleted), aufgelistet mit Größe/Content-Type/Änderungsdatum zur manuellen Prüfung.
+
+Beide Prüfungen vergleichen gegen ein gebündeltes `list_objects_v2`-Listing
+je Präfix (einmalig, ~1 Request pro 1000 Objekte) statt für jede DB-Zeile
+einen eigenen `head_object()`-Aufruf zu machen — bei Zehntausenden Zeilen
+dauerten Einzel-Requests über das Netzwerk mehrere zehn Minuten, der
+gebündelte Vergleich braucht Sekunden. In beiden Fällen werden nur
+Metadaten gelesen, nie Dateiinhalte heruntergeladen — die S3-Kosten sind
+also so oder so vernachlässigbar.
 
 Das Script löscht niemals etwas — eine Bereinigung der Waisen muss, falls
 gewünscht, manuell über die S3-Web-Konsole erfolgen.
