@@ -58,6 +58,29 @@ def _build_pg_env(password: str) -> dict[str, str]:
     return {**os.environ, "PGPASSWORD": password}
 
 
+def _run_pg_subprocess(
+    args: list[str], env: dict[str, str], tool_name: str
+) -> subprocess.CompletedProcess[bytes]:
+    """Run a pg_dump/pg_restore subprocess.
+
+    On failure, raises RuntimeError with the tool's actual stderr — a bare
+    `subprocess.CalledProcessError` hides stderr from the caller, which
+    makes a disaster-recovery script undebuggable exactly when it matters
+    most (e.g. it previously surfaced only "returned non-zero exit status
+    1" with no indication of what pg_restore actually complained about).
+    """
+    try:
+        return subprocess.run(args, capture_output=True, env=env, check=True)  # noqa: S603
+    except subprocess.CalledProcessError as exc:
+        stderr = (
+            exc.stderr.decode("utf-8", errors="replace").strip()
+            if exc.stderr
+            else "(no stderr captured)"
+        )
+        msg = f"{tool_name} failed (exit {exc.returncode}): {stderr}"
+        raise RuntimeError(msg) from exc
+
+
 def run_backup(storage: StorageClient) -> str:
     """
     Dump the PostgreSQL database and upload to S3.
@@ -77,7 +100,7 @@ def run_backup(storage: StorageClient) -> str:
     logger.info("Starting DB backup: %s", backup_name)
 
     pg_dump = _resolve_pg_tool("pg_dump")
-    result = subprocess.run(  # noqa: S603
+    result = _run_pg_subprocess(
         [
             pg_dump,
             "--format=custom",
@@ -86,9 +109,8 @@ def run_backup(storage: StorageClient) -> str:
             f"--username={user}",
             f"--dbname={dbname}",
         ],
-        capture_output=True,
         env=_build_pg_env(password),
-        check=True,
+        tool_name="pg_dump",
     )
 
     storage.upload(key=s3_key, data=result.stdout)
@@ -139,7 +161,7 @@ def run_restore(
     logger.info("Restoring DB from backup: %s", backup_name)
     pg_restore = _resolve_pg_tool("pg_restore")
     try:
-        subprocess.run(  # noqa: S603
+        _run_pg_subprocess(
             [
                 pg_restore,
                 "--clean",
@@ -150,9 +172,8 @@ def run_restore(
                 f"--dbname={dbname}",
                 tmp_path,
             ],
-            capture_output=True,
             env=_build_pg_env(password),
-            check=True,
+            tool_name="pg_restore",
         )
     finally:
         Path(tmp_path).unlink()
