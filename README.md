@@ -1,6 +1,6 @@
 # vb-api
 
-FastAPI backend for **vb-intern** — the internal management system of Vindobona.
+FastAPI backend for **vb** — the internal management system of Vindobona II / Vindobona nova.
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ FastAPI backend for **vb-intern** — the internal management system of Vindobon
 
 ### Prerequisites
 
-- Podman with the `vb-api` container running (see Quadlet config in `~/.config/containers/systemd/vb/api/`)
+- Podman with the `vb-api` container running (see Quadlet config)
 - Python dev dependencies are installed inside the container (`requirements-dev.lock`)
 
 ### After cloning

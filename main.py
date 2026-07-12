@@ -35,9 +35,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 from app.api.router import OPENAPI_TAGS
 
 app = FastAPI(
-    title="vb-intern API",
+    title="VB API",
     description=(
-        "Internal management system for **vb-intern**.\n\n"
+        "Internal management system for **VB**.\n\n"
         "## Modules\n\n"
         "| Module | Description |\n"
         "|--------|-------------|\n"
