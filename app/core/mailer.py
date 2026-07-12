@@ -17,7 +17,7 @@ _jinja_env = Environment(loader=FileSystemLoader(str(_templates_dir)))  # noqa: 
 
 def _build_from_header() -> tuple[str, str]:
     from_email = os.environ["SMTP_FROM_EMAIL"]
-    from_name = os.environ.get("SMTP_FROM_NAME", "Vindobona NG")
+    from_name = os.environ.get("SMTP_FROM_NAME", "Vindobona")
     return from_email, f'"{from_name}" <{from_email}>'
 
 
@@ -142,7 +142,7 @@ def send_reset_email(to_email: str, token: str) -> None:
     )
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Passwort zurücksetzen - Vindobona NG"
+    msg["Subject"] = "Passwort zurücksetzen - Vindobona"
     msg["From"] = from_header
     msg["To"] = to_email
     msg.attach(MIMEText(text_content, "plain", "utf-8"))
