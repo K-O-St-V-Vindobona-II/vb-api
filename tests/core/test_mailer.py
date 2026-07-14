@@ -129,6 +129,7 @@ class TestSendToRecipients:
             subject="S",
             html_content="<p>hi</p>",
             bcc_emails=["c@d.at"],
+            from_addr="noreply@test.at",
         )
         msg = mock_send_message.call_args[0][0]
         assert "Bcc" not in msg
@@ -143,6 +144,7 @@ class TestSendToRecipients:
             subject="S",
             html_content="<p>hi</p>",
             bcc_emails=["x@y.at"],
+            from_addr="noreply@test.at",
         )
         msg = mock_send_message.call_args[0][0]
         assert msg["To"] == "Undisclosed-Recipients:;"
@@ -155,6 +157,7 @@ class TestSendToRecipients:
             subject="S",
             html_content="<p>hi</p>",
             bcc_emails=["x@y.at"],
+            from_addr="noreply@test.at",
         )
         recipients = mock_send_message.call_args[0][1]
         assert recipients == ["x@y.at"]
@@ -170,7 +173,10 @@ class TestSendToRecipients:
     @patch("app.core.mailer._send_message")
     def test_to_only_still_works(self, mock_send_message, mock_log):
         send_to_recipients(
-            to_emails=["a@b.at", "c@d.at"], subject="S", html_content="<p>hi</p>"
+            to_emails=["a@b.at", "c@d.at"],
+            subject="S",
+            html_content="<p>hi</p>",
+            from_addr="noreply@test.at",
         )
         msg = mock_send_message.call_args[0][0]
         assert msg["To"] == "a@b.at, c@d.at"
@@ -186,6 +192,7 @@ class TestSendToRecipients:
             subject="S",
             html_content="<p>hi</p>",
             from_name="Philister-ChC Vindobona II",
+            from_addr="noreply@test.at",
         )
         msg = mock_send_message.call_args[0][0]
         assert msg["From"].startswith('"Philister-ChC Vindobona II"')
@@ -201,6 +208,7 @@ class TestSendToRecipients:
             subject="S",
             html_content="<p>hi</p>",
             bcc_emails=["x@y.at", "z@y.at"],
+            from_addr="noreply@test.at",
         )
         entry = db_session.query(SentEmail).one()
         assert entry.bcc == "x@y.at, z@y.at"
