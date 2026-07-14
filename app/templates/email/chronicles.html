@@ -37,6 +37,9 @@ Chroniken vom {{ start }} bis zum {{ end }}
         {% elif ann_type == "philistrierungsdatum" %}
         Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>Philistrierung</strong>.
         {% endif %}
+        {% if entry.leap_day_note %}
+        <br><span style="font-size:0.85em;font-style:italic;">({{ entry.leap_day_note }})</span>
+        {% endif %}
       </div>
       {% endfor %}
     {% endfor %}

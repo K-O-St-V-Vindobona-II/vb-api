@@ -1,5 +1,7 @@
 import os
+from datetime import datetime
 from io import BytesIO
+from typing import TypedDict
 from urllib.parse import quote
 
 import boto3
@@ -26,6 +28,12 @@ S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
 # Bump when generate_thumbnail()'s output changes, to invalidate stale cached
 # thumbnails in S3 (cache keys are content-hash-based and never expire otherwise).
 THUMBNAIL_CACHE_VERSION = "v2"
+
+
+class ObjectMetadata(TypedDict):
+    size: int
+    content_type: str
+    last_modified: datetime
 
 
 class StorageClient:
@@ -97,6 +105,19 @@ class StorageClient:
         except ClientError:
             return False
         return True
+
+    def head(self, key: str) -> ObjectMetadata:
+        """Return object metadata (size, content type, last modified) via
+        a HEAD request - no object content is downloaded."""
+        response = self._client.head_object(
+            Bucket=self._bucket,
+            Key=key,
+        )
+        return ObjectMetadata(
+            size=response["ContentLength"],
+            content_type=response.get("ContentType", "unknown"),
+            last_modified=response["LastModified"],
+        )
 
     def generate_presigned_url(
         self,

@@ -160,6 +160,18 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
         "source": "scheduler.py → job_standesdb_chronicles()",
         "file": "chronicles.html",
     },
+    {
+        "key": "archive_health_check",
+        "name": "Archiv-Konsistenzprüfung",
+        "source": "scheduler.py → job_archive_health_check()",
+        "file": "archive_health_check.html",
+    },
+    {
+        "key": "standesdb_health_check",
+        "name": "Standesdb-Konsistenzprüfung",
+        "source": "scheduler.py → job_standesdb_health_check()",
+        "file": "standesdb_health_check.html",
+    },
 ]
 
 
@@ -220,6 +232,15 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
                 },
             },
         },
+    },
+    "archive_health_check": {
+        "missing": ["archive/store/abc123"],
+        "orphans": ["archive/store/def456"],
+        "unsorted_count": 3,
+    },
+    "standesdb_health_check": {
+        "missing": [],
+        "orphans": ["standesdb/images/def456"],
     },
 }
 

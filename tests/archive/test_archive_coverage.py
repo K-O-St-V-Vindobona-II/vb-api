@@ -42,6 +42,7 @@ from app.services.archive_service import (
     _move_file_items,
     _serve_thumbnail,
     _validate_target_dir,
+    get_unsorted_upload_count,
 )
 from app.services.auth_service import create_user_session
 
@@ -1374,3 +1375,29 @@ class TestArchiveSchemaValidators:
     def test_comment_content_strips_whitespace(self):
         req = CommentCreateRequest(content="  Valid comment text  ")
         assert req.content == "Valid comment text"
+
+
+class TestGetUnsortedUploadCount:
+    def test_counts_org_wide_not_per_user(self, db_session):
+        """Unlike get_unfiled_uploads(), this must NOT filter by uploader -
+        it's an admin-facing, org-wide count for the weekly health check."""
+        _make_file(db_session, dir_id=0, hash_suffix="a")
+        _make_file(db_session, dir_id=0, hash_suffix="b")
+
+        assert get_unsorted_upload_count(db_session) == 2
+
+    def test_excludes_filed_files(self, db_session):
+        unsorted = _make_file(db_session, dir_id=0, hash_suffix="c")
+        filed = _make_file(db_session, dir_id=0, hash_suffix="d")
+        filed.archive_dir_id = 5
+        db_session.commit()
+
+        assert get_unsorted_upload_count(db_session) == 1
+        assert unsorted.archive_dir_id == 0
+
+    def test_zero_when_none_unsorted(self, db_session):
+        filed = _make_file(db_session, dir_id=0, hash_suffix="e")
+        filed.archive_dir_id = 7
+        db_session.commit()
+
+        assert get_unsorted_upload_count(db_session) == 0

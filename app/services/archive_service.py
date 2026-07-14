@@ -915,6 +915,15 @@ def get_unfiled_uploads(
     return [_file_short(fv.archive_file) for fv in versions if fv.archive_file]
 
 
+def get_unsorted_upload_count(db: Session) -> int:
+    """Org-wide count of files not yet filed into any directory.
+
+    Unlike get_unfiled_uploads(), this is not scoped to a single uploader -
+    used for the weekly archive health-check report to all archive admins.
+    """
+    return db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).count()
+
+
 def upload_file(
     db: Session,
     file: UploadFile,
