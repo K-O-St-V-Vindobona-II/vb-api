@@ -75,6 +75,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # This is a pure JSON API serving personal member data — responses must
+        # never be cached by browsers or intermediate proxies. Cache-Control
+        # covers modern clients; Pragma/Expires are a zero-cost fallback for
+        # legacy/exotic caches that don't understand Cache-Control.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         return response
 
 
