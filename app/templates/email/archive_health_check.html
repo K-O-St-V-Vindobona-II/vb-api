@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head></head>
+<body>
+<p>Wöchentliche Konsistenzprüfung des Archivs:</p>
+
+{% if missing %}
+<p><strong style="color: red;">{{ missing|length }} fehlende Datei(en)</strong>
+(in der Datenbank referenziert, aber nicht in S3 vorhanden):</p>
+<ul>
+{% for key in missing %}
+  <li>{{ key }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>Keine fehlenden Dateien.</p>
+{% endif %}
+
+{% if orphans %}
+<p>{{ orphans|length }} verwaiste(s) S3-Objekt(e) (kein Datenbank-Verweis,
+nur zur Information — keine automatische Löschung):</p>
+<ul>
+{% for key in orphans %}
+  <li>{{ key }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>Keine verwaisten Objekte.</p>
+{% endif %}
+
+{% if unsorted_count %}
+<p><strong>{{ unsorted_count }} unsortierte(r) Upload(s)</strong> liegen im
+Archiv vor (noch keinem Verzeichnis zugeordnet).</p>
+{% else %}
+<p>Keine unsortierten Uploads.</p>
+{% endif %}
+</body>
+</html>

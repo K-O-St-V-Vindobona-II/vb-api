@@ -1,11 +1,16 @@
-"""Regression tests for scripts/check_s3_integrity.py."""
+"""Regression tests for scripts/check_s3_integrity.py.
 
-from datetime import UTC, datetime
-from unittest.mock import patch
+The completeness/orphan-detection logic itself is covered by
+tests/test_storage_integrity_service.py — these tests only exercise the
+CLI wrapper's own logic (formatting, control flow, exit codes).
+"""
+
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 import scripts.check_s3_integrity as check_s3_integrity
-from app.models.archive_store_item import ArchiveStoreItem
-from app.models.standesdb_image import StandesdbImage
+from app.services.storage_integrity_service import IntegrityReport
 from tests.scripts._subprocess_helpers import (
     assert_module_imports_and_configures_mappers,
 )
@@ -16,72 +21,76 @@ def test_standalone_import_configures_mappers_without_error() -> None:
     SQLAlchemy registry) — a plain in-process import can't detect a
     missing `import app.db.base`, since conftest.py already registers
     every model for the whole test session before this test body even
-    runs. Relationships like ArchiveStoreItem.created_by -> Member would
-    otherwise only fail in real standalone execution
-    (`python scripts/check_s3_integrity.py`), not under pytest.
-    """
+    runs."""
     assert_module_imports_and_configures_mappers("scripts.check_s3_integrity")
 
 
-def test_get_s3_client_defaults_to_none_endpoint_when_unset(monkeypatch) -> None:
-    """A hardcoded localhost:9000 fallback would make this script try to
-    hit a local MinIO instead of real AWS S3 in production, where
-    S3_ENDPOINT_URL is intentionally left unset."""
-    monkeypatch.delenv("S3_ENDPOINT_URL", raising=False)
-    with patch.object(check_s3_integrity.boto3, "client") as mock_client:
-        check_s3_integrity.get_s3_client()
-        assert mock_client.call_args.kwargs["endpoint_url"] is None
+def test_human_size_formatting() -> None:
+    assert check_s3_integrity._human_size(500) == "500.0B"
+    assert check_s3_integrity._human_size(2048) == "2.0KB"
+    assert check_s3_integrity._human_size(5 * 1024 * 1024) == "5.0MB"
 
 
-def test_check_completeness_reports_missing_by_id(db_session, capsys) -> None:
-    """Regression test for the column-only + bulk-listing rewrite:
-    check_completeness must still report the correct count and the
-    correct StandesdbImage.id/ArchiveStoreItem.id in its output — now via
-    db.query(Model.id, Model.sha256_hash) plus a set-membership check
-    against a pre-fetched S3 key set, instead of one head_object() call
-    per DB row. The per-row HEAD approach took tens of minutes over the
-    network for ~27k rows in production; the ArchiveStoreItem variant also
-    eagerly joined ArchiveStoreItem.member (lazy="joined") and OOM-killed
-    the sibling migrate_to_s3.py, which had the same query pattern."""
-    now = datetime.now(UTC)
-    db_session.add(
-        StandesdbImage(
-            owner_type="member",
-            owner_id=1,
-            sha256_hash="missing_img_hash",
-        )
-    )
-    db_session.add(
-        ArchiveStoreItem(
-            name="testfile",
-            extension="pdf",
-            mime_type="application/pdf",
-            size=100,
-            sha256_hash="present_arch_hash",
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    db_session.commit()
-
-    s3_standesdb: set[str] = set()
-    s3_archive = {f"{check_s3_integrity.ARCHIVE_PREFIX}/present_arch_hash"}
-
-    missing = check_s3_integrity.check_completeness(
-        db_session, s3_standesdb, s3_archive
-    )
-
-    assert missing == 1
-    assert "MISSING:" in capsys.readouterr().out
+def test_print_report_no_issues(capsys, mock_s3) -> None:
+    report = IntegrityReport(missing=[], orphans=[])
+    check_s3_integrity.print_report("Archive", mock_s3, report)
+    out = capsys.readouterr().out
+    assert "0 missing file(s)." in out
+    assert "No orphaned files found." in out
 
 
-def test_check_completeness_never_calls_head_object(db_session) -> None:
-    """The whole point of the bulk-listing rewrite: completeness checking
-    must be a pure in-memory set comparison, issuing zero S3 API calls
-    per DB row."""
-    db_session.add(StandesdbImage(owner_type="member", owner_id=1, sha256_hash="hash1"))
-    db_session.commit()
+def test_print_report_shows_missing(capsys, mock_s3) -> None:
+    report = IntegrityReport(missing=["archive/store/abc"], orphans=[])
+    check_s3_integrity.print_report("Archive", mock_s3, report)
+    out = capsys.readouterr().out
+    assert "MISSING: archive/store/abc" in out
 
-    with patch.object(check_s3_integrity, "list_prefix") as mock_list_prefix:
-        check_s3_integrity.check_completeness(db_session, set(), set())
-        mock_list_prefix.assert_not_called()
+
+def test_print_report_shows_orphan_details(capsys, mock_s3) -> None:
+    mock_s3.upload("archive/store/orphan_hash", b"some content", "application/pdf")
+    report = IntegrityReport(missing=[], orphans=["archive/store/orphan_hash"])
+
+    check_s3_integrity.print_report("Archive", mock_s3, report)
+
+    out = capsys.readouterr().out
+    assert "orphan_hash" in out
+    assert "application/pdf" in out
+    assert "information-only report" in out
+
+
+def test_main_exits_zero_when_all_healthy(capsys) -> None:
+    healthy = IntegrityReport(missing=[], orphans=[])
+    with (
+        patch.object(check_s3_integrity, "get_storage", return_value=MagicMock()),
+        patch.object(check_s3_integrity, "SessionLocal", return_value=MagicMock()),
+        patch.object(
+            check_s3_integrity, "check_archive_integrity", return_value=healthy
+        ),
+        patch.object(
+            check_s3_integrity, "check_standesdb_integrity", return_value=healthy
+        ),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        check_s3_integrity.main()
+
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "=== Archive ===" in out
+    assert "=== Standesdb ===" in out
+
+
+def test_main_exits_one_when_files_missing() -> None:
+    bad = IntegrityReport(missing=["archive/store/x"], orphans=[])
+    healthy = IntegrityReport(missing=[], orphans=[])
+    with (
+        patch.object(check_s3_integrity, "get_storage", return_value=MagicMock()),
+        patch.object(check_s3_integrity, "SessionLocal", return_value=MagicMock()),
+        patch.object(check_s3_integrity, "check_archive_integrity", return_value=bad),
+        patch.object(
+            check_s3_integrity, "check_standesdb_integrity", return_value=healthy
+        ),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        check_s3_integrity.main()
+
+    assert exc_info.value.code == 1

@@ -50,6 +50,7 @@ def _log_sent_email(
     html_body: str,
     template_key: str,
     from_addr: str | None = None,
+    bcc_str: str | None = None,
 ) -> None:
     try:
         from app.db.database import SessionLocal
@@ -61,6 +62,7 @@ def _log_sent_email(
             entry = SentEmail(
                 mail_from=from_addr or os.environ.get("SMTP_FROM_EMAIL", ""),
                 to=to_str,
+                bcc=bcc_str,
                 subject=subject,
                 body=html_body,
                 headers=template_key,
@@ -93,22 +95,25 @@ def send_to_recipients(
     from_addr: str | None = None,
     reply_to: str | None = None,
     bcc_emails: list[str] | None = None,
+    from_name: str | None = None,
 ) -> None:
-    if not to_emails:
+    if not to_emails and not bcc_emails:
         return
 
     from_email = from_addr or os.environ["SMTP_FROM_EMAIL"]
-    from_name = os.environ.get("SMTP_FROM_NAME", "Vindobona")
-    from_header = f'"{from_name}" <{from_email}>'
+    resolved_from_name = from_name or os.environ.get("SMTP_FROM_NAME", "Vindobona")
+    from_header = f'"{resolved_from_name}" <{from_email}>'
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = from_header
-    msg["To"] = ", ".join(to_emails)
+    msg["To"] = ", ".join(to_emails) if to_emails else "Undisclosed-Recipients:;"
     if reply_to:
         msg["Reply-To"] = reply_to
-    if bcc_emails:
-        msg["Bcc"] = ", ".join(bcc_emails)
+    # Bcc is deliberately never attached as a header on the sent message —
+    # bcc must stay envelope-only (SMTP RCPT TO via `all_recipients` below).
+    # A "Bcc" header on the actual message would leak the full bcc list to
+    # anyone who views raw message headers, defeating the point of bcc.
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 
     all_recipients = list(to_emails)
@@ -117,11 +122,12 @@ def send_to_recipients(
 
     _send_message(msg, all_recipients)
     _log_sent_email(
-        ", ".join(to_emails),
+        ", ".join(to_emails) if to_emails else "(bcc-only)",
         subject,
         html_content,
         template_key,
         from_header,
+        bcc_str=", ".join(bcc_emails) if bcc_emails else None,
     )
 
 

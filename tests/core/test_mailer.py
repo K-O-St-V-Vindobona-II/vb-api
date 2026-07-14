@@ -3,7 +3,12 @@
 from datetime import date
 from unittest.mock import patch
 
-from app.core.mailer import _format_diff_value, send_entry_changed_email
+from app.core.mailer import (
+    _format_diff_value,
+    send_entry_changed_email,
+    send_to_recipients,
+)
+from app.models.sent_email import SentEmail
 
 
 class TestFormatDiffValue:
@@ -113,3 +118,89 @@ class TestSendEntryChangedEmail:
         )
         text = mock_send.call_args[0][3]
         assert "geburtsdatum_accuracy" not in text
+
+
+class TestSendToRecipients:
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_bcc_header_never_set_on_message(self, mock_send_message, mock_log):
+        send_to_recipients(
+            to_emails=["a@b.at"],
+            subject="S",
+            html_content="<p>hi</p>",
+            bcc_emails=["c@d.at"],
+        )
+        msg = mock_send_message.call_args[0][0]
+        assert "Bcc" not in msg
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_bcc_only_send_uses_placeholder_to_header(
+        self, mock_send_message, mock_log
+    ):
+        send_to_recipients(
+            to_emails=[],
+            subject="S",
+            html_content="<p>hi</p>",
+            bcc_emails=["x@y.at"],
+        )
+        msg = mock_send_message.call_args[0][0]
+        assert msg["To"] == "Undisclosed-Recipients:;"
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_bcc_only_send_reaches_smtp_recipients(self, mock_send_message, mock_log):
+        send_to_recipients(
+            to_emails=[],
+            subject="S",
+            html_content="<p>hi</p>",
+            bcc_emails=["x@y.at"],
+        )
+        recipients = mock_send_message.call_args[0][1]
+        assert recipients == ["x@y.at"]
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_empty_to_and_empty_bcc_no_send(self, mock_send_message, mock_log):
+        send_to_recipients(to_emails=[], subject="S", html_content="<p>hi</p>")
+        mock_send_message.assert_not_called()
+        mock_log.assert_not_called()
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_to_only_still_works(self, mock_send_message, mock_log):
+        send_to_recipients(
+            to_emails=["a@b.at", "c@d.at"], subject="S", html_content="<p>hi</p>"
+        )
+        msg = mock_send_message.call_args[0][0]
+        assert msg["To"] == "a@b.at, c@d.at"
+        assert "Bcc" not in msg
+        recipients = mock_send_message.call_args[0][1]
+        assert recipients == ["a@b.at", "c@d.at"]
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_from_name_overrides_smtp_from_name_env(self, mock_send_message, mock_log):
+        send_to_recipients(
+            to_emails=["a@b.at"],
+            subject="S",
+            html_content="<p>hi</p>",
+            from_name="Philister-ChC Vindobona II",
+        )
+        msg = mock_send_message.call_args[0][0]
+        assert msg["From"].startswith('"Philister-ChC Vindobona II"')
+
+    @patch("app.db.database.SessionLocal")
+    @patch("app.core.mailer._send_message")
+    def test_bcc_recipients_logged_to_sent_email(
+        self, mock_send_message, mock_session_local, db_session
+    ):
+        mock_session_local.return_value = db_session
+        send_to_recipients(
+            to_emails=[],
+            subject="S",
+            html_content="<p>hi</p>",
+            bcc_emails=["x@y.at", "z@y.at"],
+        )
+        entry = db_session.query(SentEmail).one()
+        assert entry.bcc == "x@y.at, z@y.at"

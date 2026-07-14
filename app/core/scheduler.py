@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -24,11 +25,23 @@ from app.models.password_reset import PasswordResetToken
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
+from app.services.anniversary_service import (
+    compute_anniversaries,
+    format_date_de,
+    get_opted_in_recipients,
+    week_window,
+)
+from app.services.archive_service import get_unsorted_upload_count
 from app.services.backup_service import cleanup_old_backups, run_backup
 from app.services.p4x_service import (
     apply_all_category_filters,
     calculate_fee_balance,
     fee_for_month,
+)
+from app.services.permission_service import get_emails_with_permission
+from app.services.storage_integrity_service import (
+    check_archive_integrity,
+    check_standesdb_integrity,
 )
 
 BACKUP_ENABLED: bool = os.environ.get("BACKUP_ENABLED", "true").lower() != "false"
@@ -53,11 +66,12 @@ MONTHS_DE = [
     "Dezember",
 ]
 
-scheduler = AsyncIOScheduler()
+VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-
-def _format_date_de(d: date) -> str:
-    return f"{d.day}. {d.month}. {d.year}"
+# All cron trigger hour/minute values below are Vienna wall-clock time
+# (human-facing mails), not UTC — the machine-facing db_backup job further
+# below stays UTC-based and is documented as such.
+scheduler = AsyncIOScheduler(timezone=VIENNA_TZ)
 
 
 # -------------------------------------------------------------------
@@ -210,6 +224,7 @@ def job_birthday_mails() -> None:
                 html_content=html,
                 template_key="birthday",
                 from_addr="philchc@mg.vindobona2.at",
+                from_name="Philister-ChC Vindobona II",
                 reply_to="philchc@vindobona2.at",
                 bcc_emails=bcc_emails,
             )
@@ -353,6 +368,7 @@ def _send_debtor_reminders(
             html_content=html,
             template_key="debtor_reminder",
             from_addr="philisterkassier@mg.vindobona2.at",
+            from_name=sender_name,
             reply_to=sender_email,
             bcc_emails=bcc_emails,
         )
@@ -409,47 +425,32 @@ def _get_phil_xxxx_email(
 def job_standesdb_chronicles() -> None:
     db = SessionLocal()
     try:
-        recipients = (
-            db.query(Member.email)
-            .filter(
-                Member.entlassen == False,  # noqa: E712
-                Member.verstorben == False,  # noqa: E712
-                Member.chroniclemail == True,  # noqa: E712
-                Member.email.isnot(None),
-                Member.email != "",
-            )
-            .all()
-        )
-        to_emails = [r[0] for r in recipients]
-        if not to_emails:
+        bcc_emails = get_opted_in_recipients(db)
+        if not bcc_emails:
             return
 
-        anniversaries = _compute_anniversaries(db)
+        given = datetime.now(UTC).date()
+        anniversaries = compute_anniversaries(db, given)
         if not anniversaries:
             return
 
-        today = datetime.now(UTC).date()
-        day_of_week = today.isoweekday()
-        week_start = today + timedelta(
-            days=(8 - day_of_week) % 7,
-        )
-        week_end = week_start + timedelta(days=6)
-
+        week_start, week_end = week_window(given)
         html = render_template(
             "chronicles.html",
             anniversaries=anniversaries,
-            start=_format_date_de(week_start),
-            end=_format_date_de(week_end),
+            start=format_date_de(week_start),
+            end=format_date_de(week_end),
         )
         send_to_recipients(
-            to_emails=to_emails,
+            to_emails=[],
+            bcc_emails=bcc_emails,
             subject="Verbindungschroniken",
             html_content=html,
             template_key="chronicles",
         )
         logger.info(
             "Chronicles sent to %d recipients.",
-            len(to_emails),
+            len(bcc_emails),
         )
     except Exception:
         logger.exception("Chronicles failed")
@@ -457,123 +458,95 @@ def job_standesdb_chronicles() -> None:
         db.close()
 
 
-def _build_target_doys(week_start: date, week_end: date) -> set[int]:
-    target_doys: set[int] = set()
-    current = week_start
-    while current <= week_end:
-        target_doys.add(current.timetuple().tm_yday)
-        current += timedelta(days=1)
-    return target_doys
+# -------------------------------------------------------------------
+# Task 5: ArchiveHealthCheck — weekly Tuesday 01:00
+# -------------------------------------------------------------------
 
 
-def _match_anniversary_date(
-    ann_month: int,
-    ann_day: int,
-    today: date,
-    target_doys: set[int],
-) -> date | None:
+def _health_check_subject(feature: str, *, is_healthy: bool) -> str:
+    status = "OK" if is_healthy else "FEHLER"
+    return f"{status}: VB:{feature}:Konsistenzprüfung"
+
+
+def job_archive_health_check() -> None:
+    db = SessionLocal()
     try:
-        ann_this_year = date(today.year, ann_month, ann_day)
-    except ValueError:
-        return None
+        to_emails = get_emails_with_permission(db, "archiveAdmin")
+        if not to_emails:
+            logger.warning("ArchiveHealthCheck: no archiveAdmin recipients found.")
+            return
 
-    if ann_this_year.timetuple().tm_yday in target_doys:
-        return ann_this_year
+        storage = get_storage()
+        report = check_archive_integrity(db, storage)
+        unsorted_count = get_unsorted_upload_count(db)
 
+        subject = _health_check_subject("Archiv", is_healthy=report.is_healthy)
+        html = render_template(
+            "archive_health_check.html",
+            missing=report.missing,
+            orphans=report.orphans,
+            unsorted_count=unsorted_count,
+        )
+        send_to_recipients(
+            to_emails=to_emails,
+            subject=subject,
+            html_content=html,
+            template_key="archive_health_check",
+        )
+        logger.info(
+            "Archive health check sent to %d recipient(s)"
+            " (%d missing, %d orphans, %d unsorted).",
+            len(to_emails),
+            len(report.missing),
+            len(report.orphans),
+            unsorted_count,
+        )
+    except Exception:
+        logger.exception("ArchiveHealthCheck failed")
+    finally:
+        db.close()
+
+
+# -------------------------------------------------------------------
+# Task 6: StandesdbHealthCheck — weekly Tuesday 03:00
+# -------------------------------------------------------------------
+
+
+def job_standesdb_health_check() -> None:
+    db = SessionLocal()
     try:
-        ann_next_year = date(today.year + 1, ann_month, ann_day)
-    except ValueError:
-        return None
+        to_emails = get_emails_with_permission(db, "standesdbVbwAdmin")
+        if not to_emails:
+            logger.warning(
+                "StandesdbHealthCheck: no standesdbVbwAdmin recipients found."
+            )
+            return
 
-    if ann_next_year.timetuple().tm_yday in target_doys:
-        return ann_next_year
-    return None
+        storage = get_storage()
+        report = check_standesdb_integrity(db, storage)
 
-
-def _collect_field_anniversaries(
-    db: "Session",
-    field: str,
-    today: date,
-    target_doys: set[int],
-    result: dict[str, dict[str, dict[str, list[dict[str, object]]]]],
-) -> None:
-    col = getattr(Member, field)
-    acc_col = getattr(Member, f"{field}_accuracy")
-
-    members = (
-        db.query(Member)
-        .filter(
-            col.isnot(None),
-            acc_col >= 3,
-            Member.entlassen == False,  # noqa: E712
+        subject = _health_check_subject("Standesdb", is_healthy=report.is_healthy)
+        html = render_template(
+            "standesdb_health_check.html",
+            missing=report.missing,
+            orphans=report.orphans,
         )
-        .all()
-    )
-
-    for m in members:
-        raw = str(getattr(m, field))
-        parts = raw.split("-")
-        if len(parts) < 3:
-            continue
-
-        next_date = _match_anniversary_date(
-            int(parts[1]), int(parts[2]), today, target_doys
+        send_to_recipients(
+            to_emails=to_emails,
+            subject=subject,
+            html_content=html,
+            template_key="standesdb_health_check",
         )
-        if not next_date:
-            continue
-
-        years = next_date.year - int(parts[0])
-        org = m.org_id or "vbw"
-        status = "verstorben" if m.verstorben else "lebend"
-
-        result.setdefault(org, {}).setdefault(status, {}).setdefault(field, [])
-        result[org][status][field].append(
-            {
-                "cn": m.cn,
-                "date": _format_date_de(next_date),
-                "years": years,
-                "days_to": (next_date - today).days,
-            }
+        logger.info(
+            "Standesdb health check sent to %d recipient(s) (%d missing, %d orphans).",
+            len(to_emails),
+            len(report.missing),
+            len(report.orphans),
         )
-
-
-def _days_to_key(entry: dict[str, object]) -> int:
-    val = entry.get("days_to", 0)
-    return val if isinstance(val, int) else 0
-
-
-def _sort_anniversaries(
-    result: dict[str, dict[str, dict[str, list[dict[str, object]]]]],
-) -> None:
-    for org in result.values():
-        for status in org.values():
-            for entries in status.values():
-                entries.sort(key=_days_to_key)
-
-
-def _compute_anniversaries(
-    db: "Session",
-) -> dict[str, dict[str, dict[str, list[dict[str, object]]]]]:
-    today = datetime.now(UTC).date()
-    day_of_week = today.isoweekday()
-    week_start = today + timedelta(days=(8 - day_of_week) % 7)
-    week_end = week_start + timedelta(days=6)
-
-    target_doys = _build_target_doys(week_start, week_end)
-
-    ann_fields = [
-        "geburtsdatum",
-        "aufnahmedatum",
-        "burschungsdatum",
-        "philistrierungsdatum",
-    ]
-
-    result: dict[str, dict[str, dict[str, list[dict[str, object]]]]] = {}
-    for field in ann_fields:
-        _collect_field_anniversaries(db, field, today, target_doys, result)
-
-    _sort_anniversaries(result)
-    return result
+    except Exception:
+        logger.exception("StandesdbHealthCheck failed")
+    finally:
+        db.close()
 
 
 # -------------------------------------------------------------------
@@ -645,6 +618,22 @@ JOB_DESCRIPTIONS: dict[str, str] = {
         " Mitglieder, die den Versand"
         " aktiviert haben."
     ),
+    "archive_health_check": (
+        "Prüft wöchentlich, ob alle im Archiv"
+        " referenzierten Dateien in S3 vorhanden"
+        " sind, meldet verwaiste S3-Objekte und"
+        " unsortierte Uploads. Versendet einen"
+        " Bericht an alle Mitglieder mit der"
+        " Berechtigung 'archiveAdmin'."
+    ),
+    "standesdb_health_check": (
+        "Prüft wöchentlich, ob alle in der"
+        " Standesdatenbank referenzierten Bilder"
+        " in S3 vorhanden sind, und meldet"
+        " verwaiste S3-Objekte. Versendet einen"
+        " Bericht an alle Mitglieder mit der"
+        " Berechtigung 'standesdbVbwAdmin'."
+    ),
     "db_backup": (
         "Erstellt alle BACKUP_INTERVAL_DAYS Tage"
         " (Default 7) um BACKUP_HOUR Uhr (Default 03:00)"
@@ -697,6 +686,24 @@ def start_scheduler() -> None:
         hour=17,
         minute=0,
         id="standesdb_chronicles",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        job_archive_health_check,
+        "cron",
+        day_of_week="tue",
+        hour=1,
+        minute=0,
+        id="archive_health_check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        job_standesdb_health_check,
+        "cron",
+        day_of_week="tue",
+        hour=3,
+        minute=0,
+        id="standesdb_health_check",
         replace_existing=True,
     )
     if BACKUP_ENABLED:
