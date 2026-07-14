@@ -26,6 +26,18 @@ def _make_png_rgba(width: int = 200, height: int = 100) -> bytes:
     return buf.getvalue()
 
 
+def _make_jpeg_with_orientation(width: int, height: int, orientation: int) -> bytes:
+    """Build a JPEG whose raw pixels are (width, height) but whose EXIF
+    Orientation tag (0x0112) declares a rotation/flip, mimicking a phone photo.
+    """
+    img = PILImage.new("RGB", (width, height), color="red")
+    exif = PILImage.Exif()
+    exif[0x0112] = orientation
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+    return buf.getvalue()
+
+
 class TestGenerateThumbnail:
     def test_jpeg_resize_landscape(self):
         data = _make_jpeg(800, 400)
@@ -70,6 +82,34 @@ class TestGenerateThumbnail:
         img = PILImage.open(io.BytesIO(thumb))
         assert img.width >= 1
         assert img.height >= 1
+
+    def test_exif_orientation_6_rotates_to_portrait(self):
+        # Raw pixels are landscape (400x300), but Orientation 6 (90° CW)
+        # marks this as a portrait phone photo taken sideways.
+        data = _make_jpeg_with_orientation(400, 300, 6)
+        thumb, _ct = generate_thumbnail(data, 200)
+        img = PILImage.open(io.BytesIO(thumb))
+        assert img.height > img.width
+        assert img.height == 200
+        assert img.width == 150
+
+    def test_exif_orientation_3_keeps_aspect(self):
+        # Orientation 3 (180°) doesn't swap width/height, just confirms
+        # exif_transpose() runs without error on a non-90°-rotation tag.
+        data = _make_jpeg_with_orientation(400, 300, 3)
+        thumb, _ct = generate_thumbnail(data, 200)
+        img = PILImage.open(io.BytesIO(thumb))
+        assert img.width == 200
+        assert img.height == 150
+
+    def test_no_exif_orientation_unaffected(self):
+        # Sanity check: images without an Orientation tag (the existing
+        # test fixtures) must resize exactly as before.
+        data = _make_jpeg(800, 400)
+        thumb, _ct = generate_thumbnail(data, 200)
+        img = PILImage.open(io.BytesIO(thumb))
+        assert img.width == 200
+        assert img.height == 100
 
 
 class TestStorageClient:

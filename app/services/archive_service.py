@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.storage import (
     S3_PATH_ARCHIVE_CACHE,
     S3_PATH_ARCHIVE_STORE,
+    THUMBNAIL_CACHE_VERSION,
     StorageClient,
     generate_thumbnail,
 )
@@ -833,9 +834,8 @@ def get_presigned_url(
 
     if size and size in THUMB_SIZES and item.is_image:
         _get_or_create_thumbnail(item, size, storage)
-        cache_key = f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}.thumb_{size}"
         return storage.generate_presigned_url(
-            cache_key,
+            _thumbnail_cache_key(item, size),
             content_type="image/jpeg",
         )
 
@@ -848,12 +848,19 @@ def get_presigned_url(
     )
 
 
+def _thumbnail_cache_key(item: ArchiveStoreItem, size: str) -> str:
+    return (
+        f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}."
+        f"{THUMBNAIL_CACHE_VERSION}.thumb_{size}"
+    )
+
+
 def _get_or_create_thumbnail(
     item: ArchiveStoreItem,
     size: str,
     storage: StorageClient,
 ) -> bytes | None:
-    cache_key = f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}.thumb_{size}"
+    cache_key = _thumbnail_cache_key(item, size)
     if storage.exists(cache_key):
         return storage.download(cache_key)
 
