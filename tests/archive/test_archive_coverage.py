@@ -15,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 from PIL import Image as PILImage
 
+from app.core.storage import THUMBNAIL_CACHE_VERSION
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
@@ -861,8 +862,11 @@ class TestThumbnailDownload:
             hash_suffix="cache",
         )
         item = _active_store_item(f)
-        # Pre-populate the cache
-        cache_key = f"archive/cache/{item.sha256_hash}.thumb_sm"
+        # Pre-populate the cache (versioned key: bumping THUMBNAIL_CACHE_VERSION
+        # invalidates stale entries, e.g. after the EXIF-orientation fix)
+        cache_key = (
+            f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
+        )
         cached_jpeg = _make_jpeg_bytes(50, 50)
         mock_s3.upload(cache_key, cached_jpeg, "image/jpeg")
 
@@ -872,6 +876,42 @@ class TestThumbnailDownload:
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "image/jpeg"
+
+    def test_stale_unversioned_cache_entry_is_ignored(
+        self,
+        client,
+        db_session,
+        mock_s3,
+    ):
+        """A cache entry from a previous THUMBNAIL_CACHE_VERSION (e.g. still
+        holding a wrongly-oriented pre-fix thumbnail) must not be served -
+        it has to be regenerated from the source under the new cache key."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        f = _make_file(
+            db_session,
+            dir_id=0,
+            desc="stale-cache",
+            hash_suffix="stalecache",
+        )
+        item = _active_store_item(f)
+        # Old, unversioned cache key from before THUMBNAIL_CACHE_VERSION existed
+        stale_key = f"archive/cache/{item.sha256_hash}.thumb_sm"
+        mock_s3.upload(stale_key, _make_jpeg_bytes(50, 50), "image/jpeg")
+        # Real source so a fresh, correctly-versioned thumbnail can be built
+        source_key = f"archive/store/{item.sha256_hash}"
+        mock_s3.upload(source_key, _make_jpeg_bytes(200, 200), "image/jpeg")
+
+        resp = client.get(
+            f"/api/archive/files/{f.id}/download/sm",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/jpeg"
+        versioned_key = (
+            f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
+        )
+        assert mock_s3.exists(versioned_key)
 
     def test_thumbnail_returns_none_when_source_missing(
         self,

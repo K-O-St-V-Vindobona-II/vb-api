@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
     S3_PATH_STANDESDB_IMAGES,
+    THUMBNAIL_CACHE_VERSION,
     StorageClient,
     generate_thumbnail,
 )
@@ -70,6 +71,10 @@ def serve_download(
     )
 
 
+def _thumbnail_cache_key(img: StandesdbImage) -> str:
+    return f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}.{THUMBNAIL_CACHE_VERSION}"
+
+
 def get_presigned_url(
     img: StandesdbImage,
     storage: StorageClient,
@@ -78,7 +83,7 @@ def get_presigned_url(
 ) -> str:
     if thumb:
         _ensure_cache(img, storage)
-        key = f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}"
+        key = _thumbnail_cache_key(img)
     else:
         key = f"{S3_PATH_STANDESDB_IMAGES}/{img.sha256_hash}"
     filename = f"{img.owner_type}_{img.owner_id}_{img.id}.{img.extension or 'jpg'}"
@@ -110,7 +115,7 @@ def _ensure_cache(
     img: StandesdbImage,
     storage: StorageClient,
 ) -> None:
-    cache_key = f"{S3_PATH_STANDESDB_CACHE}/{img.sha256_hash}"
+    cache_key = _thumbnail_cache_key(img)
     if storage.exists(cache_key):
         return
 

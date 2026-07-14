@@ -6,6 +6,7 @@ import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from PIL import Image as PILImage
+from PIL import ImageOps
 
 PILImage.MAX_IMAGE_PIXELS = 100_000_000
 
@@ -21,6 +22,10 @@ S3_PATH_STANDESDB_CACHE: str = os.environ.get(
 S3_PATH_ARCHIVE_STORE: str = os.environ.get("S3_PATH_ARCHIVE_STORE", "archive/store")
 S3_PATH_ARCHIVE_CACHE: str = os.environ.get("S3_PATH_ARCHIVE_CACHE", "archive/cache")
 S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
+
+# Bump when generate_thumbnail()'s output changes, to invalidate stale cached
+# thumbnails in S3 (cache keys are content-hash-based and never expire otherwise).
+THUMBNAIL_CACHE_VERSION = "v2"
 
 
 class StorageClient:
@@ -148,6 +153,7 @@ def generate_thumbnail(
 ) -> tuple[bytes, str]:
     """Resize image to fit bounding box, return (bytes, content_type)."""
     img = PILImage.open(BytesIO(data))
+    img = ImageOps.exif_transpose(img)
     if img.width > img.height:
         ratio = max_dimension / img.width
     else:
