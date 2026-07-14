@@ -59,6 +59,15 @@ def test_read_root(client):
     }
 
 
+def test_responses_are_never_cacheable(client):
+    # Every response from this backend carries personal member data at some
+    # point — browsers/proxies must never be allowed to cache it.
+    response = client.get("/")
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+
+
 class TestScheduledJobs:
     def test_list_scheduled_jobs(self, client, db_session):
         _seed(db_session)
