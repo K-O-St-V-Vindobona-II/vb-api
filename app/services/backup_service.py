@@ -13,7 +13,10 @@ from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 
 logger = logging.getLogger(__name__)
 
-BACKUP_RETENTION_DAYS: int = int(os.environ.get("BACKUP_RETENTION_DAYS", "90"))
+BACKUP_RETENTION_DAYS: int = int(os.environ.get("BACKUP_RETENTION_DAYS", "29"))
+
+_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
+_TIMESTAMP_LENGTH = len("2026-07-15_03-00-00")  # fixed-width strftime() output
 
 
 def _require_postgres(database_url: str) -> None:
@@ -81,9 +84,13 @@ def _run_pg_subprocess(
         raise RuntimeError(msg) from exc
 
 
-def run_backup(storage: StorageClient) -> str:
+def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
     """
     Dump the PostgreSQL database and upload to S3.
+
+    manual=True tags the filename with a "-manual" suffix, distinguishing
+    ad-hoc backups (CLI script, admin-triggered API call) from the ones
+    the scheduled db_backup job produces unsuffixed.
 
     Returns the backup filename (without path prefix).
     Raises RuntimeError on pg_dump failure or S3 upload error.
@@ -93,8 +100,9 @@ def run_backup(storage: StorageClient) -> str:
 
     host, user, password, port, dbname = _parse_db_url(database_url)
 
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
-    backup_name = f"{APP_ENVIRONMENT}-{timestamp}.dump"
+    timestamp = datetime.now(UTC).strftime(_TIMESTAMP_FORMAT)
+    suffix = "-manual" if manual else ""
+    backup_name = f"{APP_ENVIRONMENT}-{timestamp}{suffix}.dump"
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
 
     logger.info("Starting DB backup: %s", backup_name)
@@ -182,13 +190,17 @@ def run_restore(
 
 
 def _parse_backup_timestamp(backup_name: str) -> datetime | None:
-    """Extract the UTC timestamp from a '[env]-YYYY-MM-DD_HH-MM-SS.dump' name."""
+    """Extract the UTC timestamp from a
+    '[env]-YYYY-MM-DD_HH-MM-SS[-manual].dump' name (the optional "-manual"
+    suffix, and any other trailing text, is ignored)."""
     if not backup_name.endswith(".dump"):
         return None
     stem = backup_name.removesuffix(".dump")
     try:
         _, ts_part = stem.split("-", 1)
-        return datetime.strptime(ts_part, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=UTC)
+        return datetime.strptime(
+            ts_part[:_TIMESTAMP_LENGTH], _TIMESTAMP_FORMAT
+        ).replace(tzinfo=UTC)
     except ValueError:
         return None
 

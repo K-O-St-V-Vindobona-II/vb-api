@@ -60,7 +60,7 @@ def test_default_run_creates_backup_without_cleanup(capsys) -> None:
     ):
         _run_main([])
 
-    mock_run_backup.assert_called_once_with(mock_storage)
+    mock_run_backup.assert_called_once_with(mock_storage, manual=True)
     mock_cleanup.assert_not_called()
     assert "production-2026-07-02_12-00-00.dump" in capsys.readouterr().out
 

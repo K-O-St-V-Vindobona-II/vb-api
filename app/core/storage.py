@@ -96,6 +96,21 @@ class StorageClient:
         )
         return response["Body"].read()
 
+    def download_with_metadata(self, key: str) -> tuple[bytes, str]:
+        """Download an object's bytes and its content type in a single
+        S3 request. get_object()'s response already carries ContentType -
+        download() alone throws it away. Used by s3_mirror_service to
+        preserve content-type on cross-bucket copies without doubling the
+        request count on large syncs (head() + download() would be two
+        round-trips per object)."""
+        response = self._client.get_object(
+            Bucket=self._bucket,
+            Key=key,
+        )
+        data = response["Body"].read()
+        content_type = response.get("ContentType", "application/octet-stream")
+        return data, content_type
+
     def exists(self, key: str) -> bool:
         try:
             self._client.head_object(

@@ -45,7 +45,6 @@ from app.services.storage_integrity_service import (
 )
 
 BACKUP_ENABLED: bool = os.environ.get("BACKUP_ENABLED", "true").lower() != "false"
-BACKUP_INTERVAL_DAYS: int = int(os.environ.get("BACKUP_INTERVAL_DAYS", "7"))
 BACKUP_HOUR: int = int(os.environ.get("BACKUP_HOUR", "3"))
 
 logger = logging.getLogger(__name__)
@@ -554,15 +553,6 @@ def job_standesdb_health_check() -> None:
 # -------------------------------------------------------------------
 
 
-def _next_backup_run(hour: int) -> datetime:
-    """Return the next occurrence of `hour:00` UTC (today or tomorrow)."""
-    now = datetime.now(UTC)
-    candidate = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-    if candidate <= now:
-        candidate += timedelta(days=1)
-    return candidate
-
-
 async def job_db_backup() -> None:
     storage = get_storage()
     try:
@@ -635,13 +625,12 @@ JOB_DESCRIPTIONS: dict[str, str] = {
         " Berechtigung 'standesdbVbwAdmin'."
     ),
     "db_backup": (
-        "Erstellt alle BACKUP_INTERVAL_DAYS Tage"
-        " (Default 7) um BACKUP_HOUR Uhr (Default 03:00)"
-        " eine vollständige PostgreSQL-Sicherung"
-        " und lädt sie auf S3 hoch."
+        "Erstellt täglich um BACKUP_HOUR Uhr"
+        " (Default 03:00 UTC) eine vollständige"
+        " PostgreSQL-Sicherung und lädt sie auf S3 hoch."
         " Dateiname: [environment]-YYYY-MM-DD_HH-MM-SS.dump."
         " Löscht anschließend Backups, die älter als"
-        " BACKUP_RETENTION_DAYS (Default 90) sind."
+        " BACKUP_RETENTION_DAYS (Default 29) sind."
     ),
 }
 
@@ -649,8 +638,8 @@ JOB_DESCRIPTIONS: dict[str, str] = {
 def start_scheduler() -> None:
     scheduler.add_job(
         job_cleanup,
-        "interval",
-        hours=1,
+        "cron",
+        minute=0,
         id="cleanup",
         replace_existing=True,
     )
@@ -709,9 +698,10 @@ def start_scheduler() -> None:
     if BACKUP_ENABLED:
         scheduler.add_job(
             job_db_backup,
-            "interval",
-            days=BACKUP_INTERVAL_DAYS,
-            start_date=_next_backup_run(BACKUP_HOUR),
+            "cron",
+            hour=BACKUP_HOUR,
+            minute=0,
+            timezone=UTC,
             id="db_backup",
             replace_existing=True,
         )
