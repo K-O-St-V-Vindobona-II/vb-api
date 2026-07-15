@@ -31,7 +31,7 @@ class TestProductionGuard:
     def test_blocks_before_anything_else(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "production"),
-            patch.object(downsync_prod, "_load_aws_secrets") as mock_secrets,
+            patch.object(downsync_prod, "_load_aws_env") as mock_secrets,
             pytest.raises(SystemExit) as exc_info,
         ):
             _run_main([])
@@ -44,7 +44,7 @@ class TestConfirmation:
     def test_aborts_when_confirmation_is_not_yes(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input", return_value="no"),
             patch.object(downsync_prod, "_run_db_restore") as mock_db,
             patch.object(downsync_prod, "_run_s3_mirror") as mock_s3,
@@ -59,7 +59,7 @@ class TestConfirmation:
     def test_yes_flag_skips_prompt(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input") as mock_input,
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
@@ -74,7 +74,7 @@ class TestConfirmation:
     def test_dry_run_skips_prompt(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input") as mock_input,
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
@@ -91,7 +91,7 @@ class TestStepSkipping:
     def test_skip_db_only_runs_s3(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ) as mock_build_storage,
@@ -110,7 +110,7 @@ class TestStepSkipping:
     def test_skip_s3_only_runs_db(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ) as mock_build_storage,
@@ -130,7 +130,7 @@ class TestStepSkipping:
     def test_no_delete_is_threaded_through_to_s3_step(self) -> None:
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ),
@@ -149,7 +149,7 @@ class TestStepSkipping:
         potentially-incomplete local data."""
         with (
             patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
-            patch.object(downsync_prod, "_load_aws_secrets", return_value=SECRETS),
+            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ),
@@ -286,7 +286,7 @@ class TestLoadAwsSecrets:
             patch.object(downsync_prod, "_load_env_file", return_value={}),
             pytest.raises(SystemExit) as exc_info,
         ):
-            downsync_prod._load_aws_secrets()
+            downsync_prod._load_aws_env()
 
         assert exc_info.value.code == 1
 
@@ -299,12 +299,12 @@ class TestLoadAwsSecrets:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            downsync_prod._load_aws_secrets()
+            downsync_prod._load_aws_env()
 
         assert exc_info.value.code == 1
 
     def test_returns_secrets_when_complete(self) -> None:
         with patch.object(downsync_prod, "_load_env_file", return_value=SECRETS):
-            result = downsync_prod._load_aws_secrets()
+            result = downsync_prod._load_aws_env()
 
         assert result == SECRETS

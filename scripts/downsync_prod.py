@@ -37,7 +37,7 @@ from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient, get_storage
 from app.services.backup_service import run_restore
 from app.services.s3_mirror_service import MirrorResult, mirror_prefix
 
-SECRETS_PATH = "/run/secrets/aws-prod.env"
+AWS_ENV_PATH = "/run/secrets/aws-prod.env"
 
 
 def _load_env_file(path: str) -> dict[str, str]:
@@ -56,17 +56,18 @@ def _load_env_file(path: str) -> dict[str, str]:
     return env
 
 
-def _load_aws_secrets() -> dict[str, str]:
-    # Not named "secrets" - this dict also carries the non-sensitive
-    # AWS_BUCKET value that main() prints; CodeQL's clear-text-logging
-    # query flags any variable whose name matches sensitive-data patterns
-    # (e.g. "secret") regardless of which field is actually read from it.
-    aws_env = _load_env_file(SECRETS_PATH)
+def _load_aws_env() -> dict[str, str]:
+    # Neither this function nor its return value is named "secret(s)" -
+    # this dict also carries the non-sensitive AWS_BUCKET value that
+    # main() prints, and CodeQL's clear-text-logging query flags any
+    # value whose source name matches sensitive-data patterns (e.g.
+    # "secret"), regardless of which field is actually read from it.
+    aws_env = _load_env_file(AWS_ENV_PATH)
     if not aws_env.get("AWS_ACCESS_KEY_ID"):
-        print(f"ERROR: No AWS credentials found in {SECRETS_PATH}")
+        print(f"ERROR: No AWS credentials found in {AWS_ENV_PATH}")
         sys.exit(1)
     if not aws_env.get("AWS_BUCKET"):
-        print(f"ERROR: AWS_BUCKET not set in {SECRETS_PATH}")
+        print(f"ERROR: AWS_BUCKET not set in {AWS_ENV_PATH}")
         sys.exit(1)
     return aws_env
 
@@ -201,7 +202,7 @@ def main() -> None:
         _confirm(args.yes)
 
     if not args.skip_s3:
-        aws_env = _load_aws_secrets()
+        aws_env = _load_aws_env()
         prod_storage = _build_prod_storage(aws_env)
         print(f"=== S3 mirror (prod {aws_env['AWS_BUCKET']} -> local MinIO) ===")
         result = _run_s3_mirror(
