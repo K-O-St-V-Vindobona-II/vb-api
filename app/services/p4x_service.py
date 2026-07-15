@@ -647,11 +647,13 @@ def _apply_subject_filter(
     category_filter: P4xCategoryFilter,
 ) -> RowReturningQuery[tuple[int]]:
     if category_filter.subject_mode == "equals":
-        return query.filter(P4xTransaction.subject == category_filter.subject)
+        return query.filter(P4xTransaction.subject.ilike(category_filter.subject))
     if category_filter.subject_mode == "contains":
-        return query.filter(P4xTransaction.subject.like(f"%{category_filter.subject}%"))
+        return query.filter(
+            P4xTransaction.subject.ilike(f"%{category_filter.subject}%")
+        )
     if category_filter.subject_mode == "starts":
-        return query.filter(P4xTransaction.subject.like(f"{category_filter.subject}%"))
+        return query.filter(P4xTransaction.subject.ilike(f"{category_filter.subject}%"))
     return query
 
 
@@ -966,9 +968,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
     members = (
         db.query(Member)
         .filter(
-            (Member.vorname.like(pattern))
-            | (Member.nachname.like(pattern))
-            | (Member.couleurname.like(pattern)),
+            (Member.vorname.ilike(pattern))
+            | (Member.nachname.ilike(pattern))
+            | (Member.couleurname.ilike(pattern)),
         )
         .all()
     )
@@ -979,7 +981,7 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         db.query(Contact)
         .filter(
             Contact.deleted_at.is_(None),
-            (Contact.name.like(pattern)) | (Contact.couleurname.like(pattern)),
+            (Contact.name.ilike(pattern)) | (Contact.couleurname.ilike(pattern)),
         )
         .all()
     )
@@ -989,7 +991,7 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
     specials = (
         db.query(P4xSpecialcontact)
         .filter(
-            P4xSpecialcontact.cn.like(pattern),
+            P4xSpecialcontact.cn.ilike(pattern),
         )
         .all()
     )
@@ -1000,7 +1002,7 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         db.query(P4xAccount)
         .filter(
             P4xAccount.deleted_at.is_(None),
-            P4xAccount.label.like(pattern),
+            P4xAccount.label.ilike(pattern),
         )
         .all()
     )
@@ -1232,9 +1234,9 @@ def search_fee_members(db: Session, term: str) -> list[dict[str, Any]]:
             Member.state_id == "up",
             Member.entlassen == False,  # noqa: E712
             Member.verstorben == False,  # noqa: E712
-            (Member.vorname.like(pattern))
-            | (Member.nachname.like(pattern))
-            | (Member.couleurname.like(pattern)),
+            (Member.vorname.ilike(pattern))
+            | (Member.nachname.ilike(pattern))
+            | (Member.couleurname.ilike(pattern)),
         )
         .all()
     )

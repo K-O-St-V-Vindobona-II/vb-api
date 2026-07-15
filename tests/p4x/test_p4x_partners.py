@@ -116,6 +116,15 @@ class TestSearchPartners:
         results = search_partners(db_session, "zzzzzzz")
         assert results == []
 
+    def test_search_is_case_insensitive(self, db_session):
+        """Regression test: Postgres LIKE is case-sensitive, unlike the
+        legacy MySQL system's default collation. A search term in a
+        different case than the stored name must still match."""
+        _seed(db_session)
+        results = search_partners(db_session, "kopernikus")
+        assert len(results) == 1
+        assert results[0]["type"] == "member"
+
     def test_search_multiple_types(self, db_session):
         _seed(db_session)
         db_session.add(

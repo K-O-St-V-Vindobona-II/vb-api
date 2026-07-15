@@ -122,6 +122,60 @@ class TestFilterEngineSubjectModes:
         apply_single_filter(db_session, f)
         assert get_filter_hit_count(db_session, f) == 1
 
+    def test_starts_mode_is_case_insensitive(self, db_session):
+        """Regression test: Postgres LIKE is case-sensitive, unlike the
+        legacy MySQL system's default collation. A filter written in a
+        different case than the transaction subject must still match."""
+        account, cat, _txs = _seed_data(db_session)
+        f = P4xCategoryFilter(
+            name="starts_case_test",
+            p4x_account_id=account.id,
+            subject_mode="starts",
+            subject="MITGLIEDSBEITRAG",
+            p4x_category_id=cat.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(f)
+        db_session.commit()
+
+        apply_single_filter(db_session, f)
+        assert get_filter_hit_count(db_session, f) == 2
+
+    def test_contains_mode_is_case_insensitive(self, db_session):
+        account, cat, _txs = _seed_data(db_session)
+        f = P4xCategoryFilter(
+            name="contains_case_test",
+            p4x_account_id=account.id,
+            subject_mode="contains",
+            subject="MITGLIEDSB",
+            p4x_category_id=cat.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(f)
+        db_session.commit()
+
+        apply_single_filter(db_session, f)
+        assert get_filter_hit_count(db_session, f) == 3
+
+    def test_equals_mode_is_case_insensitive(self, db_session):
+        account, cat, _txs = _seed_data(db_session)
+        f = P4xCategoryFilter(
+            name="equals_case_test",
+            p4x_account_id=account.id,
+            subject_mode="equals",
+            subject="spende verein",
+            p4x_category_id=cat.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(f)
+        db_session.commit()
+
+        apply_single_filter(db_session, f)
+        assert get_filter_hit_count(db_session, f) == 1
+
 
 class TestFilterEngineAmountRange:
     def test_min_amount(self, db_session):

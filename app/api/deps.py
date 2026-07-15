@@ -51,12 +51,17 @@ def _ensure_tz_aware(dt: datetime) -> datetime:
     return dt
 
 
+def _bump_lastsignal(db: Session, member_id: int, now: datetime) -> None:
+    db.query(Member).filter(Member.id == member_id).update({"auth_lastsignal": now})
+
+
 def _enforce_idle_timeout(db: Session, session_record: PersonalAccessToken) -> None:
     now = datetime.now(UTC)
     last_used = session_record.last_used_at
 
     if not last_used:
         session_record.last_used_at = now
+        _bump_lastsignal(db, session_record.tokenable_id, now)
         db.commit()
         return
 
@@ -74,6 +79,7 @@ def _enforce_idle_timeout(db: Session, session_record: PersonalAccessToken) -> N
 
     if idle_duration > timedelta(minutes=1):
         session_record.last_used_at = now
+        _bump_lastsignal(db, session_record.tokenable_id, now)
         db.commit()
 
 

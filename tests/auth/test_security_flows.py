@@ -202,6 +202,66 @@ def test_inactivity_timeout_kicks_user(client, db_session, auth_headers):
     assert "inactivity" in resp_expired.json()["detail"].lower()
 
 
+def test_lastsignal_updates_on_authenticated_request_after_debounce_window(
+    client, db_session, auth_headers
+):
+    """auth_lastsignal must be refreshed by any authenticated request, not
+    just by /api/auth/refresh, once the 1-minute debounce window has
+    passed since the session was last touched."""
+    token_string = auth_headers["Authorization"].split(" ")[1]
+    payload = jwt.decode(
+        token_string,
+        SECRET_KEY,
+        algorithms=[ALGORITHM],
+        options={"verify_exp": False},
+    )
+    token_id = payload.get("jti")
+
+    session_record = (
+        db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
+    )
+    member = db_session.query(Member).filter_by(id=session_record.tokenable_id).first()
+    assert member.auth_lastsignal is None
+
+    # Age the session past the 1-minute debounce window, but well within
+    # SESSION_IDLE_TIMEOUT_MINUTES.
+    session_record.last_used_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_session.commit()
+
+    before = datetime.now(UTC)
+    resp = client.get("/api/members/me", headers=auth_headers)
+    assert resp.status_code == 200
+
+    db_session.refresh(member)
+    assert member.auth_lastsignal is not None
+    lastsignal = member.auth_lastsignal.replace(tzinfo=UTC)
+    assert lastsignal >= before - timedelta(seconds=5)
+
+
+def test_lastsignal_not_bumped_within_debounce_window(client, db_session, auth_headers):
+    """A second request within the same 1-minute window must not trigger
+    another write (debounce, mirrors the existing last_used_at behavior)."""
+    resp = client.get("/api/members/me", headers=auth_headers)
+    assert resp.status_code == 200
+
+    token_string = auth_headers["Authorization"].split(" ")[1]
+    payload = jwt.decode(
+        token_string,
+        SECRET_KEY,
+        algorithms=[ALGORITHM],
+        options={"verify_exp": False},
+    )
+    token_id = payload.get("jti")
+    session_record = (
+        db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
+    )
+    member = db_session.query(Member).filter_by(id=session_record.tokenable_id).first()
+
+    # Right after login, last_used_at is fresh, so no request so far has
+    # crossed the 1-minute debounce window yet.
+    assert member.auth_lastsignal is None
+
+
 def test_deps_invalid_jwt(client):
     """Test accessing a guarded route with pure garbage."""
     resp = client.get("/api/members/me", headers={"Authorization": "Bearer garbage"})

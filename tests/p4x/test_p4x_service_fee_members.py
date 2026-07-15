@@ -91,6 +91,16 @@ class TestSearchFeeMembers:
         results = search_fee_members(db_session, "Promet")
         assert len(results) == 1
 
+    def test_search_is_case_insensitive(self, db_session):
+        """Regression test: Postgres LIKE is case-sensitive, unlike the
+        legacy MySQL system's default collation. A search term in a
+        different case than the stored name must still match."""
+        _seed_base(db_session)
+        _create_member(db_session, vorname="Wolfgang", email="w2@t.at")
+
+        results = search_fee_members(db_session, "wolf")
+        assert len(results) == 1
+
     def test_search_short_term_returns_empty(self, db_session):
         _seed_base(db_session)
         _create_member(db_session)
