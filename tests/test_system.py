@@ -1,6 +1,6 @@
 """Tests for system endpoints: health check, scheduled jobs, table browser."""
 
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 import bcrypt
@@ -50,6 +50,23 @@ def _login_admin(db):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _login_unprivileged(db):
+    hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+    m = Member(
+        email="user@vbw.at",
+        auth_password=hashed,
+        auth_locked=False,
+        vorname="Normal",
+        nachname="User",
+        org_id="vbw",
+        state_id="bi",
+    )
+    db.add(m)
+    db.commit()
+    token, _, _ = create_user_session(db, m)
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_read_root(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -91,6 +108,39 @@ class TestScheduledJobs:
         assert len(data) == 1
         assert data[0]["id"] == "cleanup"
         assert data[0]["next_run"] == "01.07.2026, 08:00"
+
+
+class TestTriggerBackup:
+    def test_requires_systemAdmin(self, client, db_session):
+        _seed(db_session)
+        headers = _login_unprivileged(db_session)
+        resp = client.post("/api/system/backups/trigger", headers=headers)
+        assert resp.status_code == 403
+
+    def test_trigger_backup_success(self, client, db_session, mock_s3):
+        _seed(db_session)
+        headers = _login_admin(db_session)
+        with patch(
+            "app.api.router_includes.system.run_backup",
+            return_value="development-2026-07-15_12-00-00-manual.dump",
+        ) as mock_run_backup:
+            resp = client.post("/api/system/backups/trigger", headers=headers)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["backup_name"] == "development-2026-07-15_12-00-00-manual.dump"
+        assert datetime.fromisoformat(data["triggered_at"])
+        mock_run_backup.assert_called_once_with(mock_s3, manual=True)
+
+    def test_trigger_backup_failure_returns_500(self, client, db_session, mock_s3):
+        _seed(db_session)
+        headers = _login_admin(db_session)
+        with patch(
+            "app.api.router_includes.system.run_backup",
+            side_effect=RuntimeError("pg_dump failed"),
+        ):
+            resp = client.post("/api/system/backups/trigger", headers=headers)
+        assert resp.status_code == 500
+        assert "pg_dump failed" in resp.json()["detail"]
 
 
 class TestTableBrowser:

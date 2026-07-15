@@ -40,43 +40,6 @@ podman exec vb-api python scripts/migrate_to_s3.py [--verify-only] [--include-ca
 
 ---
 
-## `downsync_from_prod_aws.py`
-
-Mirrors files from the production AWS S3 bucket down to the local Dev MinIO
-instance, remapping the legacy AWS key prefixes (`standesdb-backup/`,
-`archive-backup/`) to the new MinIO key structure (`standesdb/images/`,
-`archive/store/`). Objects that exist locally but no longer exist in the AWS
-source are deleted (mirror mode), and orphaned local thumbnails (whose
-original file no longer exists) are cleaned up too. Refuses to run at all
-when `APP_ENVIRONMENT=production`, since the sync direction (prod → dev) and
-the delete/mirror behavior would be destructive against production data.
-AWS credentials are read from `/run/secrets/aws-prod.env`, never from
-environment variables, to keep them out of the normal container env.
-
-**Usage:**
-```bash
-# Inside the container
-python scripts/downsync_from_prod_aws.py
-python scripts/downsync_from_prod_aws.py --dry-run
-python scripts/downsync_from_prod_aws.py --no-delete
-python scripts/downsync_from_prod_aws.py --verify-only
-
-# Via podman exec
-podman exec vb-api python scripts/downsync_from_prod_aws.py
-podman exec vb-api python scripts/downsync_from_prod_aws.py --dry-run
-podman exec vb-api python scripts/downsync_from_prod_aws.py --no-delete
-podman exec vb-api python scripts/downsync_from_prod_aws.py --verify-only
-```
-
-**Parameters:**
-- `--dry-run` — print what would be copied/deleted without performing the sync.
-- `--no-delete` — sync new/changed files but skip deleting local orphans (safer, incremental sync).
-- `--verify-only` — only count differences between AWS and MinIO (missing/orphaned objects per prefix) — does not sync or delete anything.
-
-**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` (MinIO target), `APP_ENVIRONMENT` (must not be `production`). AWS source credentials come from the file `/run/secrets/aws-prod.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`).
-
----
-
 ## `check_s3_integrity.py`
 
 Read-only consistency check between the database and S3. Reports two things:
@@ -164,6 +127,54 @@ podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [-
 
 ---
 
+## `downsync_prod.py`
+
+Self-contained, two-step downsync onto the local non-prod stage — no
+delegation to another script. Step 1 mirrors the **entire** production
+`vindobona2-at` AWS S3 bucket into local MinIO: an exact 1:1 clone, since
+source and dest already share the same key structure (no legacy prefix
+remapping needed, unlike the retired `downsync_from_prod_aws.py`). Objects
+that exist locally but not in the prod source are deleted (mirror mode)
+unless `--no-delete` is passed. Step 2 restores the local PostgreSQL
+database from local MinIO's now-current `db-backups/` prefix — i.e. from
+whatever step 1 just brought down from prod — reusing
+`backup_service.run_restore()` exactly like `restore_db.py` does, then runs
+`alembic upgrade head`. The DB step therefore never talks to prod directly;
+it only ever reads local storage, which is why step 1 must run before step
+2 whenever both are enabled. Refuses to run at all when
+`APP_ENVIRONMENT=production` (hard guard, no override), since this combines
+two operations that are each individually destructive against whichever
+stage they target. Asks for an interactive "yes" confirmation before doing
+anything, unless `--yes` is passed.
+
+Must run **inside the container** — `pg_restore` and `alembic` are only
+installed there, not on the host.
+
+**Usage:**
+```bash
+# Inside the container
+python scripts/downsync_prod.py
+python scripts/downsync_prod.py --dry-run
+python scripts/downsync_prod.py --yes
+python scripts/downsync_prod.py --skip-db
+python scripts/downsync_prod.py --skip-s3 --no-delete
+
+# Via podman exec
+podman exec vb-api python scripts/downsync_prod.py
+podman exec -it vb-api python scripts/downsync_prod.py
+```
+
+**Parameters:**
+- `--dry-run` — S3 step: print what would be copied/deleted without performing the sync. DB step: only print the backup that's currently newest in local MinIO (i.e. what a real run would restore), without downloading/restoring it.
+- `--yes` — skip the interactive confirmation prompt.
+- `--skip-db` — skip the DB restore step entirely.
+- `--skip-s3` — skip the S3 mirror step entirely (prod AWS credentials are then not loaded at all, since the DB step only needs local storage).
+- `--no-delete` — S3 step only: sync new/changed files but do not delete local orphans.
+
+**Relevant env vars:** `DATABASE_URL` (restore target, must be PostgreSQL), `APP_ENVIRONMENT` (must not be `production`), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (local MinIO, used by both the mirror destination and the DB restore source). Prod AWS source credentials for the S3 step come from `/run/secrets/aws-prod.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET=vindobona2-at`).
+
+---
+
 ## `sqlite2pg.py`
 
 Idempotent one-time migration that copies all data from the legacy SQLite
@@ -232,45 +243,6 @@ podman exec vb-api python scripts/migrate_to_s3.py [--verify-only] [--include-ca
 - `--include-cache` — migriert zusätzlich die Thumbnail-/Cache-Verzeichnisse (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); standardmäßig ausgelassen.
 
 **Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
-
----
-
-## `downsync_from_prod_aws.py`
-
-Spiegelt Dateien vom produktiven AWS-S3-Bucket auf die lokale Dev-MinIO-
-Instanz herunter und bildet dabei die alten AWS-Key-Präfixe
-(`standesdb-backup/`, `archive-backup/`) auf die neue MinIO-Key-Struktur
-(`standesdb/images/`, `archive/store/`) ab. Objekte, die lokal existieren,
-aber in der AWS-Quelle nicht mehr vorhanden sind, werden gelöscht
-(Mirror-Modus); verwaiste lokale Thumbnails (deren Originaldatei nicht mehr
-existiert) werden ebenfalls bereinigt. Verweigert den Start komplett, wenn
-`APP_ENVIRONMENT=production` gesetzt ist, da sowohl die Sync-Richtung
-(Prod → Dev) als auch das Lösch-/Mirror-Verhalten gegen Produktionsdaten
-destruktiv wären. AWS-Credentials werden ausschließlich aus
-`/run/secrets/aws-prod.env` gelesen, nie aus Umgebungsvariablen, um sie aus
-der normalen Container-Env herauszuhalten.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/downsync_from_prod_aws.py
-python scripts/downsync_from_prod_aws.py --dry-run
-python scripts/downsync_from_prod_aws.py --no-delete
-python scripts/downsync_from_prod_aws.py --verify-only
-
-# Via podman exec
-podman exec vb-api python scripts/downsync_from_prod_aws.py
-podman exec vb-api python scripts/downsync_from_prod_aws.py --dry-run
-podman exec vb-api python scripts/downsync_from_prod_aws.py --no-delete
-podman exec vb-api python scripts/downsync_from_prod_aws.py --verify-only
-```
-
-**Parameter:**
-- `--dry-run` — zeigt an, was kopiert/gelöscht würde, ohne den Sync auszuführen.
-- `--no-delete` — synct neue/geänderte Dateien, überspringt aber das Löschen lokaler Waisen (sichererer, inkrementeller Sync).
-- `--verify-only` — zählt nur die Unterschiede zwischen AWS und MinIO (fehlende/verwaiste Objekte pro Präfix) — synct oder löscht nichts.
-
-**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` (MinIO-Ziel), `APP_ENVIRONMENT` (darf nicht `production` sein). Die AWS-Quell-Credentials kommen aus der Datei `/run/secrets/aws-prod.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`).
 
 ---
 
@@ -362,6 +334,55 @@ podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [-
 - `--force` — erforderlich, um bei `APP_ENVIRONMENT=production` fortzufahren; hat in anderen Umgebungen keine Wirkung.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), `APP_ENVIRONMENT`, sowie die von `get_storage()` verwendeten `S3_*`-Vars.
+
+---
+
+## `downsync_prod.py`
+
+Autarker, zweistufiger Downsync auf die lokale Non-Prod-Stage — keine
+Delegation an ein anderes Skript. Schritt 1 spiegelt den **kompletten**
+produktiven AWS-S3-Bucket `vindobona2-at` 1:1 in das lokale MinIO: ein
+exakter Klon, da Quelle und Ziel bereits dieselbe Key-Struktur nutzen (kein
+Legacy-Prefix-Remapping mehr nötig, anders als beim entfernten
+`downsync_from_prod_aws.py`). Objekte, die lokal existieren, aber nicht in
+der Prod-Quelle, werden gelöscht (Mirror-Modus), außer `--no-delete` wird
+übergeben. Schritt 2 stellt die lokale PostgreSQL-Datenbank aus dem jetzt
+aktuellen `db-backups/`-Prefix des lokalen MinIO wieder her — also aus dem,
+was Schritt 1 gerade erst von Prod heruntergebracht hat —, nutzt dafür
+exakt `backup_service.run_restore()` wie `restore_db.py`, führt danach
+`alembic upgrade head` aus. Der DB-Schritt spricht daher nie direkt mit
+Prod, sondern liest ausschließlich lokalen Storage — deshalb muss Schritt 1
+vor Schritt 2 laufen, sofern beide aktiv sind. Verweigert den Start
+komplett, wenn `APP_ENVIRONMENT=production` gesetzt ist (harter Guard, kein
+Override), da hier zwei Operationen kombiniert werden, die jede für sich
+bereits destruktiv gegen die jeweils angezielte Stage sind. Fragt vor jeder
+Aktion interaktiv per "yes"-Bestätigung nach, außer `--yes` wird übergeben.
+
+Muss **im Container** laufen — `pg_restore` und `alembic` sind nur dort
+installiert, nicht auf dem Host.
+
+**Aufruf:**
+```bash
+# Im Container
+python scripts/downsync_prod.py
+python scripts/downsync_prod.py --dry-run
+python scripts/downsync_prod.py --yes
+python scripts/downsync_prod.py --skip-db
+python scripts/downsync_prod.py --skip-s3 --no-delete
+
+# Via podman exec
+podman exec vb-api python scripts/downsync_prod.py
+podman exec -it vb-api python scripts/downsync_prod.py
+```
+
+**Parameter:**
+- `--dry-run` — S3-Schritt: zeigt an, was kopiert/gelöscht würde, ohne den Sync auszuführen. DB-Schritt: gibt nur das im lokalen MinIO aktuell neueste Backup aus (also das, was ein echter Lauf wiederherstellen würde), ohne es herunterzuladen/wiederherzustellen.
+- `--yes` — überspringt die interaktive Bestätigungsabfrage.
+- `--skip-db` — überspringt den DB-Wiederherstellungsschritt komplett.
+- `--skip-s3` — überspringt den S3-Mirror-Schritt komplett (Prod-AWS-Credentials werden dann gar nicht erst geladen, da der DB-Schritt nur lokalen Storage braucht).
+- `--no-delete` — nur S3-Schritt: synct neue/geänderte Dateien, überspringt aber das Löschen lokaler Waisen.
+
+**Relevante Env-Vars:** `DATABASE_URL` (Restore-Ziel, muss PostgreSQL sein), `APP_ENVIRONMENT` (darf nicht `production` sein), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (lokales MinIO, sowohl Mirror-Ziel als auch DB-Restore-Quelle). Die Prod-AWS-Quell-Credentials für den S3-Schritt kommen aus `/run/secrets/aws-prod.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET=vindobona2-at`).
 
 ---
 

@@ -118,6 +118,12 @@ class TestStorageClient:
         result = mock_s3.download("test/key")
         assert result == b"hello"
 
+    def test_download_with_metadata_preserves_content_type(self, mock_s3):
+        mock_s3.upload("test/meta", b"hello", "image/png")
+        data, content_type = mock_s3.download_with_metadata("test/meta")
+        assert data == b"hello"
+        assert content_type == "image/png"
+
     def test_exists_true(self, mock_s3):
         mock_s3.upload("test/exists", b"data")
         assert mock_s3.exists("test/exists") is True

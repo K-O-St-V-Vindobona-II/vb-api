@@ -253,14 +253,15 @@ class TestBackupJobRegistration:
     def test_backup_job_registered_by_default(self):
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-        from app.core.scheduler import _next_backup_run, job_db_backup
+        from app.core.scheduler import BACKUP_HOUR, job_db_backup
 
         sched = AsyncIOScheduler()
         sched.add_job(
             job_db_backup,
-            "interval",
-            days=7,
-            start_date=_next_backup_run(3),
+            "cron",
+            hour=BACKUP_HOUR,
+            minute=0,
+            timezone=UTC,
             id="db_backup",
             replace_existing=True,
         )
@@ -274,6 +275,35 @@ class TestBackupJobRegistration:
         # When BACKUP_ENABLED=false, no job is added — empty scheduler has no db_backup
         ids = [j.id for j in sched.get_jobs()]
         assert "db_backup" not in ids
+
+    def test_backup_job_uses_restart_safe_cron_trigger(self):
+        """Regression guard: the job used to run on an interval trigger
+        whose start_date was recomputed on every app restart
+        (replace_existing=True on every scheduler.add_job() call at
+        startup, no persistent jobstore), silently resetting the schedule
+        any time the app redeployed more often than the configured
+        interval — which happened routinely in this project (observed gaps
+        of 5, 5, 1, 1 days instead of the configured 7). A cron trigger's
+        next-fire time depends only on hour/minute/timezone, not on when
+        add_job() was called, so it can't drift with restart frequency."""
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        from app.core.scheduler import BACKUP_HOUR, job_db_backup
+
+        sched = AsyncIOScheduler()
+        sched.add_job(
+            job_db_backup,
+            "cron",
+            hour=BACKUP_HOUR,
+            minute=0,
+            timezone=UTC,
+            id="db_backup",
+        )
+        trigger = sched.get_job("db_backup").trigger
+
+        assert isinstance(trigger, CronTrigger)
+        assert str(trigger) == f"cron[hour='{BACKUP_HOUR}', minute='0']"
 
 
 class TestSchedulerTimezone:

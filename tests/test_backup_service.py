@@ -1,7 +1,7 @@
 """Tests for backup_service — run_backup, run_restore, cleanup_old_backups."""
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
@@ -85,6 +85,10 @@ class TestParseBackupTimestamp:
 
     def test_invalid_empty(self):
         assert _parse_backup_timestamp("") is None
+
+    def test_valid_manual_suffix(self):
+        dt = _parse_backup_timestamp("development-2026-06-30_03-00-00-manual.dump")
+        assert dt == datetime(2026, 6, 30, 3, 0, 0, tzinfo=UTC)
 
 
 class TestParseDbUrl:
@@ -196,6 +200,31 @@ class TestRunBackup:
         ):
             run_backup(storage)
 
+    def test_run_backup_manual_adds_suffix(self, backup_bucket):
+        storage = _make_storage()
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_DUMP),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout=b"x", returncode=0)
+            name = run_backup(storage, manual=True)
+
+        assert name.endswith("-manual.dump")
+        assert _parse_backup_timestamp(name) is not None
+
+    def test_run_backup_scheduled_has_no_suffix(self, backup_bucket):
+        storage = _make_storage()
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_DUMP),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout=b"x", returncode=0)
+            name = run_backup(storage)
+
+        assert "-manual" not in name
+
 
 class TestRunRestore:
     def test_run_restore_specific_name(self, backup_bucket):
@@ -230,6 +259,46 @@ class TestRunRestore:
             run_restore(storage, backup_name=None)
 
         mock_run.assert_called_once()
+
+    def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
+        self, backup_bucket
+    ):
+        storage = _make_storage()
+        _put_backup(storage, "test-2026-06-30_03-00-00.dump")
+        newest = "test-2026-07-15_12-00-00-manual.dump"
+        _put_backup(storage, newest)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+            patch.object(storage, "download", wraps=storage.download) as mock_download,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            run_restore(storage, backup_name=None)
+
+        mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
+
+    def test_run_restore_latest_picks_newer_scheduled_over_older_manual(
+        self, backup_bucket
+    ):
+        storage = _make_storage()
+        _put_backup(storage, "test-2026-06-30_03-00-00-manual.dump")
+        newest = "test-2026-07-15_03-00-00.dump"
+        _put_backup(storage, newest)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+            patch.object(storage, "download", wraps=storage.download) as mock_download,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            run_restore(storage, backup_name=None)
+
+        mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
 
     def test_run_restore_no_backups(self, backup_bucket):
         storage = _make_storage()
@@ -340,6 +409,15 @@ class TestCleanupOldBackups:
 
         assert deleted == [old]
 
+    def test_manual_backups_are_not_skipped(self, backup_bucket):
+        storage = _make_storage()
+        old_manual = "test-2020-06-01_00-00-00-manual.dump"
+        _put_backup(storage, old_manual)
+
+        deleted = cleanup_old_backups(storage, retention_days=1)
+
+        assert deleted == [old_manual]
+
 
 class TestListKeys:
     def test_empty_prefix(self, backup_bucket):
@@ -354,27 +432,3 @@ class TestListKeys:
 
         keys = storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
         assert len(keys) == 3
-
-
-class TestNextBackupRun:
-    def test_future_hour_today(self):
-        from app.core.scheduler import _next_backup_run
-
-        with patch("app.core.scheduler.datetime") as mock_dt:
-            now = datetime(2026, 6, 30, 1, 0, 0, tzinfo=UTC)
-            mock_dt.now.return_value = now
-            result = _next_backup_run(hour=3)
-
-        assert result.date() == now.date()
-        assert result.hour == 3
-
-    def test_past_hour_gives_tomorrow(self):
-        from app.core.scheduler import _next_backup_run
-
-        with patch("app.core.scheduler.datetime") as mock_dt:
-            now = datetime(2026, 6, 30, 5, 0, 0, tzinfo=UTC)
-            mock_dt.now.return_value = now
-            result = _next_backup_run(hour=3)
-
-        assert result.date() == (now + timedelta(days=1)).date()
-        assert result.hour == 3

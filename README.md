@@ -86,7 +86,7 @@ podman exec vb-api alembic revision --autogenerate -m "description"
 | `scripts/restore_db.py` | Restore PostgreSQL from S3 backup (`--list`, `--backup-name`, `--force`) |
 | `scripts/check_s3_integrity.py` | Bidirectional DB↔S3 integrity check + orphan report (read-only) |
 | `scripts/migrate_to_s3.py` | One-time local filesystem → S3 migration |
-| `scripts/downsync_from_prod_aws.py` | Mirror AWS S3 (prod) → MinIO (dev) |
+| `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local MinIO, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/sqlite2pg.py` | One-time SQLite → PostgreSQL migration (legacy) |
 
 ## Branching

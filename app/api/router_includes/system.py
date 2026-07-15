@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.core.scheduler import get_scheduled_jobs
+from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
+from app.services.backup_service import run_backup
 from app.services.permission_service import (
     get_permission_rules_display,
 )
@@ -29,12 +32,41 @@ class ScheduledJobResponse(BaseModel):
     description: str | None = None
 
 
+class BackupTriggerResponse(BaseModel):
+    backup_name: str
+    triggered_at: str
+
+
 @system_router.get("/permission-rules")
 def list_permission_rules(
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> list[PermissionRuleResponse]:
     """List all permission rules with their descriptions. Requires systemAdmin."""
     return [PermissionRuleResponse(**r) for r in get_permission_rules_display()]
+
+
+@system_router.post("/backups/trigger", status_code=status.HTTP_201_CREATED)
+def trigger_backup(
+    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    storage: Annotated[StorageClient, Depends(get_storage)],
+) -> BackupTriggerResponse:
+    """Manually trigger an immediate DB backup to S3. Requires systemAdmin.
+
+    Runs synchronously (pg_dump + S3 upload blocks the request), same as
+    backup_db.py's CLI behavior — DB size here does not warrant background-
+    job infrastructure. Available on every stage, not just production.
+    """
+    try:
+        backup_name = run_backup(storage, manual=True)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    return BackupTriggerResponse(
+        backup_name=backup_name,
+        triggered_at=datetime.now(UTC).isoformat(),
+    )
 
 
 @system_router.get("/scheduled-jobs")

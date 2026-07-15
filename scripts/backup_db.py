@@ -64,7 +64,7 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        backup_name = run_backup(storage)
+        backup_name = run_backup(storage, manual=True)
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
