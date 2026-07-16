@@ -23,7 +23,19 @@ PG_URL = "postgresql://user:secret@localhost:5432/testdb"
 SQLITE_URL = "sqlite:///test.db"
 FAKE_PG_DUMP = "/usr/bin/pg_dump"
 FAKE_PG_RESTORE = "/usr/bin/pg_restore"
+FAKE_PSQL = "/usr/bin/psql"
 PATCH_WHICH = "app.services.backup_service.shutil.which"
+
+_FAKE_PG_TOOLS = {
+    "pg_dump": FAKE_PG_DUMP,
+    "pg_restore": FAKE_PG_RESTORE,
+    "psql": FAKE_PSQL,
+}
+
+
+def _which_side_effect(name: str) -> str:
+    return _FAKE_PG_TOOLS[name]
+
 
 _S3_CREDS = dict(
     region_name="us-east-1",
@@ -234,15 +246,49 @@ class TestRunRestore:
 
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
             run_restore(storage, backup_name=backup_name)
 
-        args = mock_run.call_args[0][0]
-        assert "pg_restore" in args[0]
+        assert mock_run.call_count == 2
+        restore_args = mock_run.call_args_list[1][0][0]
+        assert "pg_restore" in restore_args[0]
+
+    def test_run_restore_wipes_schema_before_restoring(self, backup_bucket):
+        """Regression guard for the pg_restore --clean drop-order bug: a
+        real production dump (members table with a self-referencing FK
+        plus an external FK both depending on members_pkey) made
+        pg_restore --clean fail to drop members_pkey and then silently
+        continue past the error, leaving the schema missing that FK
+        entirely - even on a run that reported zero errors. Wiping the
+        schema first and restoring without --clean/--if-exists sidesteps
+        the ordering problem completely."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            run_restore(storage, backup_name=backup_name)
+
+        assert mock_run.call_count == 2
+        wipe_args = mock_run.call_args_list[0][0][0]
+        restore_args = mock_run.call_args_list[1][0][0]
+
+        assert wipe_args[0] == FAKE_PSQL
+        assert "-c" in wipe_args
+        assert "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" in wipe_args
+        assert restore_args[0] == FAKE_PG_RESTORE
+        assert "--clean" not in restore_args
+        assert "--if-exists" not in restore_args
 
     def test_run_restore_latest(self, backup_bucket):
         storage = _make_storage()
@@ -251,14 +297,14 @@ class TestRunRestore:
 
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
             run_restore(storage, backup_name=None)
 
-        mock_run.assert_called_once()
+        assert mock_run.call_count == 2
 
     def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
         self, backup_bucket
@@ -270,7 +316,7 @@ class TestRunRestore:
 
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
@@ -290,7 +336,7 @@ class TestRunRestore:
 
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
@@ -333,27 +379,27 @@ class TestRunRestore:
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
             patch("app.services.backup_service.APP_ENVIRONMENT", "production"),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
             run_restore(storage, backup_name=backup_name, force=True)
 
-        mock_run.assert_called_once()
+        assert mock_run.call_count == 2
 
-    def test_run_restore_pg_restore_fails_cleans_up_tempfile(self, backup_bucket):
+    def test_run_restore_psql_wipe_fails_cleans_up_tempfile(self, backup_bucket):
         storage = _make_storage()
         backup_name = "test-2026-01-01_03-00-00.dump"
         _put_backup(storage, backup_name)
 
         with (
             patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch(PATCH_WHICH, return_value=FAKE_PG_RESTORE),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch(
                 "subprocess.run",
                 side_effect=CalledProcessError(
-                    1, "pg_restore", stderr=b"pg_restore: error: could not connect"
+                    1, "psql", stderr=b"psql: error: could not connect"
                 ),
             ),
             patch.object(Path, "unlink") as mock_unlink,
@@ -362,6 +408,28 @@ class TestRunRestore:
             run_restore(storage, backup_name=backup_name)
 
         mock_unlink.assert_called_once()
+
+    def test_run_restore_pg_restore_fails_cleans_up_tempfile(self, backup_bucket):
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    MagicMock(returncode=0),
+                    CalledProcessError(
+                        1, "pg_restore", stderr=b"pg_restore: error: could not connect"
+                    ),
+                ],
+            ),
+            patch.object(Path, "unlink") as mock_unlink,
+            pytest.raises(RuntimeError, match="could not connect"),
+        ):
+            run_restore(storage, backup_name=backup_name)
 
         mock_unlink.assert_called_once()
 
