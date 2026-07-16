@@ -126,6 +126,39 @@ def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
     return backup_name
 
 
+def _wipe_public_schema(
+    host: str, user: str, password: str, port: int, dbname: str
+) -> None:
+    """Drop and recreate the 'public' schema before a full restore.
+
+    pg_restore --clean computes DROP order from the dump's dependency
+    graph, which can get self-referencing foreign keys wrong (e.g. a
+    table with a FK to itself, plus another table's FK into the same
+    primary key) - it then aborts that one DROP with "cannot drop
+    constraint ... because other objects depend on it", and pg_restore's
+    default error-tolerant behavior silently continues past the failure,
+    leaving the target schema in an inconsistent, partially-restored
+    state (observed in practice: a 44 MB production dump this actually
+    happened with). Wiping the schema upfront and restoring without
+    --clean sidesteps the ordering problem entirely - there is nothing
+    left to drop, so no DROP order can ever be wrong.
+    """
+    psql = _resolve_pg_tool("psql")
+    _run_pg_subprocess(
+        [
+            psql,
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={dbname}",
+            "-c",
+            "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
+        ],
+        env=_build_pg_env(password),
+        tool_name="psql",
+    )
+
+
 def run_restore(
     storage: StorageClient,
     backup_name: str | None = None,
@@ -169,11 +202,10 @@ def run_restore(
     logger.info("Restoring DB from backup: %s", backup_name)
     pg_restore = _resolve_pg_tool("pg_restore")
     try:
+        _wipe_public_schema(host, user, password, port, dbname)
         _run_pg_subprocess(
             [
                 pg_restore,
-                "--clean",
-                "--if-exists",
                 f"--host={host}",
                 f"--port={port}",
                 f"--username={user}",
