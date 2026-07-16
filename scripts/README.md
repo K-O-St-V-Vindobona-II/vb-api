@@ -202,6 +202,37 @@ podman exec vb-api python scripts/sqlite2pg.py
 
 ---
 
+## `migrate_public_gallery.py`
+
+One-time migration of the legacy `www.vindobona2.at` "Eindrücke" gallery,
+which is backed by a real Flickr account's photostream (via the "Flickr
+Justified Gallery" WordPress plugin) rather than local uploads. The script
+scrapes the given page for Flickr-hosted (`static.flickr.com`) `<img>` tags,
+downloads each unique image (deduplicated by URL, so the same photostream
+rendered twice on the page only counts once), and inserts it into the new
+`public_gallery_images` table — the table that backs the new `vb-www` site's
+own Eindrücke section (`GET /api/public/gallery`). Images already present
+(matched by `sha256_hash`) are skipped, so the script is safe to re-run.
+After this runs once, the gallery is fully decoupled from Flickr — editors
+manage it from then on via `vb-intern`'s "www-Administration" → "Galerie".
+
+**Usage:**
+```bash
+# Inside the container
+python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+
+# Via podman exec
+podman exec vb-api python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+```
+
+**Parameters:**
+- `--dry-run` — list what would be migrated (caption, dimensions, size) without writing to S3 or the database.
+- `--source-url` — page to scrape for gallery images (default: `https://www.vindobona2.at/vb/`).
+
+**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_PUBLIC_GALLERY`, `DATABASE_URL`.
+
+---
+
 # Scripts (Deutsch)
 
 Betriebs- und einmalige Migrations-Scripts für das Backend. Alle Scripts
@@ -412,3 +443,36 @@ podman exec vb-api python scripts/sqlite2pg.py
 **Parameter:** keine — das Script ist nicht-interaktiv und kennt keine CLI-Flags.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss eine PostgreSQL-URL sein — sonst bricht das Script ab). Der SQLite-Quellpfad ist fest auf `/database/legacy_db.sqlite3` gesetzt.
+
+---
+
+## `migrate_public_gallery.py`
+
+Einmalige Migration der bisherigen "Eindrücke"-Galerie von `www.vindobona2.at`,
+die über einen echten Flickr-Account (via das WordPress-Plugin "Flickr
+Justified Gallery") bespielt wird, nicht über lokale Uploads. Das Script
+durchsucht die übergebene Seite nach Flickr-gehosteten (`static.flickr.com`)
+`<img>`-Tags, lädt jedes eindeutige Bild herunter (dedupliziert nach URL —
+derselbe Photostream, zweimal auf der Seite gerendert, zählt nur einmal) und
+legt es in der neuen `public_gallery_images`-Tabelle ab — der Tabelle, die
+die Eindrücke-Sektion der neuen `vb-www`-Seite versorgt
+(`GET /api/public/gallery`). Bereits vorhandene Bilder (Abgleich über
+`sha256_hash`) werden übersprungen, das Script kann also gefahrlos erneut
+ausgeführt werden. Nach einmaligem Lauf ist die Galerie komplett von Flickr
+entkoppelt — Berechtigte pflegen sie danach über den Menüpunkt
+"www-Administration" → "Galerie" in `vb-intern`.
+
+**Aufruf:**
+```bash
+# Im Container
+python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+
+# Via podman exec
+podman exec vb-api python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+```
+
+**Parameter:**
+- `--dry-run` — listet nur auf, was migriert würde (Bildunterschrift, Abmessungen, Größe), ohne S3/Datenbank zu verändern.
+- `--source-url` — Seite, die nach Galerie-Bildern durchsucht wird (Standard: `https://www.vindobona2.at/vb/`).
+
+**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_PUBLIC_GALLERY`, `DATABASE_URL`.

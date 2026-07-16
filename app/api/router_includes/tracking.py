@@ -172,6 +172,12 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
         "source": "scheduler.py → job_standesdb_health_check()",
         "file": "standesdb_health_check.html",
     },
+    {
+        "key": "public-contact-form",
+        "name": "Kontaktformular (www.vindobona2.at)",
+        "source": "public_site.py → submit_contact_form()",
+        "file": "public_contact_form.html",
+    },
 ]
 
 
@@ -241,6 +247,11 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
     "standesdb_health_check": {
         "missing": [],
         "orphans": ["standesdb/images/def456"],
+    },
+    "public-contact-form": {
+        "name": "Max Mustermann",
+        "email": "max@example.com",
+        "message": "Hallo, ich interessiere mich für Vindobona II.",
     },
 }
 

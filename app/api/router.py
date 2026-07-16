@@ -11,6 +11,10 @@ from app.api.router_includes.members import (
     members_router,
 )
 from app.api.router_includes.p4x import p4x_router
+from app.api.router_includes.public_gallery_admin import (
+    public_gallery_admin_router,
+)
+from app.api.router_includes.public_site import public_site_router
 from app.api.router_includes.standesdb import (
     standesdb_router,
 )
@@ -75,6 +79,21 @@ OPENAPI_TAGS: list[dict[str, str]] = [
             "scheduled job status, and a paginated database table browser."
         ),
     },
+    {
+        "name": "Public",
+        "description": (
+            "Unauthenticated endpoints backing the public www.vindobona2.at "
+            "site: published gallery images and the contact form."
+        ),
+    },
+    {
+        "name": "Public Site Administration",
+        "description": (
+            "Authenticated management of the public www.vindobona2.at "
+            "gallery (upload, reorder, publish/unpublish, delete). "
+            "Requires the 'publicContentEditor' permission."
+        ),
+    },
 ]
 
 api_router = APIRouter()
@@ -118,4 +137,14 @@ api_router.include_router(
     system_router,
     prefix="/system",
     tags=["System"],
+)
+api_router.include_router(
+    public_site_router,
+    prefix="/public",
+    tags=["Public"],
+)
+api_router.include_router(
+    public_gallery_admin_router,
+    prefix="/public-gallery-admin",
+    tags=["Public Site Administration"],
 )

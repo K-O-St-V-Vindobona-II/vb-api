@@ -24,6 +24,7 @@ S3_PATH_STANDESDB_CACHE: str = os.environ.get(
 S3_PATH_ARCHIVE_STORE: str = os.environ.get("S3_PATH_ARCHIVE_STORE", "archive/store")
 S3_PATH_ARCHIVE_CACHE: str = os.environ.get("S3_PATH_ARCHIVE_CACHE", "archive/cache")
 S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
+S3_PATH_PUBLIC_GALLERY: str = os.environ.get("S3_PATH_PUBLIC_GALLERY", "public/gallery")
 
 # Bump when generate_thumbnail()'s output changes, to invalidate stale cached
 # thumbnails in S3 (cache keys are content-hash-based and never expire otherwise).

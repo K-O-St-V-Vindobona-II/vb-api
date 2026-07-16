@@ -97,6 +97,13 @@ PERMISSION_RULES: list[PermissionRule] = [
             "phil-xxxx" in rids and org == "vbw"
         ),
     ),
+    PermissionRule(
+        permission="publicContentEditor",
+        description="Rolle 'Internetreferent' + Organisation VBW",
+        condition=lambda rids, _rgrps, org, _email: (
+            "internetreferent" in rids and org == "vbw"
+        ),
+    ),
 ]
 
 ALL_PERMISSIONS: list[str] = sorted({rule.permission for rule in PERMISSION_RULES})
