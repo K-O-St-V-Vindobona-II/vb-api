@@ -3,6 +3,7 @@
 import hashlib
 import io
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 from PIL import Image as PILImage
 
@@ -59,6 +60,34 @@ def test_standalone_import_configures_mappers_without_error() -> None:
     assert_module_imports_and_configures_mappers("scripts.migrate_public_gallery")
 
 
+class TestIsFlickrCdnUrl:
+    def test_accepts_the_bare_cdn_host(self) -> None:
+        assert migrate_public_gallery._is_flickr_cdn_url(
+            "https://static.flickr.com/1.jpg"
+        )
+
+    def test_accepts_a_farm_subdomain(self) -> None:
+        assert migrate_public_gallery._is_flickr_cdn_url(
+            "https://farm66.static.flickr.com/65535/1_a.jpg"
+        )
+
+    def test_rejects_host_as_a_query_string_substring(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url(
+            "https://evil.example/?x=static.flickr.com"
+        )
+
+    def test_rejects_flickr_host_as_subdomain_of_other_domain(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url(
+            "https://static.flickr.com.evil.example/fake.jpg"
+        )
+
+    def test_rejects_empty_string(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url("")
+
+    def test_rejects_unparseable_hostname(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url("not a url")
+
+
 class TestGalleryImageParser:
     def test_extracts_flickr_images_with_captions_in_order(self) -> None:
         parser = migrate_public_gallery._GalleryImageParser()
@@ -80,7 +109,26 @@ class TestGalleryImageParser:
     def test_ignores_non_flickr_images(self) -> None:
         parser = migrate_public_gallery._GalleryImageParser()
         parser.feed(GALLERY_HTML)
-        assert all("static.flickr.com" in url for url, _ in parser.images)
+        # Real host check (not a substring match, see _is_flickr_cdn_url) -
+        # every extracted URL's actual hostname is on Flickr's CDN.
+        assert all(
+            urlparse(url).hostname == "static.flickr.com"
+            or (urlparse(url).hostname or "").endswith(".static.flickr.com")
+            for url, _ in parser.images
+        )
+
+    def test_ignores_urls_with_flickr_host_only_as_substring(self) -> None:
+        """Regression test for the substring-sanitization bypass CodeQL
+        flagged: a URL whose host merely contains "static.flickr.com"
+        (in the query string or as part of an unrelated domain) must not be
+        picked up."""
+        html = """
+        <img src="https://evil.example/?x=static.flickr.com/fake.jpg" />
+        <img src="https://static.flickr.com.evil.example/fake.jpg" />
+        """
+        parser = migrate_public_gallery._GalleryImageParser()
+        parser.feed(html)
+        assert parser.images == []
 
 
 class TestFetchGalleryImages:
