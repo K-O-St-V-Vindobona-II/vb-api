@@ -26,6 +26,7 @@ import sys
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 from PIL import Image as PILImage
@@ -43,6 +44,26 @@ from app.models.public_gallery_image import PublicGalleryImage
 DEFAULT_SOURCE_URL = "https://www.vindobona2.at/vb/"
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 REQUEST_TIMEOUT = 30
+
+FLICKR_CDN_HOST = "static.flickr.com"
+FLICKR_CDN_HOST_SUFFIX = ".static.flickr.com"
+
+
+def _is_flickr_cdn_url(url: str) -> bool:
+    """True only if `url`'s actual host is (a farm subdomain of) Flickr's
+    static CDN, e.g. `farm66.static.flickr.com`.
+
+    A plain `"static.flickr.com" in url` substring check can be bypassed by
+    a URL like `https://evil.example/?x=static.flickr.com` or
+    `https://static.flickr.com.evil.example/` - both contain the substring
+    anywhere in the string without actually being hosted on Flickr, which
+    would make this one-time migration script download from an arbitrary,
+    attacker-controlled host.
+    """
+    hostname = urlparse(url).hostname
+    if not hostname:
+        return False
+    return hostname == FLICKR_CDN_HOST or hostname.endswith(FLICKR_CDN_HOST_SUFFIX)
 
 
 class _GalleryImageParser(HTMLParser):
@@ -62,7 +83,7 @@ class _GalleryImageParser(HTMLParser):
             return
         attr_dict = dict(attrs)
         url = attr_dict.get("data-safe-src") or attr_dict.get("src")
-        if not url or "static.flickr.com" not in url:
+        if not url or not _is_flickr_cdn_url(url):
             return
         if url in self._seen_urls:
             return
