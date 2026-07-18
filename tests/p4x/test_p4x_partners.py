@@ -88,6 +88,11 @@ class TestSearchPartners:
         assert results[0]["type"] == "member"
         assert "Kopernikus" in results[0]["label"]
 
+    def test_search_member_label_includes_org(self, db_session):
+        _, _member, _, _ = _seed(db_session)
+        results = search_partners(db_session, "Kopernikus")
+        assert results[0]["label"] == "Mitglied (VBW): Michael Schimpl v/o Kopernikus"
+
     def test_search_contact(self, db_session):
         _, _, _contact, _ = _seed(db_session)
         results = search_partners(db_session, "Netcup")

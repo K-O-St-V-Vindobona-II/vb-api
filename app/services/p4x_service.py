@@ -975,7 +975,10 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         .all()
     )
     for m in members:
-        results.append({"type": "member", "id": m.id, "label": f"Mitglied: {m.cn}"})
+        org_label = m.org_id.upper() if m.org_id else "?"
+        results.append(
+            {"type": "member", "id": m.id, "label": f"Mitglied ({org_label}): {m.cn}"}
+        )
 
     contacts = (
         db.query(Contact)
