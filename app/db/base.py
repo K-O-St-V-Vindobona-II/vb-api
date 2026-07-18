@@ -32,6 +32,7 @@ from app.models.p4x_summary_order import P4xSummaryOrder  # noqa: F401
 from app.models.p4x_transaction import P4xTransaction  # noqa: F401
 from app.models.password_reset import PasswordResetToken  # noqa: F401
 from app.models.personal_access_token import PersonalAccessToken  # noqa: F401
+from app.models.public_gallery_image import PublicGalleryImage  # noqa: F401
 from app.models.request_log import RequestLog  # noqa: F401
 from app.models.role import Role  # noqa: F401
 from app.models.sent_email import SentEmail  # noqa: F401
