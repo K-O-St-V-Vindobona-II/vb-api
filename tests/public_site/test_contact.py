@@ -36,7 +36,7 @@ class TestContactForm:
             )
         called_recipients = mock_send.call_args[0][0]
         assert called_recipients == [
-            "log@gebruederpixel.at",
+            "philchc@vindobona2.at",
             "vindoboneninfo@gmail.com",
         ]
 

@@ -14,7 +14,7 @@ from app.services import public_gallery_service
 # the public www.vindobona2.at marketing site, which has no login at all.
 public_site_router = APIRouter()
 
-CONTACT_RECIPIENTS = ["log@gebruederpixel.at", "vindoboneninfo@gmail.com"]
+CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
 
 
 @public_site_router.get("/gallery")
