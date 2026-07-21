@@ -90,6 +90,34 @@ class TestIsFlickrCdnUrl:
         assert not migrate_public_gallery._is_flickr_cdn_url("not a url")
 
 
+class TestIsFlickrCdnUrl:
+    def test_accepts_the_bare_cdn_host(self) -> None:
+        assert migrate_public_gallery._is_flickr_cdn_url(
+            "https://static.flickr.com/1.jpg"
+        )
+
+    def test_accepts_a_farm_subdomain(self) -> None:
+        assert migrate_public_gallery._is_flickr_cdn_url(
+            "https://farm66.static.flickr.com/65535/1_a.jpg"
+        )
+
+    def test_rejects_host_as_a_query_string_substring(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url(
+            "https://evil.example/?x=static.flickr.com"
+        )
+
+    def test_rejects_flickr_host_as_subdomain_of_other_domain(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url(
+            "https://static.flickr.com.evil.example/fake.jpg"
+        )
+
+    def test_rejects_empty_string(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url("")
+
+    def test_rejects_unparseable_hostname(self) -> None:
+        assert not migrate_public_gallery._is_flickr_cdn_url("not a url")
+
+
 class TestGalleryImageParser:
     def test_extracts_flickr_images_with_captions_in_order(self) -> None:
         parser = migrate_public_gallery._GalleryImageParser()
