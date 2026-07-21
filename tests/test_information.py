@@ -1,10 +1,13 @@
 """Tests für den Information/Payment Endpoint."""
 
+import datetime
+
 import bcrypt
-from sqlalchemy import text
 
 from app.models.member import Member
 from app.models.org import Org
+from app.models.p4x_account import P4xAccount
+from app.models.p4x_fee import P4xFee
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import (
@@ -48,34 +51,20 @@ def _login_user(db, _client):
     return {"Authorization": f"Bearer {token}"}, m
 
 
-def _create_p4x_tables(db):
-    """Create the raw p4x_fees and p4x_accounts
-    tables (not managed by ORM) and clear any
-    leftover data from prior tests."""
-    db.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS p4x_fees ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  start TEXT NOT NULL,"
-            "  fee REAL NOT NULL,"
-            "  protected INTEGER DEFAULT 0"
-            ")"
+def _seed_p4x_account(db):
+    """The app looks up the single p4x_accounts row by id=1
+    (app/api/router_includes/information.py) — a deliberate
+    single-account business assumption, not a test artifact."""
+    db.add(
+        P4xAccount(
+            id=1,
+            iban="AT941234567890123456",
+            bic="GIBAATWWXXX",
+            label="AH-Kassa",
+            init_date=datetime.date(2020, 1, 1),
+            init_balance=0,
         )
     )
-    db.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS p4x_accounts ("
-            "  id INTEGER PRIMARY KEY,"
-            "  iban TEXT NOT NULL,"
-            "  bic TEXT NOT NULL,"
-            "  label TEXT,"
-            "  init_date TEXT,"
-            "  init_balance REAL DEFAULT 0"
-            ")"
-        )
-    )
-    db.execute(text("DELETE FROM p4x_fees"))
-    db.execute(text("DELETE FROM p4x_accounts"))
     db.commit()
 
 
@@ -98,25 +87,8 @@ class TestPaymentEndpoint:
         """Authenticated request returns
         a list with 2 entries."""
         _seed(db_session)
-        _create_p4x_tables(db_session)
-        db_session.execute(
-            text(
-                "INSERT INTO p4x_accounts"
-                " (id, iban, bic, label,"
-                "  init_date, init_balance)"
-                " VALUES"
-                " (1, 'AT941234567890123456',"
-                "  'GIBAATWWXXX', 'AH-Kassa',"
-                "  '2020-01-01', 0)"
-            )
-        )
-        db_session.execute(
-            text(
-                "INSERT INTO p4x_fees"
-                " (start, fee, protected)"
-                " VALUES ('2020-01-01', 10, 0)"
-            )
-        )
+        _seed_p4x_account(db_session)
+        db_session.add(P4xFee(start=datetime.date(2020, 1, 1), fee=10, protected=False))
         db_session.commit()
         headers, _ = _login_user(db_session, client)
         resp = client.get(
@@ -138,25 +110,8 @@ class TestPaymentEndpoint:
         """The AH fee is dynamically calculated
         from p4x_fees table."""
         _seed(db_session)
-        _create_p4x_tables(db_session)
-        db_session.execute(
-            text(
-                "INSERT INTO p4x_accounts"
-                " (id, iban, bic, label,"
-                "  init_date, init_balance)"
-                " VALUES"
-                " (1, 'AT941234567890123456',"
-                "  'GIBAATWWXXX', 'AH-Kassa',"
-                "  '2020-01-01', 0)"
-            )
-        )
-        db_session.execute(
-            text(
-                "INSERT INTO p4x_fees"
-                " (start, fee, protected)"
-                " VALUES ('2020-01-01', 25, 0)"
-            )
-        )
+        _seed_p4x_account(db_session)
+        db_session.add(P4xFee(start=datetime.date(2020, 1, 1), fee=25, protected=False))
         db_session.commit()
         headers, _ = _login_user(db_session, client)
         resp = client.get(

@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from app.models.badge import Badge
 from app.models.contact import Contact
 from app.models.key import Key
@@ -11,6 +13,13 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
+
+
+@pytest.fixture(autouse=True)
+def _seed_vbw_org(db_session):
+    """Most Member fixtures below reference org_id="vbw"."""
+    db_session.add(Org(id="vbw", label="VBW", order=1))
+    db_session.commit()
 
 
 def test_org_model(db_session):

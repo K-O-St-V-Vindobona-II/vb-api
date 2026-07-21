@@ -36,6 +36,7 @@ def _seed(db) -> P4xAccount:
         updated_at=_now(),
     )
     cat = P4xCategory(
+        id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
         name="eingang.mitgliedsbeitrag",
         label="Mitgliedsbeitrag",
         background_color="#336600",
@@ -264,7 +265,11 @@ class TestSummaryXlsxEdgeCases:
         db_session.add(tx)
         db_session.flush()
 
-        cat1 = db_session.query(P4xCategory).filter(P4xCategory.id == 1).first()
+        cat1 = (
+            db_session.query(P4xCategory)
+            .filter(P4xCategory.name == "eingang.mitgliedsbeitrag")
+            .first()
+        )
         db_session.add_all(
             [
                 P4xCategoryDirect(

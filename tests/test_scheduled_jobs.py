@@ -19,6 +19,7 @@ from app.models.archive_store_item import ArchiveStoreItem
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
+from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import (
@@ -63,6 +64,7 @@ class TestRefreshCategoryFilterHits:
         db_session,
     ):
         _seed_base(db_session)
+        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
         cat = P4xCategory(
             name="test",
             label="Test",

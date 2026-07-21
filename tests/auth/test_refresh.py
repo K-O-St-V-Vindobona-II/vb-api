@@ -30,7 +30,6 @@ def member(db_session):
         email="refresh@test.at",
         auth_password=HASHED,
         auth_locked=False,
-        org_id="vbw",
         nachname="Test",
         vorname="Refresh",
     )

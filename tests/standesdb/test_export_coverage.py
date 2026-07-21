@@ -147,6 +147,7 @@ def _base_payload(**overrides: object) -> dict[str, object]:
 class TestResolveDeliveryAddress:
     def test_invalid_zustellungen_returns_empty(self, db_session: object) -> None:
         """zustellungen not in (adresse_privat, adresse_beruf) -> empty strings."""
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="A",
@@ -159,6 +160,7 @@ class TestResolveDeliveryAddress:
         assert land == ""
 
     def test_none_zustellungen_returns_empty(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(db_session, vorname="A", nachname="B", zustellungen=None)
         anschrift, plz_ort, land = _resolve_delivery_address(m)
         assert anschrift == ""
@@ -166,6 +168,7 @@ class TestResolveDeliveryAddress:
         assert land == ""
 
     def test_adresse_privat_returns_fields(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="A",
@@ -182,6 +185,7 @@ class TestResolveDeliveryAddress:
         assert land == "Österreich"
 
     def test_adresse_beruf_returns_fields(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="A",
@@ -205,6 +209,7 @@ class TestResolveDeliveryAddress:
 
 class TestBuildOrgDates:
     def test_member_with_dates_returns_tuples(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="X",
@@ -221,12 +226,14 @@ class TestBuildOrgDates:
         assert result[1] == ("Juni 2021", "Branderung")
 
     def test_member_no_dates_returns_empty(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(db_session, vorname="X", nachname="Y")
         result = _build_org_dates(m)
         assert result == []
 
     def test_vbn_member_uses_filiierung_label(self, db_session: object) -> None:
         """VBN members get 'Filiierung' instead of 'Burschung'."""
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="V",
@@ -241,6 +248,7 @@ class TestBuildOrgDates:
 
     def test_vbn_member_uses_damenstand_label(self, db_session: object) -> None:
         """VBN members get 'Damenstand' instead of 'Philistrierung'."""
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="V",
@@ -302,6 +310,7 @@ class TestClassifyBadges:
 
 class TestLabelEntries:
     def test_member_label_entry_with_address(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="Max",
@@ -320,6 +329,7 @@ class TestLabelEntries:
         assert entry["land"] == "AT"
 
     def test_member_label_entry_deaktiviert(self, db_session: object) -> None:
+        _seed(db_session)
         m = _member(
             db_session,
             vorname="Max",
@@ -332,6 +342,7 @@ class TestLabelEntries:
         assert entry["land"] == ""
 
     def test_contact_label_entry(self, db_session: object) -> None:
+        _seed(db_session)
         c = _contact(
             db_session,
             name="Firma Test",
@@ -349,6 +360,7 @@ class TestLabelEntries:
         assert entry["land"] == "AT"
 
     def test_contact_label_entry_none_fields(self, db_session: object) -> None:
+        _seed(db_session)
         c = _contact(
             db_session,
             name="Minimal",

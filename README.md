@@ -32,9 +32,35 @@ pre-commit install
 
 ### Running tests
 
+The test suite runs exclusively against a real PostgreSQL database, never
+SQLite (see `tests/conftest.py`) — this is what lets it actually exercise
+DB-native behavior like foreign-key `ON DELETE`/`ON UPDATE` rules, which a
+SQLite-backed suite would silently never enforce. The schema is rebuilt from
+scratch every session via the real Alembic migrations, so drift between
+models and migrations surfaces here too.
+
+**One-time setup** — create a dedicated test database on the same Postgres
+server as your Dev database (never point tests at the real `vb` database;
+the test session destructively drops and rebuilds its schema):
+
 ```bash
-podman exec vb-api python -m pytest
+podman exec vb-api-pg psql -U vb -c "CREATE DATABASE vb_test OWNER vb;"
 ```
+
+**Run the suite:**
+
+```bash
+podman exec -e TEST_DATABASE_URL=postgresql+psycopg2://vb:<pw>@localhost:5432/vb_test vb-api python -m pytest
+```
+
+(`<pw>` is the Postgres password from your `.env`; `localhost:5432` resolves
+because `vb-api` and `vb-api-pg` share a Podman pod.) If `TEST_DATABASE_URL`
+is unset, `conftest.py` falls back to `DATABASE_URL` — but only accepts it
+if it points at an allowlisted test database name (`vb_test`/`test`); any
+other target is refused with a loud error, precisely to prevent a
+misconfigured `DATABASE_URL` from ever wiping a real database. CI uses the
+same convention against its own ephemeral `postgres:17` service container
+(database `test`).
 
 ### Linting & formatting
 

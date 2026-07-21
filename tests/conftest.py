@@ -1,56 +1,113 @@
+"""Shared pytest fixtures.
+
+The test suite runs exclusively against a real PostgreSQL database — see
+scripts/README.md for the local/CI test-database setup convention. The
+schema is built once per test session via the actual Alembic migrations
+(not Base.metadata.create_all()), so the tests also catch model/migration
+drift. Each test runs inside an outer transaction (with a SAVEPOINT for the
+ORM session) that is always rolled back afterward for isolation.
+"""
+
 import os
 from unittest.mock import patch
 
 os.environ["APP_ENVIRONMENT"] = "test"
 os.environ["CORS_ORIGINS"] = "http://localhost:20001,http://127.0.0.1:20001"
 
+_ALLOWED_TEST_DBS = {"vb_test", "test"}
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
+    "DATABASE_URL"
+)
+if not TEST_DATABASE_URL:
+    msg = (
+        "TEST_DATABASE_URL (or DATABASE_URL) is not set. Point it at a "
+        "dedicated PostgreSQL test database, e.g. "
+        "postgresql+psycopg2://vb:<pw>@localhost:5432/vb_test — see "
+        "scripts/README.md."
+    )
+    raise RuntimeError(msg)
+
+_dbname = TEST_DATABASE_URL.rsplit("/", 1)[-1].split("?")[0]
+if _dbname not in _ALLOWED_TEST_DBS:
+    msg = (
+        f"Refusing to run tests against non-test database {_dbname!r}. "
+        f"Allowed test database names: {sorted(_ALLOWED_TEST_DBS)}. The "
+        "test session drops and rebuilds the 'public' schema — pointing "
+        "this at a real dev/prod database would destroy it."
+    )
+    raise RuntimeError(msg)
+
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL  # consulted by alembic/env.py
+
 import bcrypt
 import boto3
 import pytest
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from moto import mock_aws
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from app.core import storage as storage_module
 from app.core.storage import StorageClient, get_storage
-from app.db.base import Base
 from app.db.database import get_db
 from main import app
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+if engine.dialect.name != "postgresql":
+    msg = (
+        f"Test suite requires PostgreSQL, got dialect {engine.dialect.name!r}. "
+        "SQLite fallbacks are not supported — see scripts/README.md."
+    )
+    raise RuntimeError(msg)
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Plain module-level holder, not a ContextVar: TestClient runs the ASGI app
+# in a separate worker thread via an anyio blocking portal, and ContextVar
+# values set in the test thread don't reliably propagate there. The suite
+# runs fully serially (no pytest-xdist), so a single module global is safe.
+_active_session: Session | None = None
 
 
-def override_get_db():
+@pytest.fixture(scope="session", autouse=True)
+def _create_schema() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+    command.upgrade(Config("alembic.ini"), "head")
+
+
+@pytest.fixture(autouse=True)
+def _db_transaction():
+    global _active_session
+    connection = engine.connect()
+    trans = connection.begin()
+    session = TestingSessionLocal(
+        bind=connection, join_transaction_mode="create_savepoint"
+    )
+    _active_session = session
     try:
-        db = TestingSessionLocal()
-        yield db
+        yield session
     finally:
-        db.close()
-
-
-app.dependency_overrides[get_db] = override_get_db
+        _active_session = None
+        session.close()
+        trans.rollback()
+        connection.close()
 
 
 @pytest.fixture
-def db_session():
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    yield db
-    db.close()
-    Base.metadata.drop_all(bind=engine)
+def db_session(_db_transaction: Session) -> Session:
+    return _db_transaction
+
+
+def override_get_db():
+    assert _active_session is not None, "no active per-test session/transaction"
+    yield _active_session  # not closed here — the _db_transaction fixture owns it
+
+
+app.dependency_overrides[get_db] = override_get_db
 
 
 @pytest.fixture(autouse=True)

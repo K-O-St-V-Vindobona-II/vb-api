@@ -13,6 +13,7 @@ def _now() -> datetime:
 
 def _seed(db) -> tuple[P4xAccount, P4xCategory]:
     account = P4xAccount(
+        id=1,  # get_sumup_balance() looks up SUMUP_ACCOUNT_ID (= 1) explicitly
         iban="AT942011100005301947",
         bic="GIBAATWWXXX",
         label="Girokonto",

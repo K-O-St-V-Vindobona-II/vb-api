@@ -47,6 +47,9 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+# Tests run exclusively against a real PostgreSQL database, never SQLite —
+# see tests/conftest.py for connection setup (TEST_DATABASE_URL env var)
+# and scripts/README.md for the local/CI test-database convention.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=app --cov=scripts --cov-report=term-missing --cov-report=xml --cov-fail-under=81"

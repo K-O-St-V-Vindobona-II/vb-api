@@ -18,7 +18,6 @@ def test_member_unbound(db_session):
         email="google.tester@vindobona.at",
         auth_password=hashed,
         auth_locked=False,
-        org_id="vbw",
     )
     db_session.add(user)
     db_session.commit()
@@ -106,7 +105,7 @@ def test_google_login_locked_existing_binding(
 ):
     """Test if a user who was locked AFTER linking their Google account is blocked."""
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
-    user = Member(email="lockedb@vindobona.at", auth_locked=True, org_id="vbw")
+    user = Member(email="lockedb@vindobona.at", auth_locked=True)
     db_session.add(user)
     db_session.commit()
 
