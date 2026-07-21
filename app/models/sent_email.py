@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -19,8 +20,8 @@ class SentEmail(Base):
     attachments: Mapped[str | None]
     mailer: Mapped[str | None]
     created_at: Mapped[datetime | None] = mapped_column(
-        default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime | None] = mapped_column(
-        default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

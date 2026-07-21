@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -65,7 +65,7 @@ class Member(Base):
 
     # --- Contact ---
     email: Mapped[str | None] = mapped_column(unique=True, index=True)
-    email_verified_at: Mapped[datetime | None]
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     url: Mapped[str | None]
     mkv_ogv_url: Mapped[str | None]
     rufnummer_mobil: Mapped[str | None]
@@ -105,16 +105,16 @@ class Member(Base):
     # --- Auth ---
     auth_password: Mapped[str | None]
     auth_lastlogin_provider: Mapped[str | None]
-    auth_lastlogin: Mapped[datetime | None]
-    auth_lastsignal: Mapped[datetime | None]
-    auth_lastlogout: Mapped[datetime | None]
+    auth_lastlogin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auth_lastsignal: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auth_lastlogout: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     auth_locked: Mapped[bool | None] = mapped_column(default=True)
 
     # --- Audit ---
-    modified_at: Mapped[datetime | None]
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[int | None]
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # --- Relationships ---
     org: Mapped[Org] = relationship(lazy="joined")

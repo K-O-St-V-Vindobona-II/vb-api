@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -23,9 +23,11 @@ class MembersOauth2Binding(Base):
     provider: Mapped[str]
     remote_id: Mapped[str]
     remote_name: Mapped[str]
-    bound_at: Mapped[datetime | None] = mapped_column(default=lambda: datetime.now(UTC))
+    bound_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
     lastuse_at: Mapped[datetime | None] = mapped_column(
-        default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     member: Mapped[Member] = relationship(back_populates="oauth_bindings")

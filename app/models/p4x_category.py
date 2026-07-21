@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -21,8 +22,8 @@ class P4xCategory(Base):
     background_color: Mapped[str]
     text_color: Mapped[str]
     protected: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     category_filters: Mapped[list[P4xCategoryFilter]] = relationship(
         back_populates="category", lazy="select"

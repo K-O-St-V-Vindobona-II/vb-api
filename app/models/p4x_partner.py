@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -12,6 +13,6 @@ class P4xPartner(Base):
     iban: Mapped[str | None] = mapped_column(unique=True)
     partner_type: Mapped[str]
     partner_id: Mapped[int] = mapped_column(index=True)
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
