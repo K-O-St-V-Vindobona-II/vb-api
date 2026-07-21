@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -32,8 +32,8 @@ class P4xCategoryFilter(Base):
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[P4xAccount] = relationship(
         back_populates="category_filters", lazy="joined"

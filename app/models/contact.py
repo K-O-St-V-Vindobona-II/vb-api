@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -40,11 +40,11 @@ class Contact(Base):
 
     anmerkungen: Mapped[str | None] = mapped_column(Text)
 
-    modified_at: Mapped[datetime | None]
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[int | None]
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     org: Mapped[Org] = relationship(lazy="joined")
 

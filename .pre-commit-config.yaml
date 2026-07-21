@@ -27,7 +27,9 @@ repos:
 
       - id: pytest-coverage
         name: Pytest & Code Coverage
-        entry: podman exec vb-api python -m pytest
+        # Runs against a dedicated vb_test database, never the real dev DB
+        # — see scripts/run_pytest.sh and "Running tests" in README.md.
+        entry: podman exec vb-api sh scripts/run_pytest.sh
         language: system
         types: [python]
         pass_filenames: false

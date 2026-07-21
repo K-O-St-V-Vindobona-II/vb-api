@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -26,7 +26,7 @@ class P4xCategoryDirect(Base):
         index=True,
     )
     amount: Mapped[float]
-    deleted_at: Mapped[datetime | None]
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     transaction: Mapped[P4xTransaction] = relationship(
         back_populates="category_directs", lazy="select"

@@ -34,7 +34,6 @@ def auth_headers(client, db_session):
         email="logout.tester@vindobona.at",
         auth_password=hashed,
         auth_locked=False,
-        org_id="vbw",
     )
     db_session.add(user)
     db_session.commit()
@@ -89,7 +88,6 @@ def test_password_reset_flow(mock_send_email, client, db_session):  # noqa: ARG0
         email="reset@vindobona.at",
         auth_password=hashed,
         auth_locked=False,
-        org_id="vbw",
     )
     db_session.add(user)
     db_session.commit()
@@ -141,7 +139,6 @@ def test_password_reset_invalidates_existing_sessions(client, db_session):
         email="invalidate@vindobona.at",
         auth_password=hashed,
         auth_locked=False,
-        org_id="vbw",
     )
     db_session.add(user)
     db_session.commit()
@@ -283,7 +280,6 @@ def test_deps_locked_user(client, db_session):
         email="locked@vindobona.at",
         auth_password=hashed,
         auth_locked=True,
-        org_id="vbw",
     )
     db_session.add(user)
     db_session.commit()

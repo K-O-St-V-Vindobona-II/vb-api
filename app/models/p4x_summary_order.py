@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -18,8 +18,16 @@ class P4xSummaryOrder(Base):
     summary_start: Mapped[datetime.date] = mapped_column(FlexibleDate)
     summary_end: Mapped[datetime.date] = mapped_column(FlexibleDate)
     pid: Mapped[str | None]
-    started_at: Mapped[datetime.datetime | None]
-    finished_at: Mapped[datetime.datetime | None]
+    started_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     finished_ok: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime.datetime | None]
-    updated_at: Mapped[datetime.datetime | None]
+    created_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )

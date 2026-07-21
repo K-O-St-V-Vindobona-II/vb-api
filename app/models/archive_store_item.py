@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -27,9 +27,9 @@ class ArchiveStoreItem(Base):
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
-    backedup_at: Mapped[datetime | None]
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
+    backedup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     member: Mapped[Member] = relationship(
         foreign_keys=[created_by],

@@ -1,9 +1,20 @@
 from datetime import date
 
+import pytest
+
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.org import Org
 from app.models.role import Role
 from app.services.permission_service import calculate_permissions
+
+
+@pytest.fixture(autouse=True)
+def _seed_orgs(db_session):
+    db_session.add_all(
+        [Org(id="vbw", label="VBW", order=1), Org(id="vbn", label="VBN", order=2)]
+    )
+    db_session.commit()
 
 
 def test_member_permissions_properties(db_session):

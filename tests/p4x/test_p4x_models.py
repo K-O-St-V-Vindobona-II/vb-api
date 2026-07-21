@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
@@ -319,8 +320,12 @@ class TestP4xSpecialcontact:
 
 class TestP4xSummaryOrder:
     def test_create(self, db_session):
+        member = Member(vorname="Test", nachname="Orderer")
+        db_session.add(member)
+        db_session.commit()
+
         order = P4xSummaryOrder(
-            ordered_by=1,
+            ordered_by=member.id,
             email="test@example.com",
             summary_start=date(2025, 1, 1),
             summary_end=date(2025, 12, 1),

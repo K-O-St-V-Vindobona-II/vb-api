@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -20,6 +21,6 @@ class StandesdbImage(Base):
     description: Mapped[str | None]
     default: Mapped[int | None] = mapped_column(default=0)
     created_by: Mapped[int | None]
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

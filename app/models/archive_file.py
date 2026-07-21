@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -19,7 +20,7 @@ class ArchiveFile(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)
     description: Mapped[str | None]
-    deleted_at: Mapped[datetime | None]
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     archive_dir: Mapped[ArchiveDir | None] = relationship(
         foreign_keys="ArchiveFile.archive_dir_id",

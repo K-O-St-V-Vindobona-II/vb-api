@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -35,9 +35,9 @@ class P4xTransaction(Base):
     comment: Mapped[str | None]
     raw: Mapped[str | None] = mapped_column(Text)
     attachment: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[P4xAccount] = relationship(
         back_populates="transactions", lazy="joined"

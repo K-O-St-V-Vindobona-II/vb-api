@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -24,9 +24,9 @@ class ArchiveFileComment(Base):
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     archive_file: Mapped[ArchiveFile] = relationship(viewonly=True)
     member: Mapped[Member] = relationship(

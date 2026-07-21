@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -22,9 +23,15 @@ class P4xAccount(Base):
     label: Mapped[str | None]
     init_date: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
     init_balance: Mapped[float] = mapped_column(default=0)
-    created_at: Mapped[datetime.datetime | None]
-    updated_at: Mapped[datetime.datetime | None]
-    deleted_at: Mapped[datetime.datetime | None]
+    created_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    deleted_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     transactions: Mapped[list[P4xTransaction]] = relationship(
         back_populates="account", lazy="select"

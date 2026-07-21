@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -21,9 +21,9 @@ class ArchiveDir(Base):
     description: Mapped[str | None]
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)
     recursive_permissions: Mapped[bool | None] = mapped_column(default=False)
-    created_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime | None]
-    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     children: DynamicMapped[ArchiveDir] = relationship(
         foreign_keys="ArchiveDir.archive_dir_id",

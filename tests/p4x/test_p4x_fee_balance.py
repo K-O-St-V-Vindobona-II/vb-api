@@ -45,9 +45,11 @@ def _seed_base(db) -> None:
     )
     db.commit()
 
-    # Fee category (ID=1 in legacy)
+    # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
+    # (app/services/p4x_service.py) — the fee category must have id=1.
     db.add(
         P4xCategory(
+            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -105,7 +107,11 @@ def _add_fee_payment(
 ) -> None:
     """Add a transaction that counts as a fee payment for this member."""
     account = db.query(P4xAccount).first()
-    category = db.query(P4xCategory).filter(P4xCategory.id == 1).first()
+    category = (
+        db.query(P4xCategory)
+        .filter(P4xCategory.name == "eingang.mitgliedsbeitrag")
+        .first()
+    )
 
     partner = db.query(P4xPartner).filter(P4xPartner.iban == iban).first()
     if not partner:

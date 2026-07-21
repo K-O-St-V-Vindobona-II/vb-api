@@ -17,9 +17,7 @@ def test_user(db_session):
     # Hash password cleanly, exactly as our system expects it
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-    user = Member(
-        email="test@vindobona.at", auth_password=hashed, auth_locked=False, org_id="vbw"
-    )
+    user = Member(email="test@vindobona.at", auth_password=hashed, auth_locked=False)
     db_session.add(user)
     db_session.commit()
 
@@ -173,7 +171,6 @@ class TestAuthTimestamps:
             email="google@vbw.at",
             auth_password=hashed,
             auth_locked=False,
-            org_id="vbw",
         )
         db_session.add(m)
         db_session.commit()

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Uuid
+from sqlalchemy import DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -30,5 +30,5 @@ class PublicGalleryImage(Base):
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL")
     )
-    created_at: Mapped[datetime]
-    updated_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
