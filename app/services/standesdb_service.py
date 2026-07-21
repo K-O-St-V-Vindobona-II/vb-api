@@ -361,8 +361,8 @@ def _normalize_member_input(input_dict: dict[str, object]) -> None:
     # MemberDetailResponse serializes it back out via `parent_id or 0`),
     # but parent_id is a nullable self-referencing FK — 0 is never a
     # valid member id and violates the FK constraint once enforced (see
-    # scripts/sqlite2pg.py's _fix_known_legacy_data_issues for the same
-    # issue in migrated legacy data).
+    # scripts/migration_archive/sqlite2pg.py's _fix_known_legacy_data_issues
+    # for the same issue in migrated legacy data).
     if input_dict.get("parent_id") == 0:
         input_dict["parent_id"] = None
 

@@ -2,10 +2,10 @@
 """Idempotent SQLite -> PostgreSQL migration.
 
 Usage (inside the backend container):
-    python scripts/sqlite2pg.py
+    python scripts/migration_archive/sqlite2pg.py
 
 Or from the host:
-    podman exec vb-api python scripts/sqlite2pg.py
+    podman exec vb-api python scripts/migration_archive/sqlite2pg.py
 """
 
 import os

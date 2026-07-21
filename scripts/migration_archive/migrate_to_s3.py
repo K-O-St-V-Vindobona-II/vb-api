@@ -5,7 +5,7 @@ Uploads all files from /data/standesdb/ and /data/archive/ to the
 configured S3 bucket, preserving the content-addressed key structure.
 
 Usage:
-    python scripts/migrate_to_s3.py [--verify-only] [--include-cache]
+    python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
 """
 
 import argparse

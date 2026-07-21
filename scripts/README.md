@@ -12,34 +12,6 @@ script below lists two ways to run it:
 
 ---
 
-## `migrate_to_s3.py`
-
-One-time migration that uploads all files from the local filesystem
-(`/data/standesdb/images`, `/data/archive/store`, and optionally the cache/
-thumbnail directories) to the configured S3 bucket. Content types are taken
-from the corresponding DB rows (`StandesdbImage.type`, `ArchiveStoreItem.mime_type`).
-Files already present in S3 (checked via `head_object`) are skipped, so the
-script is safe to re-run. After uploading it always runs a verification pass
-that confirms every non-deleted `StandesdbImage` / `ArchiveStoreItem` row has
-a matching S3 object.
-
-**Usage:**
-```bash
-# Inside the container
-python scripts/migrate_to_s3.py [--verify-only] [--include-cache]
-
-# Via podman exec
-podman exec vb-api python scripts/migrate_to_s3.py [--verify-only] [--include-cache]
-```
-
-**Parameters:**
-- `--verify-only` — skip the upload step, only run the DB → S3 verification and report missing objects (exit code 1 if any are missing).
-- `--include-cache` — additionally migrate the thumbnail/cache directories (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); these are omitted by default.
-
-**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
-
----
-
 ## `check_s3_integrity.py`
 
 Read-only consistency check between the database and S3. Reports two things:
@@ -175,6 +147,42 @@ podman exec -it vb-api python scripts/downsync_prod.py
 
 ---
 
+# Migration Archive (`scripts/migration_archive/`)
+
+One-time migration tools kept for historical reference. Each already ran
+successfully in production and is no longer part of any regular operational
+workflow (unlike the scripts above, which are re-run on demand) — they stay
+in the repo only in case a very old Dev/staging environment still needs the
+same one-time step.
+
+## `migrate_to_s3.py`
+
+One-time migration that uploads all files from the local filesystem
+(`/data/standesdb/images`, `/data/archive/store`, and optionally the cache/
+thumbnail directories) to the configured S3 bucket. Content types are taken
+from the corresponding DB rows (`StandesdbImage.type`, `ArchiveStoreItem.mime_type`).
+Files already present in S3 (checked via `head_object`) are skipped, so the
+script is safe to re-run. After uploading it always runs a verification pass
+that confirms every non-deleted `StandesdbImage` / `ArchiveStoreItem` row has
+a matching S3 object.
+
+**Usage:**
+```bash
+# Inside the container
+python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
+
+# Via podman exec
+podman exec vb-api python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
+```
+
+**Parameters:**
+- `--verify-only` — skip the upload step, only run the DB → S3 verification and report missing objects (exit code 1 if any are missing).
+- `--include-cache` — additionally migrate the thumbnail/cache directories (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); these are omitted by default.
+
+**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
+
+---
+
 ## `sqlite2pg.py`
 
 Idempotent one-time migration that copies all data from the legacy SQLite
@@ -190,10 +198,10 @@ from a clean truncate.
 **Usage:**
 ```bash
 # Inside the container
-python scripts/sqlite2pg.py
+python scripts/migration_archive/sqlite2pg.py
 
 # Via podman exec
-podman exec vb-api python scripts/sqlite2pg.py
+podman exec vb-api python scripts/migration_archive/sqlite2pg.py
 ```
 
 **Parameters:** none — the script is non-interactive and takes no CLI flags.
@@ -219,10 +227,10 @@ manage it from then on via `vb-intern`'s "www-Administration" → "Galerie".
 **Usage:**
 ```bash
 # Inside the container
-python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
 
 # Via podman exec
-podman exec vb-api python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+podman exec vb-api python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
 ```
 
 **Parameters:**
@@ -245,35 +253,6 @@ Sie beziehen ihre Konfiguration aus Umgebungsvariablen (`DATABASE_URL`,
 verwendet. Für jedes Script unten sind zwei Aufrufwege beschrieben:
 - **Im Container** — eine bereits im laufenden `vb-api`-Backend-Container geöffnete Shell (z. B. via `podman exec -it vb-api bash`), Arbeitsverzeichnis ist `/app`.
 - **Via `podman exec`** — direkter Aufruf vom Host aus, ohne vorher eine Shell zu öffnen.
-
----
-
-## `migrate_to_s3.py`
-
-Einmalige Migration, die alle Dateien vom lokalen Dateisystem
-(`/data/standesdb/images`, `/data/archive/store`, optional auch die Cache-/
-Thumbnail-Verzeichnisse) in den konfigurierten S3-Bucket hochlädt. Die
-Content-Types werden aus den zugehörigen DB-Zeilen übernommen
-(`StandesdbImage.type`, `ArchiveStoreItem.mime_type`). Bereits in S3
-vorhandene Dateien (geprüft via `head_object`) werden übersprungen, das
-Script kann also gefahrlos erneut ausgeführt werden. Nach dem Upload läuft
-immer ein Verifikationsdurchgang, der prüft, ob jede nicht gelöschte
-`StandesdbImage`- / `ArchiveStoreItem`-Zeile ein passendes S3-Objekt hat.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/migrate_to_s3.py [--verify-only] [--include-cache]
-
-# Via podman exec
-podman exec vb-api python scripts/migrate_to_s3.py [--verify-only] [--include-cache]
-```
-
-**Parameter:**
-- `--verify-only` — überspringt den Upload, führt nur die DB→S3-Verifikation aus und meldet fehlende Objekte (Exit-Code 1, falls welche fehlen).
-- `--include-cache` — migriert zusätzlich die Thumbnail-/Cache-Verzeichnisse (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); standardmäßig ausgelassen.
-
-**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
 
 ---
 
@@ -417,6 +396,15 @@ podman exec -it vb-api python scripts/downsync_prod.py
 
 ---
 
+# Migrations-Archiv (`scripts/migration_archive/`)
+
+Einmalige Migrations-Werkzeuge, die nur zur historischen Referenz im Repo
+bleiben. Jedes davon ist bereits erfolgreich in Produktion gelaufen und ist
+kein Teil eines regelmäßigen Betriebsablaufs mehr (anders als die Scripts
+oben, die bei Bedarf erneut ausgeführt werden) — sie bleiben nur für den
+Fall im Repo, dass eine sehr alte Dev-/Staging-Umgebung denselben
+Einmalschritt noch braucht.
+
 ## `sqlite2pg.py`
 
 Idempotente einmalige Migration, die alle Daten aus der alten SQLite-
@@ -434,15 +422,44 @@ Truncate.
 **Aufruf:**
 ```bash
 # Im Container
-python scripts/sqlite2pg.py
+python scripts/migration_archive/sqlite2pg.py
 
 # Via podman exec
-podman exec vb-api python scripts/sqlite2pg.py
+podman exec vb-api python scripts/migration_archive/sqlite2pg.py
 ```
 
 **Parameter:** keine — das Script ist nicht-interaktiv und kennt keine CLI-Flags.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss eine PostgreSQL-URL sein — sonst bricht das Script ab). Der SQLite-Quellpfad ist fest auf `/database/legacy_db.sqlite3` gesetzt.
+
+---
+
+## `migrate_to_s3.py`
+
+Einmalige Migration, die alle Dateien vom lokalen Dateisystem
+(`/data/standesdb/images`, `/data/archive/store`, optional auch die Cache-/
+Thumbnail-Verzeichnisse) in den konfigurierten S3-Bucket hochlädt. Die
+Content-Types werden aus den zugehörigen DB-Zeilen übernommen
+(`StandesdbImage.type`, `ArchiveStoreItem.mime_type`). Bereits in S3
+vorhandene Dateien (geprüft via `head_object`) werden übersprungen, das
+Script kann also gefahrlos erneut ausgeführt werden. Nach dem Upload läuft
+immer ein Verifikationsdurchgang, der prüft, ob jede nicht gelöschte
+`StandesdbImage`- / `ArchiveStoreItem`-Zeile ein passendes S3-Objekt hat.
+
+**Aufruf:**
+```bash
+# Im Container
+python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
+
+# Via podman exec
+podman exec vb-api python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
+```
+
+**Parameter:**
+- `--verify-only` — überspringt den Upload, führt nur die DB→S3-Verifikation aus und meldet fehlende Objekte (Exit-Code 1, falls welche fehlen).
+- `--include-cache` — migriert zusätzlich die Thumbnail-/Cache-Verzeichnisse (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); standardmäßig ausgelassen.
+
+**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
 
 ---
 
@@ -465,10 +482,10 @@ entkoppelt — Berechtigte pflegen sie danach über den Menüpunkt
 **Aufruf:**
 ```bash
 # Im Container
-python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
 
 # Via podman exec
-podman exec vb-api python scripts/migrate_public_gallery.py [--dry-run] [--source-url URL]
+podman exec vb-api python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
 ```
 
 **Parameter:**

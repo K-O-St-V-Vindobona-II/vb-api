@@ -1,4 +1,4 @@
-"""Regression tests for scripts/migrate_public_gallery.py."""
+"""Regression tests for scripts/migration_archive/migrate_public_gallery.py."""
 
 import hashlib
 import io
@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from PIL import Image as PILImage
 
-import scripts.migrate_public_gallery as migrate_public_gallery
+import scripts.migration_archive.migrate_public_gallery as migrate_public_gallery
 from app.models.public_gallery_image import PublicGalleryImage
 from tests.scripts._subprocess_helpers import (
     assert_module_imports_and_configures_mappers,
@@ -57,7 +57,9 @@ def _mock_response(content: bytes | str, content_type: str | None = None) -> Mag
 
 
 def test_standalone_import_configures_mappers_without_error() -> None:
-    assert_module_imports_and_configures_mappers("scripts.migrate_public_gallery")
+    assert_module_imports_and_configures_mappers(
+        "scripts.migration_archive.migrate_public_gallery"
+    )
 
 
 class TestIsFlickrCdnUrl:
