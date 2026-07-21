@@ -27,7 +27,8 @@ class P4xTransaction(Base):
     amount: Mapped[float] = mapped_column(index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
     p4x_account_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_accounts.id"), index=True
+        ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     delegating_partner_type: Mapped[str | None] = mapped_column(index=True)
     delegating_partner_id: Mapped[int | None] = mapped_column(index=True)

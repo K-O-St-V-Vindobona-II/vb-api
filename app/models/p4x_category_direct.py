@@ -18,10 +18,12 @@ class P4xCategoryDirect(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     p4x_transaction_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_transactions.id"), index=True
+        ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     p4x_category_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_categories.id"), index=True
+        ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     amount: Mapped[float]
     deleted_at: Mapped[datetime | None]

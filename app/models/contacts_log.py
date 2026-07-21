@@ -12,7 +12,9 @@ class ContactsLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     modified_at: Mapped[datetime | None]
     modified_by: Mapped[int | None]
-    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id"))
+    contact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
     action: Mapped[str]
     key: Mapped[str]
     old: Mapped[str | None]

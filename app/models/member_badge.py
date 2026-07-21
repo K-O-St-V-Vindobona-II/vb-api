@@ -16,8 +16,14 @@ if TYPE_CHECKING:
 class MemberBadge(Base):
     __tablename__ = "members_badges"
 
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), primary_key=True)
-    badge_id: Mapped[int] = mapped_column(ForeignKey("badges.id"), primary_key=True)
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        primary_key=True,
+    )
+    badge_id: Mapped[int] = mapped_column(
+        ForeignKey("badges.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        primary_key=True,
+    )
     presentationdate: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
     presentationdate_accuracy: Mapped[int | None] = mapped_column(default=0)
 

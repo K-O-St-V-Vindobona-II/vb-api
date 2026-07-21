@@ -189,6 +189,8 @@ def migrate() -> None:
     sqlite_engine = _create_sqlite_engine(SQLITE_PATH)
     pg_engine = create_engine(pg_url)
 
+    # Historical schema source only. Since alembic revision "schema baseline"
+    # (REV3), Alembic migrations are the authoritative schema source instead.
     print("Creating tables in PostgreSQL (if not exist)...")
     Base.metadata.create_all(bind=pg_engine)
 

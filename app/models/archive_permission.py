@@ -15,7 +15,9 @@ class ArchivePermission(Base):
     __tablename__ = "archive_permissions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    archive_dir_id: Mapped[int] = mapped_column(ForeignKey("archive_dirs.id"))
+    archive_dir_id: Mapped[int] = mapped_column(
+        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE")
+    )
     org_id: Mapped[str]
     state_id: Mapped[str]
 
