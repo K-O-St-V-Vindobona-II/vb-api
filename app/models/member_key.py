@@ -16,8 +16,14 @@ if TYPE_CHECKING:
 class MemberKey(Base):
     __tablename__ = "members_keys"
 
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), primary_key=True)
-    key_id: Mapped[int] = mapped_column(ForeignKey("keys.id"), primary_key=True)
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        primary_key=True,
+    )
+    key_id: Mapped[int] = mapped_column(
+        ForeignKey("keys.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        primary_key=True,
+    )
     presentationdate: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
     presentationdate_accuracy: Mapped[int | None] = mapped_column(default=0)
 

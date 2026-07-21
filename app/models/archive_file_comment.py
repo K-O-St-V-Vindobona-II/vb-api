@@ -17,9 +17,13 @@ class ArchiveFileComment(Base):
     __tablename__ = "archive_file_comments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    archive_file_id: Mapped[int] = mapped_column(ForeignKey("archive_files.id"))
+    archive_file_id: Mapped[int] = mapped_column(
+        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
+    )
     content: Mapped[str | None]
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("members.id"))
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
     created_at: Mapped[datetime | None]
     updated_at: Mapped[datetime | None]
     deleted_at: Mapped[datetime | None]

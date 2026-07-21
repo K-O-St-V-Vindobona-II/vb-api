@@ -20,7 +20,8 @@ class P4xCategoryFilter(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True)
     p4x_account_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_accounts.id"), index=True
+        ForeignKey("p4x_accounts.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     iban: Mapped[str | None]
     min_amount: Mapped[float | None]
@@ -28,7 +29,8 @@ class P4xCategoryFilter(Base):
     subject_mode: Mapped[str]
     subject: Mapped[str | None]
     p4x_category_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_categories.id"), index=True
+        ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None]
     updated_at: Mapped[datetime | None]

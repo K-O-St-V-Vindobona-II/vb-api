@@ -14,9 +14,9 @@ decoupled from Flickr — editors manage it from then on via vb-intern's
 "www-Administration" -> "Galerie".
 
 Usage:
-    python scripts/migrate_public_gallery.py
-    python scripts/migrate_public_gallery.py --dry-run
-    python scripts/migrate_public_gallery.py --source-url https://www.vindobona2.at/vb/
+    python scripts/migration_archive/migrate_public_gallery.py
+    python scripts/migration_archive/migrate_public_gallery.py --dry-run
+    python scripts/migration_archive/migrate_public_gallery.py --source-url https://www.vindobona2.at/vb/
 """
 
 import argparse

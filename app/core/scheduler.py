@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy import text
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
     from sqlalchemy.orm import Session
 
 from app.core.mailer import render_template, send_to_recipients
@@ -16,7 +18,7 @@ from app.core.security import (
 )
 from app.core.storage import get_storage
 from app.core.tasks import TRACKING_RETENTION_MONTHS
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, engine
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -71,6 +73,45 @@ VIENNA_TZ = ZoneInfo("Europe/Vienna")
 # (human-facing mails), not UTC — the machine-facing db_backup job further
 # below stays UTC-based and is documented as such.
 scheduler = AsyncIOScheduler(timezone=VIENNA_TZ)
+
+# Arbitrary fixed key identifying "the vb-api scheduler" for
+# pg_try_advisory_lock. Any int64 works as long as it stays constant.
+_SCHEDULER_LOCK_KEY = 8_872_501
+
+# Held open for the process lifetime once acquired, so the advisory lock
+# stays taken until this worker process exits (Postgres releases advisory
+# locks automatically when the holding connection closes).
+_scheduler_lock_conn: "Connection | None" = None
+
+
+def _acquire_scheduler_lock() -> bool:
+    """Ensure only one process runs the scheduler.
+
+    Production runs vb-api as multiple gunicorn worker processes, each with
+    its own in-memory AsyncIOScheduler. Without this lock, every worker
+    registers and fires the same cron jobs independently, so each scheduled
+    job (health-check mails, chronicles, backups, ...) runs once per worker
+    instead of once per deployment. SQLite (dev-only fallback) never runs
+    with multiple workers, so it skips the lock and always starts.
+    """
+    global _scheduler_lock_conn
+
+    if engine.dialect.name != "postgresql":
+        return True
+
+    conn = engine.connect()
+    acquired = bool(
+        conn.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": _SCHEDULER_LOCK_KEY},
+        ).scalar()
+    )
+    if not acquired:
+        conn.close()
+        return False
+
+    _scheduler_lock_conn = conn
+    return True
 
 
 # -------------------------------------------------------------------
@@ -636,6 +677,13 @@ JOB_DESCRIPTIONS: dict[str, str] = {
 
 
 def start_scheduler() -> None:
+    if not _acquire_scheduler_lock():
+        logger.info(
+            "Scheduler lock held by another worker process — skipping"
+            " scheduler startup in this process."
+        )
+        return
+
     scheduler.add_job(
         job_cleanup,
         "cron",
@@ -735,5 +783,13 @@ def get_scheduled_jobs() -> list[dict[str, str | None]]:
 
 
 def stop_scheduler() -> None:
-    scheduler.shutdown(wait=False)
+    global _scheduler_lock_conn
+
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
+    if _scheduler_lock_conn is not None:
+        _scheduler_lock_conn.close()
+        _scheduler_lock_conn = None
+
     logger.info("Scheduler stopped.")

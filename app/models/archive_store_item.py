@@ -24,7 +24,9 @@ class ArchiveStoreItem(Base):
     mime_type: Mapped[str]
     size: Mapped[int]
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("members.id"))
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
     backedup_at: Mapped[datetime | None]
     created_at: Mapped[datetime | None]
     updated_at: Mapped[datetime | None]

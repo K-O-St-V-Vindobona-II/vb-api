@@ -16,7 +16,9 @@ class MembersOauth2Binding(Base):
     __tablename__ = "members_oauth2bindings"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"), index=True
+    )
 
     provider: Mapped[str]
     remote_id: Mapped[str]

@@ -33,13 +33,18 @@ class Member(Base):
     couleurname: Mapped[str | None]
 
     # --- Organization & Status ---
-    org_id: Mapped[str | None] = mapped_column(ForeignKey("orgs.id"))
-    state_id: Mapped[str | None] = mapped_column(ForeignKey("states.id"))
+    org_id: Mapped[str | None] = mapped_column(
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+    )
+    state_id: Mapped[str | None] = mapped_column(
+        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE")
+    )
     gruender: Mapped[bool | None] = mapped_column(default=False)
     entlassen: Mapped[bool | None] = mapped_column(default=False)
     verstorben: Mapped[bool | None] = mapped_column(default=False)
     parent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id"), default=None
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        default=None,
     )
 
     # --- Fuzzy Dates ---

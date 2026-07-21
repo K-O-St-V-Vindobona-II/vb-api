@@ -1,6 +1,6 @@
-"""Regression tests for scripts/sqlite2pg.py."""
+"""Regression tests for scripts/migration_archive/sqlite2pg.py."""
 
-import scripts.sqlite2pg as sqlite2pg
+import scripts.migration_archive.sqlite2pg as sqlite2pg
 from app.models.member import Member
 from app.models.members_log import MembersLog
 from tests.scripts._subprocess_helpers import (
@@ -12,7 +12,7 @@ def test_standalone_import_configures_mappers_without_error() -> None:
     """Run as a fresh process (not sharing pytest's conftest-populated
     SQLAlchemy registry) — a plain in-process import can't detect a
     missing `import app.db.base`."""
-    assert_module_imports_and_configures_mappers("scripts.sqlite2pg")
+    assert_module_imports_and_configures_mappers("scripts.migration_archive.sqlite2pg")
 
 
 def test_fix_known_legacy_data_issues_nulls_parent_id_zero(db_session):

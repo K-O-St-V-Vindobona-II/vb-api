@@ -22,7 +22,9 @@ class Contact(Base):
     anrede: Mapped[str | None]
     name: Mapped[str] = mapped_column(String, unique=True)
     couleurname: Mapped[str | None]
-    org_id: Mapped[str | None] = mapped_column(ForeignKey("orgs.id"))
+    org_id: Mapped[str | None] = mapped_column(
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+    )
 
     adresse_anschrift: Mapped[str | None]
     adresse_plz: Mapped[str | None]

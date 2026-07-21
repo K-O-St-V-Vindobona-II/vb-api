@@ -25,10 +25,12 @@ class P4xCategoryFilterHit(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     p4x_transaction_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_transactions.id"), index=True
+        ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     p4x_category_filter_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_category_filters.id"), index=True
+        ForeignKey("p4x_category_filters.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None]
     updated_at: Mapped[datetime | None]

@@ -49,7 +49,7 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
+addopts = "--cov=app --cov=scripts --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
 filterwarnings = [
     "error",
     "default::DeprecationWarning",
@@ -57,11 +57,10 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["app"]
+source = ["app", "scripts"]
 omit = [
     "alembic/*",
     "tests/*",
-    "scripts/*",
 ]
 
 [tool.coverage.report]

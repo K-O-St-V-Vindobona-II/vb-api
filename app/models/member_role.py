@@ -17,8 +17,14 @@ if TYPE_CHECKING:
 class MemberRole(Base):
     __tablename__ = "members_roles"
 
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), primary_key=True)
-    role_id: Mapped[str] = mapped_column(ForeignKey("roles.id"), primary_key=True)
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        primary_key=True,
+    )
+    role_id: Mapped[str] = mapped_column(
+        ForeignKey("roles.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        primary_key=True,
+    )
     startdate: Mapped[datetime.date] = mapped_column(FlexibleDate, primary_key=True)
     enddate: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
 

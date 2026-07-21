@@ -1,9 +1,9 @@
-"""Regression tests for scripts/migrate_to_s3.py."""
+"""Regression tests for scripts/migration_archive/migrate_to_s3.py."""
 
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import scripts.migrate_to_s3 as migrate_to_s3
+import scripts.migration_archive.migrate_to_s3 as migrate_to_s3
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.standesdb_image import StandesdbImage
 from tests.scripts._subprocess_helpers import (
@@ -15,11 +15,14 @@ def test_standalone_import_configures_mappers_without_error() -> None:
     """Run as a fresh process (not sharing pytest's conftest-populated
     SQLAlchemy registry) — this is what actually catches a missing
     `import app.db.base`, which crashes real standalone execution
-    (`python scripts/migrate_to_s3.py`) with `InvalidRequestError:
-    ... failed to locate a name ('Member')` on the ArchiveStoreItem ->
-    Member relationship, since StandesdbImage/ArchiveStoreItem are queried
-    but Member is never otherwise imported by this script."""
-    assert_module_imports_and_configures_mappers("scripts.migrate_to_s3")
+    (`python scripts/migration_archive/migrate_to_s3.py`) with
+    `InvalidRequestError: ... failed to locate a name ('Member')` on the
+    ArchiveStoreItem -> Member relationship, since StandesdbImage/
+    ArchiveStoreItem are queried but Member is never otherwise imported by
+    this script."""
+    assert_module_imports_and_configures_mappers(
+        "scripts.migration_archive.migrate_to_s3"
+    )
 
 
 def test_get_s3_client_defaults_to_none_endpoint_when_unset(monkeypatch) -> None:

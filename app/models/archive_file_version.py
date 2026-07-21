@@ -16,9 +16,11 @@ class ArchiveFileVersion(Base):
     __tablename__ = "archive_file_versions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    archive_file_id: Mapped[int] = mapped_column(ForeignKey("archive_files.id"))
+    archive_file_id: Mapped[int] = mapped_column(
+        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
+    )
     archive_store_item_id: Mapped[int] = mapped_column(
-        ForeignKey("archive_store_items.id")
+        ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE")
     )
     active: Mapped[bool | None] = mapped_column(default=True)
 
