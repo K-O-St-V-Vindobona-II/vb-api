@@ -402,7 +402,6 @@ def update_account(
     account.label = data.label
     account.init_date = data.init_date
     account.init_balance = data.init_balance
-    account.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(account)
     return _build_account_response(db, account)
@@ -851,7 +850,6 @@ def update_category(
     cat.label = data.label
     cat.background_color = data.background_color
     cat.text_color = data.text_color
-    cat.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(cat)
     return _build_category_response(db, cat)
@@ -1043,7 +1041,6 @@ def update_category_filter(
     f.subject = data.subject
     f.subject_mode = data.subject_mode
     f.p4x_category_id = data.p4x_category_id
-    f.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(f)
     p4x_service.apply_all_category_filters(db)

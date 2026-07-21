@@ -132,7 +132,6 @@ def update_image(
 ) -> None:
     img.caption = caption
     img.is_published = is_published
-    img.updated_at = datetime.now(UTC)
     db.commit()
 
 

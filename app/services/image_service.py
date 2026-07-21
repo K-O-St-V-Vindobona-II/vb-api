@@ -223,7 +223,6 @@ def update_image(
     set_default: bool,  # noqa: FBT001
 ) -> None:
     img.description = description
-    img.updated_at = datetime.now(UTC)
 
     if set_default:
         db.query(StandesdbImage).filter(

@@ -234,7 +234,6 @@ def refresh_session(
     new_secret = generate_refresh_secret()
     session.refresh_token_hash = hash_refresh_secret(new_secret)
     session.last_used_at = now
-    session.updated_at = now
     member.auth_lastsignal = now
 
     access_token, _ = create_access_token(subject=member.email, jti_override=session_id)
