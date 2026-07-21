@@ -309,7 +309,6 @@ def import_transactions(
             if existing.p4x_account_id != account.id:
                 existing.p4x_account_id = account.id
                 status = "existing_with_new_binding"
-            existing.updated_at = datetime.now(UTC)
         else:
             status = "new"
             tx = P4xTransaction(
@@ -1073,7 +1072,6 @@ def set_transaction_partner(
             partner.partner_type = p_type
             partner.partner_id = remote.id
             partner.deleted_at = None
-            partner.updated_at = now
             db.flush()
     else:
         db.query(P4xPartner).filter(
@@ -1092,7 +1090,6 @@ def set_transaction_partner(
         transaction.delegating_partner_type = None
         transaction.delegating_partner_id = None
 
-    transaction.updated_at = now
     db.commit()
 
 
@@ -1117,7 +1114,6 @@ def update_transaction_meta(
     elif not transaction.has_attachment and file_bytes:
         transaction.attachment = base64.b64encode(file_bytes).decode()
 
-    transaction.updated_at = datetime.now(UTC)
     db.commit()
 
 

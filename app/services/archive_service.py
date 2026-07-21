@@ -451,7 +451,6 @@ def update_dir(
     desc_raw = data.get("description")
     dir_obj.description = str(desc_raw) if desc_raw is not None else None
     dir_obj.recursive_permissions = bool(data.get("recursive_permissions", False))
-    dir_obj.updated_at = _now()
     perms_raw = data.get("permissions", [])
     perms = list(perms_raw) if isinstance(perms_raw, list) else []
     _sync_permissions(db, dir_obj, [str(p) for p in perms])
@@ -501,7 +500,6 @@ def restore_dir(
             detail="Verzeichnis nicht gefunden.",
         )
     dir_obj.deleted_at = None
-    dir_obj.updated_at = _now()
     db.commit()
 
 
@@ -537,7 +535,6 @@ def _move_dir_item(
             ),
         )
     d.archive_dir_id = target_dir_id
-    d.updated_at = _now()
 
 
 def _move_file_items(
