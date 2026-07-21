@@ -2,6 +2,8 @@
 
 FastAPI backend for **vb** — the internal management system of Vindobona II / Vindobona nova.
 
+> All related repos live in the [K-O-St-V-Vindobona-II](https://github.com/K-O-St-V-Vindobona-II) GitHub organization.
+
 ## Tech Stack
 
 - **Runtime:** Python 3.12, FastAPI, SQLAlchemy (sync), Alembic
