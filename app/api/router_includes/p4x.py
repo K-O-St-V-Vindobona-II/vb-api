@@ -1,6 +1,7 @@
 import base64
 import json
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
@@ -508,7 +509,7 @@ def get_transactions_by_month(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
-) -> dict[str, list[TransactionResponse] | int | float]:
+) -> dict[str, list[TransactionResponse] | int | Decimal]:
     """List transactions for a specific month with start/end balances (paginated)."""
     account = _get_account_or_404(db, account_id)
     items, total = p4x_service.get_transactions_by_month(
@@ -1223,7 +1224,7 @@ def _build_fee_response(fee: P4xFee) -> FeeResponse:
         start_date = date.fromisoformat(start_date[:10])
     return FeeResponse(
         start=str(start_date.replace(day=1)),
-        fee=float(fee.fee),
+        fee=fee.fee,
         protected=bool(fee.protected),
     )
 
@@ -1302,7 +1303,7 @@ def _build_fee_member_response(
                 FeeProgressEntry(
                     type=str(p["type"]),
                     booking=str(p["booking"]),
-                    amount=float(p["amount"]),
+                    amount=Decimal(str(p["amount"])),
                 )
                 for p in balance_data["progress"]
             ],
@@ -1317,7 +1318,7 @@ def _build_fee_member_response(
         id=member.id,
         cn=member.cn,
         p4x_init_date=init_date_str,
-        p4x_init_balance=float(member.p4x_init_balance or 0),
+        p4x_init_balance=member.p4x_init_balance or Decimal("0"),
         p4x_freed=bool(member.p4x_freed),
         p4x_comment=member.p4x_comment,
         balance=balance,
@@ -1382,7 +1383,7 @@ def get_fee_debtors(
         DebtorResponse(
             id=int(d["id"]),
             cn=str(d["cn"]),
-            balance=float(d["balance"]),
+            balance=Decimal(str(d["balance"])),
         )
         for d in debtors
     ]

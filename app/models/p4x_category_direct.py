@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -25,7 +26,7 @@ class P4xCategoryDirect(Base):
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    amount: Mapped[float]
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     transaction: Mapped[P4xTransaction] = relationship(

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -115,7 +116,7 @@ class Member(Base):
 
     # --- P4x (Financial System) ---
     p4x_init_date: Mapped[date | None] = mapped_column(FlexibleDate)
-    p4x_init_balance: Mapped[int | None]
+    p4x_init_balance: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     p4x_freed: Mapped[bool | None]
     p4x_comment: Mapped[str | None]
 

@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -10,6 +11,8 @@ from app.schemas.p4x import (
     AccountSaveRequest,
     CategoryFilterSaveRequest,
     CategorySaveRequest,
+    FeeCreateRequest,
+    FeeMemberUpdateRequest,
     SummaryOrderRequest,
 )
 
@@ -281,3 +284,79 @@ class TestCategoryHexColor:
         data = _valid_category_data(background_color="#gggggg")
         with pytest.raises(ValidationError, match="Farbformat"):
             CategorySaveRequest(**data)
+
+
+# ---------------------------------------------------------------------------
+# Money fields — decimal_places=2 (Welle 2 Slice 5: float -> Numeric)
+# ---------------------------------------------------------------------------
+
+
+class TestAccountInitBalanceDecimalPlaces:
+    def test_two_decimal_places_passes(self) -> None:
+        data = _valid_account_data(init_balance=Decimal("123.45"))
+        a = AccountSaveRequest(**data)
+        assert a.init_balance == Decimal("123.45")
+
+    def test_whole_number_passes(self) -> None:
+        data = _valid_account_data(init_balance=Decimal("100"))
+        a = AccountSaveRequest(**data)
+        assert a.init_balance == Decimal("100")
+
+    def test_three_decimal_places_rejected(self) -> None:
+        data = _valid_account_data(init_balance=Decimal("123.456"))
+        with pytest.raises(ValidationError, match="decimal places"):
+            AccountSaveRequest(**data)
+
+
+class TestFilterAmountDecimalPlaces:
+    def test_min_amount_two_decimal_places_passes(self) -> None:
+        data = _valid_filter_data(min_amount=Decimal("10.50"))
+        f = CategoryFilterSaveRequest(**data)
+        assert f.min_amount == Decimal("10.50")
+
+    def test_min_amount_three_decimal_places_rejected(self) -> None:
+        data = _valid_filter_data(min_amount=Decimal("10.505"))
+        with pytest.raises(ValidationError, match="decimal places"):
+            CategoryFilterSaveRequest(**data)
+
+    def test_max_amount_three_decimal_places_rejected(self) -> None:
+        data = _valid_filter_data(max_amount=Decimal("99.999"))
+        with pytest.raises(ValidationError, match="decimal places"):
+            CategoryFilterSaveRequest(**data)
+
+
+class TestFeeCreateRequestDecimalPlaces:
+    def _valid_fee_data(self, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {"year": 2026, "month": 1, "fee": Decimal("15.00")}
+        base.update(overrides)
+        return base
+
+    def test_two_decimal_places_passes(self) -> None:
+        data = self._valid_fee_data(fee=Decimal("15.50"))
+        req = FeeCreateRequest(**data)
+        assert req.fee == Decimal("15.50")
+
+    def test_three_decimal_places_rejected(self) -> None:
+        data = self._valid_fee_data(fee=Decimal("15.505"))
+        with pytest.raises(ValidationError, match="decimal places"):
+            FeeCreateRequest(**data)
+
+
+class TestFeeMemberUpdateRequestDecimalPlaces:
+    def _valid_data(self, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "p4x_init_date": date(2020, 1, 1),
+            "p4x_init_balance": Decimal("0.00"),
+        }
+        base.update(overrides)
+        return base
+
+    def test_two_decimal_places_passes(self) -> None:
+        data = self._valid_data(p4x_init_balance=Decimal("-42.50"))
+        req = FeeMemberUpdateRequest(**data)
+        assert req.p4x_init_balance == Decimal("-42.50")
+
+    def test_three_decimal_places_rejected(self) -> None:
+        data = self._valid_data(p4x_init_balance=Decimal("12.345"))
+        with pytest.raises(ValidationError, match="decimal places"):
+            FeeMemberUpdateRequest(**data)

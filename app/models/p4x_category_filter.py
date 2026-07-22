@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -30,8 +31,8 @@ class P4xCategoryFilter(Base):
         index=True,
     )
     iban: Mapped[str | None]
-    min_amount: Mapped[float | None]
-    max_amount: Mapped[float | None]
+    min_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    max_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     subject_mode: Mapped[str]
     subject: Mapped[str | None]
     p4x_category_id: Mapped[int] = mapped_column(
