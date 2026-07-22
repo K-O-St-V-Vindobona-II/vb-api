@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnElement, func
+from sqlalchemy import ColumnElement, extract, func
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.query import RowReturningQuery
@@ -371,8 +371,8 @@ def get_transactions_by_month(
         .filter(
             P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
-            func.substr(P4xTransaction.booking, 1, 4) == str(year),
-            func.substr(P4xTransaction.booking, 6, 2) == f"{month:02d}",
+            extract("year", P4xTransaction.booking) == year,
+            extract("month", P4xTransaction.booking) == month,
         )
         .order_by(P4xTransaction.booking.desc())
     )

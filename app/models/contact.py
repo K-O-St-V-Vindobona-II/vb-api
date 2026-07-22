@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
 
 if TYPE_CHECKING:
     from app.models.org import Org
@@ -41,7 +40,7 @@ class Contact(Base):
     email: Mapped[str | None]
     rufnummer: Mapped[str | None]
 
-    datum: Mapped[date | None] = mapped_column(FlexibleDate)
+    datum: Mapped[date | None] = mapped_column(Date)
     datum_accuracy: Mapped[int | None] = mapped_column(default=0)
 
     anmerkungen: Mapped[str | None] = mapped_column(Text)

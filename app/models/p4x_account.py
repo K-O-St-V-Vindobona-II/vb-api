@@ -4,11 +4,10 @@ import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Numeric
+from sqlalchemy import CheckConstraint, Date, DateTime, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
 
 if TYPE_CHECKING:
     from app.models.p4x_category_filter import P4xCategoryFilter
@@ -31,7 +30,7 @@ class P4xAccount(Base):
     iban: Mapped[str] = mapped_column(unique=True)
     bic: Mapped[str | None]
     label: Mapped[str | None]
-    init_date: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
+    init_date: Mapped[datetime.date | None] = mapped_column(Date)
     init_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     created_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)
