@@ -325,9 +325,12 @@ def test_contact_cn_without_couleurname(db_session):
 
 def test_standesdb_image_model(db_session):
     """StandesdbImage stores metadata correctly."""
+    member = Member(vorname="Test", nachname="User")
+    db_session.add(member)
+    db_session.commit()
+
     img = StandesdbImage(
-        owner_type="member",
-        owner_id=1,
+        owner_member_id=member.id,
         sha256_hash="abc123",
         type="image/jpeg",
         extension="jpeg",
@@ -361,14 +364,12 @@ def test_member_default_image(db_session):
     assert member.default_image is None
 
     img1 = StandesdbImage(
-        owner_type="member",
-        owner_id=member.id,
+        owner_member_id=member.id,
         sha256_hash="hash1",
         default=0,
     )
     img2 = StandesdbImage(
-        owner_type="member",
-        owner_id=member.id,
+        owner_member_id=member.id,
         sha256_hash="hash2",
         default=1,
     )

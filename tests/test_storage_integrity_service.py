@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 from app.models.archive_store_item import ArchiveStoreItem
+from app.models.member import Member
 from app.models.standesdb_image import StandesdbImage
 from app.services.storage_integrity_service import (
     check_archive_integrity,
@@ -76,8 +77,12 @@ class TestCheckArchiveIntegrity:
 
 class TestCheckStandesdbIntegrity:
     def test_reports_missing_file(self, db_session, mock_s3):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         db_session.add(
-            StandesdbImage(owner_type="member", owner_id=1, sha256_hash="missing_img")
+            StandesdbImage(owner_member_id=member.id, sha256_hash="missing_img")
         )
         db_session.commit()
 
@@ -87,8 +92,12 @@ class TestCheckStandesdbIntegrity:
         assert report.is_healthy is False
 
     def test_healthy_when_file_present(self, db_session, mock_s3):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         db_session.add(
-            StandesdbImage(owner_type="member", owner_id=1, sha256_hash="present_img")
+            StandesdbImage(owner_member_id=member.id, sha256_hash="present_img")
         )
         db_session.commit()
         mock_s3.upload("standesdb/images/present_img", b"data")

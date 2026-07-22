@@ -55,11 +55,7 @@ class Contact(Base):
     org: Mapped[Org] = relationship(lazy="joined")
 
     images: Mapped[list[StandesdbImage]] = relationship(
-        primaryjoin=(
-            "and_(Contact.id == foreign(StandesdbImage"
-            ".owner_id), StandesdbImage.owner_type "
-            "== 'contact')"
-        ),
+        foreign_keys="StandesdbImage.owner_contact_id",
         viewonly=True,
         lazy="select",
     )

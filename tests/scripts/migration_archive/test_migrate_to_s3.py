@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import scripts.migration_archive.migrate_to_s3 as migrate_to_s3
 from app.models.archive_store_item import ArchiveStoreItem
+from app.models.member import Member
 from app.models.standesdb_image import StandesdbImage
 from tests.scripts._subprocess_helpers import (
     assert_module_imports_and_configures_mappers,
@@ -58,19 +59,21 @@ def test_build_content_type_map_reads_correct_columns(db_session) -> None:
     before, now via db.query(Model.col1, Model.col2) instead of
     db.query(Model).all() (the latter eagerly joins ArchiveStoreItem.member
     and OOM-killed the process in production on 27k+ rows)."""
+    member = Member(vorname="Test", nachname="User")
+    db_session.add(member)
+    db_session.commit()
+
     now = datetime.now(UTC)
     db_session.add(
         StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             type="image/jpeg",
             sha256_hash="img_hash_1",
         )
     )
     db_session.add(
         StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             type=None,
             sha256_hash="img_hash_no_type",
         )
@@ -96,17 +99,19 @@ def test_build_content_type_map_reads_correct_columns(db_session) -> None:
 
 def test_verify_excludes_soft_deleted_standesdb_images(db_session) -> None:
     """The deleted_at filter must survive the column-only rewrite."""
+    member = Member(vorname="Test", nachname="User")
+    db_session.add(member)
+    db_session.commit()
+
     db_session.add(
         StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="active_hash",
         )
     )
     db_session.add(
         StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="deleted_hash",
             deleted_at=datetime.now(UTC),
         )
