@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.badge import Badge
 from app.models.contact import Contact
 from app.models.contacts_log import ContactsLog
+from app.models.enums import MemberDeliveryPreference
 from app.models.key import Key
 from app.models.member import Member
 from app.models.member_badge import MemberBadge
@@ -267,7 +268,7 @@ def get_member_detail(
         ),
         url=member.url,
         mkv_ogv_url=member.mkv_ogv_url,
-        zustellungen=member.zustellungen or "deaktiviert",
+        zustellungen=member.zustellungen or MemberDeliveryPreference.DEAKTIVIERT,
         rufnummer_mobil=member.rufnummer_mobil,
         rufnummer_privat=member.rufnummer_privat,
         rufnummer_beruf=member.rufnummer_beruf,
@@ -444,7 +445,7 @@ def apply_member_input(
             "member_id",
             member.id,
             diff,
-            "store" if is_new else "update",
+            "create" if is_new else "update",
             current_user.id,
             now,
         )
@@ -962,7 +963,7 @@ def apply_contact_input(
             "contact_id",
             contact.id,
             diff,
-            "store" if is_new else "update",
+            "create" if is_new else "update",
             current_user.id,
             now,
         )

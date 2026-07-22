@@ -23,7 +23,7 @@ def test_member_permissions_properties(db_session):
     user_vbn = Member(email="perms_vbn@vindobona.at", org_id="vbn")
     db_session.add(user_vbn)
 
-    r1 = Role(id="standesfuehrer", group="it")
+    r1 = Role(id="standesfuehrer", group="funktion")
     db_session.add(r1)
     db_session.commit()
 

@@ -10,7 +10,6 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 
-import app.models.types
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -80,7 +79,7 @@ def upgrade() -> None:
         sa.Column("iban", sa.String(), nullable=False),
         sa.Column("bic", sa.String(), nullable=True),
         sa.Column("label", sa.String(), nullable=True),
-        sa.Column("init_date", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("init_date", sa.String(), nullable=True),
         sa.Column("init_balance", sa.Float(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
@@ -103,7 +102,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "p4x_fees",
-        sa.Column("start", app.models.types.FlexibleDate(), nullable=False),
+        sa.Column("start", sa.String(), nullable=False),
         sa.Column("fee", sa.Float(), nullable=False),
         sa.Column("protected", sa.Boolean(), nullable=False),
         sa.PrimaryKeyConstraint("start"),
@@ -266,7 +265,7 @@ def upgrade() -> None:
         sa.Column("zustellungen", sa.Boolean(), nullable=True),
         sa.Column("email", sa.String(), nullable=True),
         sa.Column("rufnummer", sa.String(), nullable=True),
-        sa.Column("datum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("datum", sa.String(), nullable=True),
         sa.Column("datum_accuracy", sa.Integer(), nullable=True),
         sa.Column("anmerkungen", sa.Text(), nullable=True),
         sa.Column("modified_at", sa.DateTime(), nullable=True),
@@ -297,21 +296,19 @@ def upgrade() -> None:
         sa.Column("entlassen", sa.Boolean(), nullable=True),
         sa.Column("verstorben", sa.Boolean(), nullable=True),
         sa.Column("parent_id", sa.Integer(), nullable=True),
-        sa.Column("geburtsdatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("geburtsdatum", sa.String(), nullable=True),
         sa.Column("geburtsdatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column("aufnahmedatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("aufnahmedatum", sa.String(), nullable=True),
         sa.Column("aufnahmedatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column("branderdatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("branderdatum", sa.String(), nullable=True),
         sa.Column("branderdatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column("burschungsdatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("burschungsdatum", sa.String(), nullable=True),
         sa.Column("burschungsdatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column(
-            "philistrierungsdatum", app.models.types.FlexibleDate(), nullable=True
-        ),
+        sa.Column("philistrierungsdatum", sa.String(), nullable=True),
         sa.Column("philistrierungsdatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column("entlassungsdatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("entlassungsdatum", sa.String(), nullable=True),
         sa.Column("entlassungsdatum_accuracy", sa.Integer(), nullable=True),
-        sa.Column("sterbedatum", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("sterbedatum", sa.String(), nullable=True),
         sa.Column("sterbedatum_accuracy", sa.Integer(), nullable=True),
         sa.Column("email", sa.String(), nullable=True),
         sa.Column("email_verified_at", sa.DateTime(), nullable=True),
@@ -336,7 +333,7 @@ def upgrade() -> None:
         sa.Column("anmerkungen", sa.Text(), nullable=True),
         sa.Column("grabadresse", sa.String(), nullable=True),
         sa.Column("chroniclemail", sa.Boolean(), nullable=True),
-        sa.Column("p4x_init_date", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("p4x_init_date", sa.String(), nullable=True),
         sa.Column("p4x_init_balance", sa.Integer(), nullable=True),
         sa.Column("p4x_freed", sa.Boolean(), nullable=True),
         sa.Column("p4x_comment", sa.String(), nullable=True),
@@ -406,8 +403,8 @@ def upgrade() -> None:
         "p4x_transactions",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("sha256hash", sa.String(), nullable=False),
-        sa.Column("booking", app.models.types.FlexibleDate(), nullable=False),
-        sa.Column("valuation", app.models.types.FlexibleDate(), nullable=False),
+        sa.Column("booking", sa.String(), nullable=False),
+        sa.Column("valuation", sa.String(), nullable=False),
         sa.Column("iban", sa.String(), nullable=False),
         sa.Column("amount", sa.Float(), nullable=False),
         sa.Column("subject", sa.String(), nullable=False),
@@ -530,7 +527,7 @@ def upgrade() -> None:
         "members_badges",
         sa.Column("member_id", sa.Integer(), nullable=False),
         sa.Column("badge_id", sa.Integer(), nullable=False),
-        sa.Column("presentationdate", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("presentationdate", sa.String(), nullable=True),
         sa.Column("presentationdate_accuracy", sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(
             ["badge_id"],
@@ -546,7 +543,7 @@ def upgrade() -> None:
         "members_keys",
         sa.Column("member_id", sa.Integer(), nullable=False),
         sa.Column("key_id", sa.Integer(), nullable=False),
-        sa.Column("presentationdate", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("presentationdate", sa.String(), nullable=True),
         sa.Column("presentationdate_accuracy", sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(
             ["key_id"],
@@ -605,8 +602,8 @@ def upgrade() -> None:
         "members_roles",
         sa.Column("member_id", sa.Integer(), nullable=False),
         sa.Column("role_id", sa.String(), nullable=False),
-        sa.Column("startdate", app.models.types.FlexibleDate(), nullable=False),
-        sa.Column("enddate", app.models.types.FlexibleDate(), nullable=True),
+        sa.Column("startdate", sa.String(), nullable=False),
+        sa.Column("enddate", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(
             ["member_id"],
             ["members.id"],
@@ -685,8 +682,8 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("ordered_by", sa.Integer(), nullable=False),
         sa.Column("email", sa.String(), nullable=False),
-        sa.Column("summary_start", app.models.types.FlexibleDate(), nullable=False),
-        sa.Column("summary_end", app.models.types.FlexibleDate(), nullable=False),
+        sa.Column("summary_start", sa.String(), nullable=False),
+        sa.Column("summary_end", sa.String(), nullable=False),
         sa.Column("pid", sa.String(), nullable=True),
         sa.Column("started_at", sa.DateTime(), nullable=True),
         sa.Column("finished_at", sa.DateTime(), nullable=True),

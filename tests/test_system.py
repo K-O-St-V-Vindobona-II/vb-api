@@ -18,7 +18,12 @@ def _seed(db):
         [
             Org(id="vbw", label="VBW", order=1),
             State(id="bi", label="Bandinhaber", order=1),
-            Role(id="internetreferent", group="it", label="Internetreferent", order=1),
+            Role(
+                id="internetreferent",
+                group="funktion",
+                label="Internetreferent",
+                order=1,
+            ),
         ]
     )
     db.commit()

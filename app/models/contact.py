@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
+from app.models.enums import ContactType, enum_values
 
 if TYPE_CHECKING:
     from app.models.org import Org
@@ -24,7 +24,14 @@ class Contact(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    kontakttyp: Mapped[str] = mapped_column(String)
+    kontakttyp: Mapped[ContactType] = mapped_column(
+        Enum(
+            ContactType,
+            name="contact_type",
+            native_enum=True,
+            values_callable=enum_values,
+        )
+    )
     anrede: Mapped[str | None]
     name: Mapped[str] = mapped_column(String, unique=True)
     couleurname: Mapped[str | None]
@@ -41,7 +48,7 @@ class Contact(Base):
     email: Mapped[str | None]
     rufnummer: Mapped[str | None]
 
-    datum: Mapped[date | None] = mapped_column(FlexibleDate)
+    datum: Mapped[date | None] = mapped_column(Date)
     datum_accuracy: Mapped[int | None] = mapped_column(default=0)
 
     anmerkungen: Mapped[str | None] = mapped_column(Text)

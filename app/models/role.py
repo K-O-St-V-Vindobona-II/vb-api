@@ -1,7 +1,8 @@
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, Enum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
+from app.models.enums import RoleGroup, enum_values
 
 
 class Role(Base):
@@ -11,6 +12,13 @@ class Role(Base):
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    group: Mapped[str | None]
+    group: Mapped[RoleGroup | None] = mapped_column(
+        Enum(
+            RoleGroup,
+            name="role_group",
+            native_enum=True,
+            values_callable=enum_values,
+        )
+    )
     label: Mapped[str | None]
     order: Mapped[int | None] = mapped_column(default=0)

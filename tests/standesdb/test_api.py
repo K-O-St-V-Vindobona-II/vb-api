@@ -32,14 +32,14 @@ def _setup_reference_data(db):
             ),
             Role(
                 id="internetreferent",
-                group="it",
+                group="funktion",
                 label="Internetreferent",
                 order=2,
             ),
             Badge(
                 id=1,
                 name="Fuxenband",
-                group="band",
+                group="jubelband",
                 order=1,
             ),
             Key(id=1, name="Haustorschlüssel"),
@@ -683,7 +683,7 @@ def test_create_member_writes_log(client, db_session):
         .all()
     )
     assert len(logs) > 0
-    assert all(l.action == "store" for l in logs)
+    assert all(l.action == "create" for l in logs)
     assert all(l.modified_by == admin.id for l in logs)
     keys = {l.key for l in logs}
     assert "vorname" in keys
@@ -762,7 +762,7 @@ def test_create_contact_writes_log(client, db_session):
         .all()
     )
     assert len(logs) > 0
-    assert all(l.action == "store" for l in logs)
+    assert all(l.action == "create" for l in logs)
     keys = {l.key for l in logs}
     assert "kontakttyp" in keys
     assert "name" in keys

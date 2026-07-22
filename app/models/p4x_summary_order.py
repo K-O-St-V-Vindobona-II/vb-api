@@ -1,10 +1,9 @@
 import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
 
 
 class P4xSummaryOrder(Base):
@@ -21,8 +20,8 @@ class P4xSummaryOrder(Base):
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
     )
     email: Mapped[str]
-    summary_start: Mapped[datetime.date] = mapped_column(FlexibleDate)
-    summary_end: Mapped[datetime.date] = mapped_column(FlexibleDate)
+    summary_start: Mapped[datetime.date] = mapped_column(Date)
+    summary_end: Mapped[datetime.date] = mapped_column(Date)
     pid: Mapped[str | None]
     started_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)

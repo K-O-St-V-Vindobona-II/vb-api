@@ -4,11 +4,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
 
 if TYPE_CHECKING:
     from app.models.p4x_account import P4xAccount
@@ -34,9 +41,9 @@ class P4xTransaction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sha256hash: Mapped[str] = mapped_column(String, unique=True)
-    booking: Mapped[date] = mapped_column(FlexibleDate, index=True)
-    valuation: Mapped[date] = mapped_column(FlexibleDate, index=True)
+    sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    booking: Mapped[date] = mapped_column(Date, index=True)
+    valuation: Mapped[date] = mapped_column(Date, index=True)
     iban: Mapped[str] = mapped_column(String, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
@@ -57,7 +64,7 @@ class P4xTransaction(Base):
         index=True,
     )
     delegating_p4x_specialcontact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_specialcontacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     comment: Mapped[str | None]

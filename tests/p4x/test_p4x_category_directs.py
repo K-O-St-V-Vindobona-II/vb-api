@@ -41,7 +41,7 @@ def _seed(db) -> tuple[P4xAccount, P4xCategory, P4xTransaction]:
     db.refresh(cat)
 
     tx = P4xTransaction(
-        sha256hash="direct_test_tx",
+        sha256_hash="direct_test_tx",
         booking=date(2026, 3, 15),
         valuation=date(2026, 3, 15),
         iban="AT001",

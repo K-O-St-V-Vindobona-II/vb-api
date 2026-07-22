@@ -232,7 +232,7 @@ def upload_image(
         height=height,
         sha256_hash=sha256,
         description=description,
-        default=1 if existing_count == 0 else 0,
+        default=existing_count == 0,
         created_by=created_by,
         created_at=now,
         updated_at=now,
@@ -255,8 +255,8 @@ def update_image(
         db.query(StandesdbImage).filter(
             _sibling_filter(img),
             StandesdbImage.deleted_at.is_(None),
-        ).update({"default": 0})
-        img.default = 1
+        ).update({"default": False})
+        img.default = True
 
     db.commit()
 

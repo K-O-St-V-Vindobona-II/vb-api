@@ -4,11 +4,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
+from app.models.enums import MemberDeliveryPreference, enum_values
 
 if TYPE_CHECKING:
     from app.models.member_badge import MemberBadge
@@ -66,19 +66,19 @@ class Member(Base):
     )
 
     # --- Fuzzy Dates ---
-    geburtsdatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    geburtsdatum: Mapped[date | None] = mapped_column(Date)
     geburtsdatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    aufnahmedatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    aufnahmedatum: Mapped[date | None] = mapped_column(Date)
     aufnahmedatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    branderdatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    branderdatum: Mapped[date | None] = mapped_column(Date)
     branderdatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    burschungsdatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    burschungsdatum: Mapped[date | None] = mapped_column(Date)
     burschungsdatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    philistrierungsdatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    philistrierungsdatum: Mapped[date | None] = mapped_column(Date)
     philistrierungsdatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    entlassungsdatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    entlassungsdatum: Mapped[date | None] = mapped_column(Date)
     entlassungsdatum_accuracy: Mapped[int | None] = mapped_column(default=0)
-    sterbedatum: Mapped[date | None] = mapped_column(FlexibleDate)
+    sterbedatum: Mapped[date | None] = mapped_column(Date)
     sterbedatum_accuracy: Mapped[int | None] = mapped_column(default=0)
 
     # --- Contact ---
@@ -91,7 +91,15 @@ class Member(Base):
     rufnummer_beruf: Mapped[str | None]
 
     # --- Delivery & Addresses ---
-    zustellungen: Mapped[str | None] = mapped_column(default="deaktiviert")
+    zustellungen: Mapped[MemberDeliveryPreference | None] = mapped_column(
+        Enum(
+            MemberDeliveryPreference,
+            name="member_delivery_preference",
+            native_enum=True,
+            values_callable=enum_values,
+        ),
+        default=MemberDeliveryPreference.DEAKTIVIERT,
+    )
     adresse_privat_anschrift: Mapped[str | None]
     adresse_privat_plz: Mapped[str | None]
     adresse_privat_ort: Mapped[str | None]
@@ -115,7 +123,7 @@ class Member(Base):
     chroniclemail: Mapped[bool | None] = mapped_column(default=False)
 
     # --- P4x (Financial System) ---
-    p4x_init_date: Mapped[date | None] = mapped_column(FlexibleDate)
+    p4x_init_date: Mapped[date | None] = mapped_column(Date)
     p4x_init_balance: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     p4x_freed: Mapped[bool | None]
     p4x_comment: Mapped[str | None]

@@ -253,7 +253,7 @@ class TestCategoryUsage:
         db_session.commit()
 
         tx = P4xTransaction(
-            sha256hash="usage_test",
+            sha256_hash="usage_test",
             booking=date(2026, 1, 1),
             valuation=date(2026, 1, 1),
             iban="AT00",

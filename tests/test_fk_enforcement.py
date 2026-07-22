@@ -30,7 +30,7 @@ def _seed_p4x_account(db) -> P4xAccount:
 
 def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTransaction:
     tx = P4xTransaction(
-        sha256hash=f"fk_test_{hash_suffix}",
+        sha256_hash=f"fk_test_{hash_suffix}",
         booking=datetime.date(2026, 1, 1),
         valuation=datetime.date(2026, 1, 1),
         iban="AT999",

@@ -26,7 +26,7 @@ def _seed(db):
             State(id="fu", label="Fux", order=1),
             Role(
                 id="internetreferent",
-                group="it",
+                group="funktion",
                 label="Internetreferent",
                 order=1,
             ),

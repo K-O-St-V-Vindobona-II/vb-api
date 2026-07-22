@@ -125,7 +125,7 @@ def _add_fee_payment(
         db.flush()
 
     tx = P4xTransaction(
-        sha256hash=f"fee_pay_{member.id}_{booking}_{amount}",
+        sha256_hash=f"fee_pay_{member.id}_{booking}_{amount}",
         booking=booking,
         valuation=booking,
         iban=iban,

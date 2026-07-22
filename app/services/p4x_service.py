@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnElement, func
+from sqlalchemy import ColumnElement, extract, func
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.query import RowReturningQuery
@@ -275,7 +275,7 @@ def import_transactions(
             payload["valuation"], str(orig_struct.get("valuation", ""))
         )
 
-        sha256hash = compute_transaction_hash(
+        sha256_hash = compute_transaction_hash(
             booking_carbon,
             valuation_carbon,
             payload["iban"],
@@ -285,7 +285,7 @@ def import_transactions(
 
         if payload["booking"] < account.init_date:
             db.query(P4xTransaction).filter(
-                P4xTransaction.sha256hash == sha256hash,
+                P4xTransaction.sha256_hash == sha256_hash,
             ).update({"deleted_at": datetime.now(UTC)})
             db.commit()
             summary["before_init_date"] = summary.get("before_init_date", 0) + 1
@@ -294,7 +294,7 @@ def import_transactions(
         existing = (
             db.query(P4xTransaction)
             .filter(
-                P4xTransaction.sha256hash == sha256hash,
+                P4xTransaction.sha256_hash == sha256_hash,
                 P4xTransaction.deleted_at.is_(None),
             )
             .first()
@@ -314,7 +314,7 @@ def import_transactions(
         else:
             status = "new"
             tx = P4xTransaction(
-                sha256hash=sha256hash,
+                sha256_hash=sha256_hash,
                 booking=payload["booking"],
                 valuation=payload["valuation"],
                 iban=payload["iban"],
@@ -371,8 +371,8 @@ def get_transactions_by_month(
         .filter(
             P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
-            func.substr(P4xTransaction.booking, 1, 4) == str(year),
-            func.substr(P4xTransaction.booking, 6, 2) == f"{month:02d}",
+            extract("year", P4xTransaction.booking) == year,
+            extract("month", P4xTransaction.booking) == month,
         )
         .order_by(P4xTransaction.booking.desc())
     )

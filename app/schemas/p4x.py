@@ -5,6 +5,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
+from app.models.enums import SubjectMode
+
 IBAN_REGEX = re.compile(r"^[A-Z]{2}\d{2}\s?[\w\s]{4,}$")
 BIC_REGEX = re.compile(r"^[A-Za-z0-9]{1,11}$")
 HEX_COLOR_REGEX = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -45,7 +47,7 @@ class CategoryFilterShortResponse(BaseModel):
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
-    subject_mode: str
+    subject_mode: SubjectMode
     p4x_category_id: int
     hitCount: int  # noqa: N815
 
@@ -216,7 +218,7 @@ class CategoryFilterResponse(BaseModel):
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
-    subject_mode: str
+    subject_mode: SubjectMode
     p4x_category_id: int
     hitCount: int  # noqa: N815
 
@@ -232,7 +234,7 @@ class CategoryFilterSaveRequest(BaseModel):
         None, ge=-999999999, le=999999999, max_digits=12, decimal_places=2
     )
     subject: str | None = Field(None, max_length=400)
-    subject_mode: str
+    subject_mode: SubjectMode
     p4x_category_id: int
 
     @field_validator("iban", mode="before")
@@ -240,14 +242,6 @@ class CategoryFilterSaveRequest(BaseModel):
     def validate_filter_iban(cls, v: str | None) -> str | None:
         if v and not re.match(r"^[a-zA-Z]{2}[0-9 ]{18,23}$", v):
             msg = "Ungültiges IBAN-Format."
-            raise ValueError(msg)
-        return v
-
-    @field_validator("subject_mode")
-    @classmethod
-    def validate_subject_mode(cls, v: str) -> str:
-        if v not in ("equals", "contains", "starts"):
-            msg = "subject_mode muss 'equals', 'contains' oder 'starts' sein."
             raise ValueError(msg)
         return v
 

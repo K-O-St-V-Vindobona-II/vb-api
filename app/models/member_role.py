@@ -3,11 +3,10 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey
+from sqlalchemy import CheckConstraint, Date, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.types import FlexibleDate
 
 if TYPE_CHECKING:
     from app.models.member import Member
@@ -31,8 +30,8 @@ class MemberRole(Base):
         ForeignKey("roles.id", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
     )
-    startdate: Mapped[datetime.date] = mapped_column(FlexibleDate, primary_key=True)
-    enddate: Mapped[datetime.date | None] = mapped_column(FlexibleDate)
+    startdate: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    enddate: Mapped[datetime.date | None] = mapped_column(Date)
 
     member: Mapped[Member] = relationship(back_populates="member_roles")
     role: Mapped[Role] = relationship(lazy="joined")

@@ -4,10 +4,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+from app.models.enums import SubjectMode, enum_values
 
 if TYPE_CHECKING:
     from app.models.p4x_account import P4xAccount
@@ -33,7 +34,14 @@ class P4xCategoryFilter(Base):
     iban: Mapped[str | None]
     min_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     max_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    subject_mode: Mapped[str]
+    subject_mode: Mapped[SubjectMode] = mapped_column(
+        Enum(
+            SubjectMode,
+            name="p4x_filter_subject_mode",
+            native_enum=True,
+            values_callable=enum_values,
+        )
+    )
     subject: Mapped[str | None]
     p4x_category_id: Mapped[int] = mapped_column(
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
