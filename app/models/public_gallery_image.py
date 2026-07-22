@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -16,6 +16,16 @@ class PublicGalleryImage(Base):
     """
 
     __tablename__ = "public_gallery_images"
+    __table_args__ = (
+        CheckConstraint("size >= 0", name="public_gallery_images_size_check"),
+        CheckConstraint(
+            "width > 0 AND height > 0",
+            name="public_gallery_images_width_height_check",
+        ),
+        CheckConstraint(
+            "sort_order >= 0", name="public_gallery_images_sort_order_check"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     sha256_hash: Mapped[str] = mapped_column(unique=True)

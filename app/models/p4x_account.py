@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -16,6 +16,15 @@ if TYPE_CHECKING:
 
 class P4xAccount(Base):
     __tablename__ = "p4x_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "iban ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9 ]{4,}$'", name="p4x_accounts_iban_check"
+        ),
+        CheckConstraint(
+            "bic IS NULL OR bic ~ '^[A-Za-z0-9]{1,11}$'",
+            name="p4x_accounts_bic_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     iban: Mapped[str] = mapped_column(unique=True)

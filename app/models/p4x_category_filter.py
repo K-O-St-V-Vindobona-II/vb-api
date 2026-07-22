@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -16,6 +16,12 @@ if TYPE_CHECKING:
 
 class P4xCategoryFilter(Base):
     __tablename__ = "p4x_category_filters"
+    __table_args__ = (
+        CheckConstraint(
+            "min_amount IS NULL OR max_amount IS NULL OR min_amount <= max_amount",
+            name="p4x_category_filters_min_max_amount_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True)

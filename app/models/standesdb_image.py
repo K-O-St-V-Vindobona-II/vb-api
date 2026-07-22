@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -8,6 +8,17 @@ from app.db.database import Base
 
 class StandesdbImage(Base):
     __tablename__ = "standesdb_images"
+    __table_args__ = (
+        CheckConstraint(
+            "size IS NULL OR size >= 0", name="standesdb_images_size_check"
+        ),
+        CheckConstraint(
+            "width IS NULL OR width > 0", name="standesdb_images_width_check"
+        ),
+        CheckConstraint(
+            "height IS NULL OR height > 0", name="standesdb_images_height_check"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     owner_type: Mapped[str]
