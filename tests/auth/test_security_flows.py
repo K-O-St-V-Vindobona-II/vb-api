@@ -217,7 +217,7 @@ def test_lastsignal_updates_on_authenticated_request_after_debounce_window(
     session_record = (
         db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
     )
-    member = db_session.query(Member).filter_by(id=session_record.tokenable_id).first()
+    member = db_session.query(Member).filter_by(id=session_record.member_id).first()
     assert member.auth_lastsignal is None
 
     # Age the session past the 1-minute debounce window, but well within
@@ -252,7 +252,7 @@ def test_lastsignal_not_bumped_within_debounce_window(client, db_session, auth_h
     session_record = (
         db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
     )
-    member = db_session.query(Member).filter_by(id=session_record.tokenable_id).first()
+    member = db_session.query(Member).filter_by(id=session_record.member_id).first()
 
     # Right after login, last_used_at is fresh, so no request so far has
     # crossed the 1-minute debounce window yet.

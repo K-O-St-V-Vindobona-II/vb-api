@@ -129,8 +129,7 @@ def execute_password_reset(
     member.email_verified_at = datetime.now(UTC)
 
     db.query(PersonalAccessToken).filter(
-        PersonalAccessToken.tokenable_type == "Member",
-        PersonalAccessToken.tokenable_id == member.id,
+        PersonalAccessToken.member_id == member.id,
     ).delete()
 
     db.delete(reset_entry)
@@ -146,8 +145,7 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     now = datetime.now(UTC)
 
     db_token = PersonalAccessToken(
-        tokenable_type="Member",
-        tokenable_id=member.id,
+        member_id=member.id,
         name="session",
         token=session_id,
         refresh_token_hash=hash_refresh_secret(refresh_secret),
@@ -224,7 +222,7 @@ def refresh_session(
     now = datetime.now(UTC)
     _validate_session_expiry(db, session, now)
 
-    member = db.query(Member).filter(Member.id == session.tokenable_id).first()
+    member = db.query(Member).filter(Member.id == session.member_id).first()
     if not member or member.auth_locked:
         _invalidate_session(db, session, "Account locked or deleted")
 
@@ -377,7 +375,7 @@ def logout_user(db: Session, token: str) -> None:
         if not session:
             return
 
-        member = db.query(Member).filter(Member.id == session.tokenable_id).first()
+        member = db.query(Member).filter(Member.id == session.member_id).first()
         if member:
             member.auth_lastlogout = datetime.now(UTC)
 

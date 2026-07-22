@@ -131,7 +131,7 @@ class TestRefreshReuseDetection:
         client.post("/api/auth/refresh")
         sessions = (
             db_session.query(PersonalAccessToken)
-            .filter(PersonalAccessToken.tokenable_id == member.id)
+            .filter(PersonalAccessToken.member_id == member.id)
             .count()
         )
         assert sessions == 0
@@ -151,8 +151,7 @@ class TestRefreshFailures:
     def test_expired_session_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         pat = PersonalAccessToken(
-            tokenable_type="Member",
-            tokenable_id=member.id,
+            member_id=member.id,
             name="session",
             token="expired-session",
             refresh_token_hash=hash_refresh_secret(secret),
@@ -170,8 +169,7 @@ class TestRefreshFailures:
     def test_idle_timeout_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         pat = PersonalAccessToken(
-            tokenable_type="Member",
-            tokenable_id=member.id,
+            member_id=member.id,
             name="session",
             token="idle-session",
             refresh_token_hash=hash_refresh_secret(secret),

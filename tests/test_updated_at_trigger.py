@@ -47,9 +47,12 @@ class TestUpdatedAtTrigger:
         """This is the one table that previously had a Python onupdate=
         instead of relying on manual assignment — the DB trigger now
         replaces that Python-side mechanism entirely."""
+        member = Member(vorname="Trigger", nachname="Test")
+        db_session.add(member)
+        db_session.commit()
+
         token = PersonalAccessToken(
-            tokenable_type="Member",
-            tokenable_id=1,
+            member_id=member.id,
             name="test-session",
             token="jti-trigger-test",
         )
