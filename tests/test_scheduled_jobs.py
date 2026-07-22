@@ -218,11 +218,12 @@ class TestStandesdbHealthCheck:
 
     def test_sends_error_mail_when_image_missing(self, db_session, mock_s3):
         _seed_base(db_session)
-        _make_admin_member(db_session, "standesdbadmin@vbw.at", "standesfuehrer", "sf")
+        admin = _make_admin_member(
+            db_session, "standesdbadmin@vbw.at", "standesfuehrer", "sf"
+        )
         db_session.add(
             StandesdbImage(
-                owner_type="member",
-                owner_id=1,
+                owner_member_id=admin.id,
                 sha256_hash="missing_img_hash",
             )
         )

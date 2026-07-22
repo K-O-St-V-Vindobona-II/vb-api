@@ -114,7 +114,11 @@ class TestUpload:
         assert resp.status_code == 200
         assert "id" in resp.json()
 
-        img = db_session.query(StandesdbImage).filter_by(owner_id=target.id).first()
+        img = (
+            db_session.query(StandesdbImage)
+            .filter_by(owner_member_id=target.id)
+            .first()
+        )
         assert img is not None
         assert img.description == "Testbild"
         assert img.extension == "jpg"

@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 from PIL import Image as PILImage
+from sqlalchemy import ColumnElement
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -24,6 +25,36 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 STANDESDB_THUMB_SIZE = 400
 
 
+def _owner_filter(owner_type: str, owner_id: int) -> ColumnElement[bool]:
+    """Translates the owner_type/owner_id pair callers still use into the
+    matching exclusive-arc FK column (see StandesdbImage)."""
+    if owner_type == "member":
+        return StandesdbImage.owner_member_id == owner_id
+    if owner_type == "contact":
+        return StandesdbImage.owner_contact_id == owner_id
+    msg = f"Unbekannter owner_type: {owner_type!r}"
+    raise ValueError(msg)
+
+
+def _owner_columns(owner_type: str, owner_id: int) -> dict[str, int | None]:
+    """Same translation as _owner_filter, but as kwargs for constructing a
+    new StandesdbImage row."""
+    if owner_type == "member":
+        return {"owner_member_id": owner_id, "owner_contact_id": None}
+    if owner_type == "contact":
+        return {"owner_member_id": None, "owner_contact_id": owner_id}
+    msg = f"Unbekannter owner_type: {owner_type!r}"
+    raise ValueError(msg)
+
+
+def _sibling_filter(img: StandesdbImage) -> ColumnElement[bool]:
+    """Same-owner filter derived from an existing image's own exclusive-arc
+    column, used to find its sibling images."""
+    if img.owner_member_id is not None:
+        return StandesdbImage.owner_member_id == img.owner_member_id
+    return StandesdbImage.owner_contact_id == img.owner_contact_id
+
+
 def get_image_record(
     db: Session,
     owner_type: str,
@@ -34,8 +65,7 @@ def get_image_record(
         db.query(StandesdbImage)
         .filter(
             StandesdbImage.id == image_id,
-            StandesdbImage.owner_type == owner_type,
-            StandesdbImage.owner_id == owner_id,
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .first()
@@ -102,8 +132,7 @@ def get_images_for_owner(
     return (
         db.query(StandesdbImage)
         .filter(
-            StandesdbImage.owner_type == owner_type,
-            StandesdbImage.owner_id == owner_id,
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .order_by(StandesdbImage.id)
@@ -187,8 +216,7 @@ def upload_image(
     existing_count = (
         db.query(StandesdbImage)
         .filter(
-            StandesdbImage.owner_type == owner_type,
-            StandesdbImage.owner_id == owner_id,
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .count()
@@ -196,8 +224,7 @@ def upload_image(
 
     now = datetime.now(UTC)
     img = StandesdbImage(
-        owner_type=owner_type,
-        owner_id=owner_id,
+        **_owner_columns(owner_type, owner_id),
         extension=ext,
         type=content_type,
         size=file_size,
@@ -226,8 +253,7 @@ def update_image(
 
     if set_default:
         db.query(StandesdbImage).filter(
-            StandesdbImage.owner_type == img.owner_type,
-            StandesdbImage.owner_id == img.owner_id,
+            _sibling_filter(img),
             StandesdbImage.deleted_at.is_(None),
         ).update({"default": 0})
         img.default = 1

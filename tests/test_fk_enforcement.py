@@ -9,10 +9,12 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.role import Role
+from app.models.standesdb_image import StandesdbImage
 
 
 def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
@@ -106,3 +108,74 @@ class TestPersonalAccessTokenFk:
         db_session.commit()
 
         assert db_session.get(PersonalAccessToken, token_id) is None
+
+
+class TestStandesdbImageExclusiveArc:
+    """standesdb_images.owner_member_id/owner_contact_id (Alembic revision
+    1e14a4e8ec0c) replaces owner_type/owner_id with an exclusive-arc pair of
+    real FKs — exactly one must be set, enforced by a CHECK constraint."""
+
+    def test_both_owner_columns_set_is_rejected(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        contact = Contact(kontakttyp="person", name="Test Contact")
+        db_session.add_all([member, contact])
+        db_session.commit()
+
+        db_session.add(
+            StandesdbImage(
+                owner_member_id=member.id,
+                owner_contact_id=contact.id,
+                sha256_hash="a" * 64,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_neither_owner_column_set_is_rejected(self, db_session):
+        db_session.add(StandesdbImage(sha256_hash="b" * 64))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_owner_member_id_is_rejected(self, db_session):
+        db_session.add(StandesdbImage(owner_member_id=999999, sha256_hash="c" * 64))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_owner_contact_id_is_rejected(self, db_session):
+        db_session.add(StandesdbImage(owner_contact_id=999999, sha256_hash="d" * 64))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_member_cascades_to_their_images(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        img = StandesdbImage(owner_member_id=member.id, sha256_hash="e" * 64)
+        db_session.add(img)
+        db_session.commit()
+        img_id = img.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        assert db_session.get(StandesdbImage, img_id) is None
+
+    def test_deleting_a_contact_cascades_to_their_images(self, db_session):
+        contact = Contact(kontakttyp="person", name="Test Contact")
+        db_session.add(contact)
+        db_session.commit()
+
+        img = StandesdbImage(owner_contact_id=contact.id, sha256_hash="f" * 64)
+        db_session.add(img)
+        db_session.commit()
+        img_id = img.id
+
+        db_session.execute(delete(Contact).where(Contact.id == contact.id))
+        db_session.commit()
+
+        assert db_session.get(StandesdbImage, img_id) is None

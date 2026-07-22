@@ -388,9 +388,12 @@ class TestGetImageBase64:
         assert result is None
 
     def test_deleted_image_returns_none(self, db_session: object) -> None:
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         img = StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="del_hash",
             deleted_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
@@ -404,9 +407,12 @@ class TestGetImageBase64:
         assert result is None
 
     def test_cached_image_returns_base64(self, db_session: object) -> None:
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         img = StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="cached_hash",
         )
         db_session.add(img)
@@ -425,9 +431,12 @@ class TestGetImageBase64:
         assert result == expected
 
     def test_original_not_found_returns_none(self, db_session: object) -> None:
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         img = StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="no_orig_hash",
         )
         db_session.add(img)
@@ -441,9 +450,12 @@ class TestGetImageBase64:
         assert result is None
 
     def test_thumbnail_generation_success(self, db_session: object) -> None:
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         img = StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="thumb_hash",
         )
         db_session.add(img)
@@ -467,9 +479,12 @@ class TestGetImageBase64:
     def test_thumbnail_generation_oserror_returns_none(
         self, db_session: object
     ) -> None:
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
         img = StandesdbImage(
-            owner_type="member",
-            owner_id=1,
+            owner_member_id=member.id,
             sha256_hash="err_hash",
         )
         db_session.add(img)

@@ -215,20 +215,24 @@ class TestStringLengthRange:
 
 class TestNullablePositiveOnly:
     def test_zero_standesdb_image_width_is_rejected(self, db_session):
+        member = Member(nachname="Test")
+        db_session.add(member)
+        db_session.commit()
+
         db_session.add(
-            StandesdbImage(
-                owner_type="member", owner_id=1, sha256_hash="c" * 64, width=0
-            )
+            StandesdbImage(owner_member_id=member.id, sha256_hash="c" * 64, width=0)
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_null_standesdb_image_width_is_allowed(self, db_session):
+        member = Member(nachname="Test")
+        db_session.add(member)
+        db_session.commit()
+
         db_session.add(
-            StandesdbImage(
-                owner_type="member", owner_id=1, sha256_hash="d" * 64, width=None
-            )
+            StandesdbImage(owner_member_id=member.id, sha256_hash="d" * 64, width=None)
         )
         db_session.commit()
 

@@ -162,11 +162,7 @@ class Member(Base):
     )
 
     images: Mapped[list[StandesdbImage]] = relationship(
-        primaryjoin=(
-            "and_(Member.id == foreign(StandesdbImage"
-            ".owner_id), StandesdbImage.owner_type "
-            "== 'member')"
-        ),
+        foreign_keys="StandesdbImage.owner_member_id",
         viewonly=True,
         lazy="select",
     )
