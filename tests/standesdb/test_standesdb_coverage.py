@@ -31,7 +31,7 @@ def _seed(db):
             ),
             Role(
                 id="internetreferent",
-                group="it",
+                group="funktion",
                 label="Internetreferent",
                 order=2,
             ),
@@ -80,7 +80,7 @@ def _headers(db, member):
 
 def _make_contact(db, name="Test Kontakt", org_id="vbw"):
     c = Contact(
-        kontakttyp="extern",
+        kontakttyp="organisation",
         name=name,
         org_id=org_id,
     )

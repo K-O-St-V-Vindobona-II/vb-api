@@ -36,7 +36,7 @@ class P4xPartner(Base):
         index=True,
     )
     p4x_specialcontact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_specialcontacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("p4x_special_contacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 
 
 class MemberBadge(Base):
-    __tablename__ = "members_badges"
+    __tablename__ = "badges_members"
     __table_args__ = (
         CheckConstraint(
             "presentationdate_accuracy IS NULL "
             "OR presentationdate_accuracy BETWEEN 0 AND 3",
-            name="members_badges_presentationdate_accuracy_check",
+            name="badges_members_presentationdate_accuracy_check",
         ),
     )
 

@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 
 
 class MemberKey(Base):
-    __tablename__ = "members_keys"
+    __tablename__ = "keys_members"
     __table_args__ = (
         CheckConstraint(
             "presentationdate_accuracy IS NULL "
             "OR presentationdate_accuracy BETWEEN 0 AND 3",
-            name="members_keys_presentationdate_accuracy_check",
+            name="keys_members_presentationdate_accuracy_check",
         ),
     )
 

@@ -4,7 +4,7 @@ from app.db.database import Base
 
 
 class P4xSpecialcontact(Base):
-    __tablename__ = "p4x_specialcontacts"
+    __tablename__ = "p4x_special_contacts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cn: Mapped[str | None]

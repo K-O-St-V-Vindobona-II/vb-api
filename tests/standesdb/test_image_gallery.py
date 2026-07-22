@@ -182,7 +182,7 @@ class TestUpload:
         )
         img_id = resp.json()["id"]
         img = db_session.get(StandesdbImage, img_id)
-        assert img.default == 1
+        assert img.default is True
 
     def test_second_image_not_default(self, client, db_session):
         _seed(db_session)
@@ -201,7 +201,7 @@ class TestUpload:
             files={"file": ("b.jpg", _make_jpeg(90, 90), "image/jpeg")},
         )
         img2 = db_session.get(StandesdbImage, resp2.json()["id"])
-        assert img2.default == 0
+        assert img2.default is False
 
 
 class TestUpdate:
@@ -254,8 +254,8 @@ class TestUpdate:
             json={"description": None, "default": True},
         )
         db_session.expire_all()
-        assert db_session.get(StandesdbImage, id1).default == 0
-        assert db_session.get(StandesdbImage, id2).default == 1
+        assert db_session.get(StandesdbImage, id1).default is False
+        assert db_session.get(StandesdbImage, id2).default is True
 
 
 class TestDelete:

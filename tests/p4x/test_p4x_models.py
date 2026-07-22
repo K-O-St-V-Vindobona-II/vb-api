@@ -86,7 +86,7 @@ class TestP4xTransaction:
     def test_create_with_account(self, db_session):
         account = _seed_account(db_session)
         tx = P4xTransaction(
-            sha256hash="abc123def456",
+            sha256_hash="abc123def456",
             booking=date(2026, 3, 20),
             valuation=date(2026, 3, 20),
             iban="DE49100110012624770917",
@@ -107,7 +107,7 @@ class TestP4xTransaction:
     def test_has_attachment_property(self, db_session):
         account = _seed_account(db_session)
         tx = P4xTransaction(
-            sha256hash="hash_with_attachment",
+            sha256_hash="hash_with_attachment",
             booking=date(2026, 1, 1),
             valuation=date(2026, 1, 1),
             iban="AT00TEST",
@@ -125,7 +125,7 @@ class TestP4xTransaction:
     def test_account_relationship(self, db_session):
         account = _seed_account(db_session)
         tx = P4xTransaction(
-            sha256hash="rel_test",
+            sha256_hash="rel_test",
             booking=date(2026, 1, 1),
             valuation=date(2026, 1, 1),
             iban="AT00TEST",
@@ -139,7 +139,7 @@ class TestP4xTransaction:
         db_session.commit()
         db_session.refresh(account)
         assert len(account.transactions) == 1
-        assert account.transactions[0].sha256hash == "rel_test"
+        assert account.transactions[0].sha256_hash == "rel_test"
 
 
 class TestP4xCategory:
@@ -194,7 +194,7 @@ class TestP4xCategoryDirect:
         account = _seed_account(db_session)
         category = _seed_category(db_session)
         tx = P4xTransaction(
-            sha256hash="direct_test",
+            sha256_hash="direct_test",
             booking=date(2026, 1, 1),
             valuation=date(2026, 1, 1),
             iban="AT00TEST",
@@ -224,7 +224,7 @@ class TestP4xCategoryFilterHit:
         account = _seed_account(db_session)
         category = _seed_category(db_session)
         tx = P4xTransaction(
-            sha256hash="hit_test",
+            sha256_hash="hit_test",
             booking=date(2026, 1, 1),
             valuation=date(2026, 1, 1),
             iban="AT00TEST",
@@ -362,7 +362,7 @@ class TestPartnerTransactionRelationship:
         db_session.add(partner)
         db_session.commit()
         tx = P4xTransaction(
-            sha256hash="partner_rel_test",
+            sha256_hash="partner_rel_test",
             booking=date(2026, 3, 20),
             valuation=date(2026, 3, 20),
             iban="DE49100110012624770917",

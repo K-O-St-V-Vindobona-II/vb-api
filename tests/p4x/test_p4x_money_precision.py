@@ -53,7 +53,7 @@ class TestGetAccountBalancePrecision:
         for i in range(10):
             db_session.add(
                 P4xTransaction(
-                    sha256hash=f"drift_{i}",
+                    sha256_hash=f"drift_{i}",
                     booking=date(2020, 1, 1),
                     valuation=date(2020, 1, 1),
                     iban="AT001",
@@ -92,7 +92,7 @@ class TestSetCategoryDirectPrecision:
         db.refresh(category)
 
         tx = P4xTransaction(
-            sha256hash="split_tx",
+            sha256_hash="split_tx",
             booking=date(2020, 1, 1),
             valuation=date(2020, 1, 1),
             iban="AT001",

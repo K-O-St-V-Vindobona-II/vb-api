@@ -52,7 +52,7 @@ def _seed_data(db) -> tuple[P4xAccount, P4xCategory, list[P4xTransaction]]:
         ]
     ):
         tx = P4xTransaction(
-            sha256hash=f"filter_test_{i}",
+            sha256_hash=f"filter_test_{i}",
             booking=date(2026, 3, 10 + i),
             valuation=date(2026, 3, 10 + i),
             iban=iban,

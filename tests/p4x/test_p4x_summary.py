@@ -53,7 +53,7 @@ def _seed(db) -> P4xAccount:
     db.commit()
 
     tx = P4xTransaction(
-        sha256hash="summary_tx_1",
+        sha256_hash="summary_tx_1",
         booking=date(2026, 3, 15),
         valuation=date(2026, 3, 15),
         iban="DE001",
@@ -74,7 +74,7 @@ def _seed(db) -> P4xAccount:
     )
 
     tx2 = P4xTransaction(
-        sha256hash="summary_tx_2",
+        sha256_hash="summary_tx_2",
         booking=date(2026, 3, 20),
         valuation=date(2026, 3, 20),
         iban="DE002",
@@ -206,7 +206,7 @@ class TestSummaryXlsx:
         account = _seed(db_session)
 
         tx = P4xTransaction(
-            sha256hash="with_attachment",
+            sha256_hash="with_attachment",
             booking=date(2026, 3, 25),
             valuation=date(2026, 3, 25),
             iban="AT999",
@@ -251,7 +251,7 @@ class TestSummaryXlsxEdgeCases:
         db_session.refresh(cat2)
 
         tx = P4xTransaction(
-            sha256hash="multi_direct_tx",
+            sha256_hash="multi_direct_tx",
             booking=date(2026, 3, 18),
             valuation=date(2026, 3, 18),
             iban="DE003",
@@ -302,7 +302,7 @@ class TestSummaryXlsxEdgeCases:
         account = _seed(db_session)
 
         tx = P4xTransaction(
-            sha256hash="bad_attachment",
+            sha256_hash="bad_attachment",
             booking=date(2026, 3, 22),
             valuation=date(2026, 3, 22),
             iban="AT777",
@@ -348,7 +348,7 @@ class TestSummaryXlsxEdgeCases:
         db_session.refresh(cf)
 
         tx = P4xTransaction(
-            sha256hash="filter_only_tx",
+            sha256_hash="filter_only_tx",
             booking=date(2026, 3, 19),
             valuation=date(2026, 3, 19),
             iban="AT888",
@@ -386,7 +386,7 @@ class TestSummaryXlsxEdgeCases:
         account = _seed(db_session)
 
         tx = P4xTransaction(
-            sha256hash="dec_tx",
+            sha256_hash="dec_tx",
             booking=date(2026, 12, 15),
             valuation=date(2026, 12, 15),
             iban="DE001",

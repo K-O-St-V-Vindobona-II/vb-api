@@ -45,13 +45,13 @@ def test_state_model(db_session):
 
 def test_badge_model(db_session):
     """Badge reference data can be read."""
-    badge = Badge(id=1, name="Fuxenband", group="band", order=1)
+    badge = Badge(id=1, name="Fuxenband", group="jubelband", order=1)
     db_session.add(badge)
     db_session.commit()
 
     loaded = db_session.get(Badge, 1)
     assert loaded.name == "Fuxenband"
-    assert loaded.group == "band"
+    assert loaded.group == "jubelband"
 
 
 def test_key_model(db_session):
@@ -210,7 +210,7 @@ def test_member_fuzzy_dates(db_session):
 
 def test_member_role_relationship(db_session):
     """Member roles with startdate/enddate."""
-    role = Role(id="testrole", group="test", label="Test")
+    role = Role(id="testrole", group="funktion", label="Test")
     db_session.add(role)
 
     member = Member(
@@ -239,7 +239,7 @@ def test_member_role_relationship(db_session):
 
 def test_member_badge_relationship(db_session):
     """Member badges with presentation date."""
-    badge = Badge(id=99, name="Testband", group="test")
+    badge = Badge(id=99, name="Testband", group="jubelband")
     db_session.add(badge)
 
     member = Member(
@@ -338,7 +338,7 @@ def test_standesdb_image_model(db_session):
         width=800,
         height=600,
         description="Testbild",
-        default=1,
+        default=True,
     )
     db_session.add(img)
     db_session.commit()
@@ -346,7 +346,7 @@ def test_standesdb_image_model(db_session):
     loaded = db_session.get(StandesdbImage, img.id)
     assert loaded.owner_type == "member"
     assert loaded.type == "image/jpeg"
-    assert loaded.default == 1
+    assert loaded.default is True
     assert loaded.deleted_at is None
 
 
@@ -366,12 +366,12 @@ def test_member_default_image(db_session):
     img1 = StandesdbImage(
         owner_member_id=member.id,
         sha256_hash="hash1",
-        default=0,
+        default=False,
     )
     img2 = StandesdbImage(
         owner_member_id=member.id,
         sha256_hash="hash2",
-        default=1,
+        default=True,
     )
     db_session.add_all([img1, img2])
     db_session.commit()

@@ -51,7 +51,7 @@ def _add_tx(
     delegating_member_id: int | None = None,
 ) -> P4xTransaction:
     tx = P4xTransaction(
-        sha256hash=f"q_{booking}_{amount}_{iban}_{hash_suffix}",
+        sha256_hash=f"q_{booking}_{amount}_{iban}_{hash_suffix}",
         booking=booking,
         valuation=booking,
         iban=iban,

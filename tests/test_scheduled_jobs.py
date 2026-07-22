@@ -76,7 +76,7 @@ class TestRefreshCategoryFilterHits:
 
         db_session.add(
             P4xTransaction(
-                sha256hash="abc123",
+                sha256_hash="abc123",
                 p4x_account_id=1,
                 booking=datetime.now(UTC).date(),
                 valuation=datetime.now(UTC).date(),
@@ -142,7 +142,7 @@ class TestArchiveHealthCheck:
     def test_sends_ok_mail_when_healthy(self, db_session, mock_s3):
         _seed_base(db_session)
         member = _make_admin_member(
-            db_session, "archiveadmin@vbw.at", "internetreferent", "ir"
+            db_session, "archiveadmin@vbw.at", "internetreferent", "funktion"
         )
 
         with (
@@ -159,7 +159,9 @@ class TestArchiveHealthCheck:
 
     def test_sends_error_mail_when_file_missing(self, db_session, mock_s3):
         _seed_base(db_session)
-        _make_admin_member(db_session, "archiveadmin@vbw.at", "internetreferent", "ir")
+        _make_admin_member(
+            db_session, "archiveadmin@vbw.at", "internetreferent", "funktion"
+        )
         now = datetime.now(UTC)
         db_session.add(
             ArchiveStoreItem(
@@ -201,7 +203,7 @@ class TestStandesdbHealthCheck:
     def test_sends_ok_mail_when_healthy(self, db_session, mock_s3):
         _seed_base(db_session)
         member = _make_admin_member(
-            db_session, "standesdbadmin@vbw.at", "standesfuehrer", "sf"
+            db_session, "standesdbadmin@vbw.at", "standesfuehrer", "chc"
         )
 
         with (
@@ -219,7 +221,7 @@ class TestStandesdbHealthCheck:
     def test_sends_error_mail_when_image_missing(self, db_session, mock_s3):
         _seed_base(db_session)
         admin = _make_admin_member(
-            db_session, "standesdbadmin@vbw.at", "standesfuehrer", "sf"
+            db_session, "standesdbadmin@vbw.at", "standesfuehrer", "chc"
         )
         db_session.add(
             StandesdbImage(
@@ -408,7 +410,7 @@ class TestBirthdayMails:
             geburtsdatum_accuracy=3,
             entlassen=False,
             verstorben=False,
-            zustellungen="aktiviert",
+            zustellungen="adresse_privat",
         )
         db_session.add(m)
         db_session.commit()
@@ -429,9 +431,7 @@ class TestBirthdayMails:
 class TestDebtorReminder:
     def test_sends_with_treasurers_real_name(self, db_session):
         _seed_base(db_session)
-        db_session.add(
-            Role(id="phil-xxxx", group="philisterkassier", label="Kassier", order=9)
-        )
+        db_session.add(Role(id="phil-xxxx", group="philchc", label="Kassier", order=9))
         db_session.commit()
 
         treasurer = Member(

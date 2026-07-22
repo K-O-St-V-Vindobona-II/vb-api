@@ -41,7 +41,7 @@ class P4xTransaction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sha256hash: Mapped[str] = mapped_column(String, unique=True)
+    sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     booking: Mapped[date] = mapped_column(Date, index=True)
     valuation: Mapped[date] = mapped_column(Date, index=True)
     iban: Mapped[str] = mapped_column(String, index=True)
@@ -64,7 +64,7 @@ class P4xTransaction(Base):
         index=True,
     )
     delegating_p4x_specialcontact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_specialcontacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     comment: Mapped[str | None]

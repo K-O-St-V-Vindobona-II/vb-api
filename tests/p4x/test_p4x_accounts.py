@@ -156,7 +156,7 @@ class TestAccountCRUD:
 
         db_session.add(
             P4xTransaction(
-                sha256hash="test",
+                sha256_hash="test",
                 booking=date(2026, 1, 1),
                 valuation=date(2026, 1, 1),
                 iban="AT00",
@@ -198,7 +198,7 @@ class TestAccountBalance:
         for i in range(3):
             db_session.add(
                 P4xTransaction(
-                    sha256hash=f"bal_{i}",
+                    sha256_hash=f"bal_{i}",
                     booking=date(2026, 1, 10 + i),
                     valuation=date(2026, 1, 10 + i),
                     iban="AT00",
@@ -220,7 +220,7 @@ class TestAccountBalance:
         account = _create_account(db_session)
         db_session.add(
             P4xTransaction(
-                sha256hash="before",
+                sha256_hash="before",
                 booking=date(2026, 1, 1),
                 valuation=date(2026, 1, 1),
                 iban="AT00",
@@ -233,7 +233,7 @@ class TestAccountBalance:
         )
         db_session.add(
             P4xTransaction(
-                sha256hash="after",
+                sha256_hash="after",
                 booking=date(2026, 6, 1),
                 valuation=date(2026, 6, 1),
                 iban="AT00",

@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+from app.models.enums import ContactType, enum_values
 
 if TYPE_CHECKING:
     from app.models.org import Org
@@ -23,7 +24,14 @@ class Contact(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    kontakttyp: Mapped[str] = mapped_column(String)
+    kontakttyp: Mapped[ContactType] = mapped_column(
+        Enum(
+            ContactType,
+            name="contact_type",
+            native_enum=True,
+            values_callable=enum_values,
+        )
+    )
     anrede: Mapped[str | None]
     name: Mapped[str] = mapped_column(String, unique=True)
     couleurname: Mapped[str | None]

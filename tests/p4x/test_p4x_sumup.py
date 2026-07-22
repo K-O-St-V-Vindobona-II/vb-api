@@ -45,7 +45,7 @@ def _add_sumup_tx(
     booking: date,
 ) -> None:
     tx = P4xTransaction(
-        sha256hash=f"sumup_{booking}_{amount}",
+        sha256_hash=f"sumup_{booking}_{amount}",
         booking=booking,
         valuation=booking,
         iban="",

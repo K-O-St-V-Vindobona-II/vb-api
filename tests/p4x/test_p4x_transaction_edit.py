@@ -24,7 +24,7 @@ def _seed(db) -> P4xTransaction:
     db.refresh(account)
 
     tx = P4xTransaction(
-        sha256hash="edit_test_tx",
+        sha256_hash="edit_test_tx",
         booking=date(2026, 3, 15),
         valuation=date(2026, 3, 15),
         iban="AT001",

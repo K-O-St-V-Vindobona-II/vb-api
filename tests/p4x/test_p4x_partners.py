@@ -42,7 +42,7 @@ def _seed(db) -> tuple[P4xAccount, Member, Contact, P4xSpecialcontact]:
         state_id="up",
     )
     contact = Contact(
-        kontakttyp="firma",
+        kontakttyp="organisation",
         name="Netcup GmbH",
         org_id="vbw",
     )
@@ -67,7 +67,7 @@ def _seed(db) -> tuple[P4xAccount, Member, Contact, P4xSpecialcontact]:
 
 def _create_tx(db, account: P4xAccount, iban: str = "DE001") -> P4xTransaction:
     tx = P4xTransaction(
-        sha256hash=f"partner_tx_{iban}",
+        sha256_hash=f"partner_tx_{iban}",
         booking=date(2026, 3, 20),
         valuation=date(2026, 3, 20),
         iban=iban,

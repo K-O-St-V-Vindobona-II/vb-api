@@ -20,7 +20,12 @@ def _seed(db):
             Org(id="vbn", label="VBN", order=2),
             State(id="fu", label="Fux", order=1),
             Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
-            Role(id="internetreferent", group="it", label="Internetreferent", order=2),
+            Role(
+                id="internetreferent",
+                group="funktion",
+                label="Internetreferent",
+                order=2,
+            ),
             Role(id="senior", group="chc", label="Senior", order=3),
             Role(id="phil-senior", group="philchc", label="Phil-Senior", order=4),
             Role(id="phil-xxxx", group="philchc", label="Phil-x", order=5),

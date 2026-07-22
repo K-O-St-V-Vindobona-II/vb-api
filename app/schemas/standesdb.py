@@ -12,6 +12,13 @@ from pydantic import (
     model_validator,
 )
 
+from app.models.enums import (
+    BadgeGroup,
+    ContactType,
+    MemberDeliveryPreference,
+    RoleGroup,
+)
+
 
 def _ensure_utc(v: datetime | None) -> datetime | None:
     if isinstance(v, datetime) and v.tzinfo is None:
@@ -43,7 +50,7 @@ class StateResponse(BaseModel):
 
 class RoleResponse(BaseModel):
     id: str
-    group: str | None = None
+    group: RoleGroup | None = None
     label: str | None = None
     order: int = 0
     model_config = ConfigDict(from_attributes=True)
@@ -52,7 +59,7 @@ class RoleResponse(BaseModel):
 class BadgeResponse(BaseModel):
     id: int
     name: str
-    group: str | None = None
+    group: BadgeGroup | None = None
     order: int = 0
     model_config = ConfigDict(from_attributes=True)
 
@@ -188,7 +195,7 @@ class MemberDetailResponse(BaseModel):
     url: str | None = None
     mkv_ogv_url: str | None = None
 
-    zustellungen: str = "deaktiviert"
+    zustellungen: MemberDeliveryPreference = MemberDeliveryPreference.DEAKTIVIERT
     rufnummer_mobil: str | None = None
     rufnummer_privat: str | None = None
     rufnummer_beruf: str | None = None
@@ -269,7 +276,7 @@ class MemberSaveRequest(BaseModel):
     rufnummer_privat: str | None = None
     rufnummer_beruf: str | None = None
 
-    zustellungen: str = "deaktiviert"
+    zustellungen: MemberDeliveryPreference = MemberDeliveryPreference.DEAKTIVIERT
 
     adresse_privat_anschrift: str | None = None
     adresse_privat_plz: str | None = None
@@ -314,19 +321,6 @@ class MemberSaveRequest(BaseModel):
     def max_64(cls, v: str | None) -> str | None:
         if v and len(v) > 64:
             msg = "Maximal 64 Zeichen."
-            raise ValueError(msg)
-        return v
-
-    @field_validator("zustellungen", mode="before")
-    @classmethod
-    def valid_zustellungen(cls, v: str) -> str:
-        allowed = {
-            "adresse_privat",
-            "adresse_beruf",
-            "deaktiviert",
-        }
-        if v not in allowed:
-            msg = "Muss adresse_privat, adresse_beruf oder deaktiviert sein."
             raise ValueError(msg)
         return v
 
@@ -395,7 +389,7 @@ class MemberSaveRequest(BaseModel):
 class ContactDetailResponse(BaseModel):
     id: int
     cn: str
-    kontakttyp: str
+    kontakttyp: ContactType
     anrede: str | None = None
     name: str
     couleurname: str | None = None
@@ -415,7 +409,7 @@ class ContactDetailResponse(BaseModel):
 
 
 class ContactSaveRequest(BaseModel):
-    kontakttyp: str
+    kontakttyp: ContactType
     anrede: str | None = None
     name: str
     couleurname: str | None = None
@@ -430,14 +424,6 @@ class ContactSaveRequest(BaseModel):
     datum: date | None = None
     datum_accuracy: int = Field(default=0, ge=0, le=3)
     anmerkungen: str | None = None
-
-    @field_validator("kontakttyp", mode="before")
-    @classmethod
-    def valid_kontakttyp(cls, v: str) -> str:
-        if v not in ("person", "organisation"):
-            msg = "Muss 'person' oder 'organisation' sein."
-            raise ValueError(msg)
-        return v
 
     @field_validator("name", "couleurname", mode="before")
     @classmethod
@@ -494,7 +480,7 @@ class ImageResponse(BaseModel):
     width: int | None = None
     size: int | None = None
     description: str | None = None
-    default: int = 0
+    default: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 
