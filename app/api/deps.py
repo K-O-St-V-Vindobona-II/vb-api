@@ -61,7 +61,7 @@ def _enforce_idle_timeout(db: Session, session_record: PersonalAccessToken) -> N
 
     if not last_used:
         session_record.last_used_at = now
-        _bump_lastsignal(db, session_record.tokenable_id, now)
+        _bump_lastsignal(db, session_record.member_id, now)
         db.commit()
         return
 
@@ -79,7 +79,7 @@ def _enforce_idle_timeout(db: Session, session_record: PersonalAccessToken) -> N
 
     if idle_duration > timedelta(minutes=1):
         session_record.last_used_at = now
-        _bump_lastsignal(db, session_record.tokenable_id, now)
+        _bump_lastsignal(db, session_record.member_id, now)
         db.commit()
 
 

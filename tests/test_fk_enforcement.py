@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.personal_access_token import PersonalAccessToken
 from app.models.role import Role
 
 
@@ -75,3 +76,33 @@ class TestFkInsertEnforcement:
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
+
+
+class TestPersonalAccessTokenFk:
+    """personal_access_tokens.member_id -> members.id (Alembic revision
+    5292367fb696) replaces the previously vestigial tokenable_type/
+    tokenable_id pair — no code ever branched on the discriminator, so this
+    became a real FK instead of an exclusive-arc redesign."""
+
+    def test_inserting_a_token_with_unknown_member_id_is_rejected(self, db_session):
+        db_session.add(
+            PersonalAccessToken(member_id=999999, name="session", token="jti-1")
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_member_cascades_to_their_sessions(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        token = PersonalAccessToken(member_id=member.id, name="session", token="jti-2")
+        db_session.add(token)
+        db_session.commit()
+        token_id = token.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        assert db_session.get(PersonalAccessToken, token_id) is None
