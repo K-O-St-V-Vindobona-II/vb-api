@@ -87,17 +87,6 @@ def _seed(db) -> P4xAccount:
     db.add(tx2)
     db.commit()
 
-    db.add(
-        P4xPartner(
-            iban="DE001",
-            partner_type="member",
-            partner_id=1,
-            created_at=_now(),
-            updated_at=_now(),
-        )
-    )
-    db.commit()
-
     member = Member(
         vorname="Michael",
         nachname="Schimpl",
@@ -111,6 +100,16 @@ def _seed(db) -> P4xAccount:
         p4x_init_balance=36,
     )
     db.add(member)
+    db.commit()
+
+    db.add(
+        P4xPartner(
+            iban="DE001",
+            member_id=member.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
     db.commit()
 
     return account

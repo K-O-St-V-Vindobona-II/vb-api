@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from app.models.contact import Contact
 from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
@@ -258,10 +259,13 @@ class TestP4xCategoryFilterHit:
 
 class TestP4xPartner:
     def test_create(self, db_session):
+        member = Member(vorname="Test", nachname="Partner")
+        db_session.add(member)
+        db_session.commit()
+
         partner = P4xPartner(
             iban="AT761200023423416700",
-            partner_type="member",
-            partner_id=1,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -271,10 +275,13 @@ class TestP4xPartner:
         assert partner.partner_type == "member"
 
     def test_soft_delete(self, db_session):
+        contact = Contact(kontakttyp="person", name="Soft Delete Contact")
+        db_session.add(contact)
+        db_session.commit()
+
         partner = P4xPartner(
             iban="AT00SOFTDELETE",
-            partner_type="contact",
-            partner_id=2,
+            contact_id=contact.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -342,10 +349,13 @@ class TestP4xSummaryOrder:
 class TestPartnerTransactionRelationship:
     def test_transaction_finds_partner_by_iban(self, db_session):
         account = _seed_account(db_session)
+        member = Member(vorname="Test", nachname="Relationship")
+        db_session.add(member)
+        db_session.commit()
+
         partner = P4xPartner(
             iban="DE49100110012624770917",
-            partner_type="member",
-            partner_id=42,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -367,4 +377,4 @@ class TestPartnerTransactionRelationship:
         db_session.refresh(tx)
         assert tx.partner is not None
         assert tx.partner.partner_type == "member"
-        assert tx.partner.partner_id == 42
+        assert tx.partner.partner_id == member.id

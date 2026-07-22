@@ -1,5 +1,8 @@
 from datetime import UTC, date, datetime
 
+import pytest
+from fastapi import HTTPException
+
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.org import Org
@@ -301,6 +304,20 @@ class TestSetTransactionPartner:
         assert active is not None
         assert active.partner_type == "member"
 
+    def test_set_partner_with_unknown_id_raises_404(self, db_session):
+        account, _member, _contact, _special = _seed(db_session)
+        tx = _create_tx(db_session, account)
+
+        with pytest.raises(HTTPException) as exc_info:
+            set_transaction_partner(
+                db_session,
+                tx,
+                partner_data={"type": "member", "id": 999999},
+                has_delegating=False,
+                delegating_data=None,
+            )
+        assert exc_info.value.status_code == 404
+
 
 class TestDelegatingPartner:
     def test_set_delegating(self, db_session):
@@ -341,6 +358,20 @@ class TestDelegatingPartner:
         db_session.refresh(tx)
         assert tx.delegating_partner_type is None
         assert tx.delegating_partner_id is None
+
+    def test_set_delegating_with_unknown_id_raises_404(self, db_session):
+        account, member, _contact, _special = _seed(db_session)
+        tx = _create_tx(db_session, account)
+
+        with pytest.raises(HTTPException) as exc_info:
+            set_transaction_partner(
+                db_session,
+                tx,
+                partner_data={"type": "member", "id": member.id},
+                has_delegating=True,
+                delegating_data={"type": "member", "id": 999999},
+            )
+        assert exc_info.value.status_code == 404
 
     def test_no_partner_clears_delegating(self, db_session):
         account, member, contact, _ = _seed(db_session)

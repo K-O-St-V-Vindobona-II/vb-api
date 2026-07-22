@@ -44,7 +44,9 @@ class P4xAccount(Base):
     )
 
     transactions: Mapped[list[P4xTransaction]] = relationship(
-        back_populates="account", lazy="select"
+        back_populates="account",
+        foreign_keys="P4xTransaction.p4x_account_id",
+        lazy="select",
     )
     category_filters: Mapped[list[P4xCategoryFilter]] = relationship(
         back_populates="account", lazy="select"
