@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -24,7 +25,7 @@ class P4xTransaction(Base):
     booking: Mapped[date] = mapped_column(FlexibleDate, index=True)
     valuation: Mapped[date] = mapped_column(FlexibleDate, index=True)
     iban: Mapped[str] = mapped_column(String, index=True)
-    amount: Mapped[float] = mapped_column(index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
     p4x_account_id: Mapped[int] = mapped_column(
         ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),

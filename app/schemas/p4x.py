@@ -1,11 +1,22 @@
 import re
 from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 IBAN_REGEX = re.compile(r"^[A-Z]{2}\d{2}\s?[\w\s]{4,}$")
 BIC_REGEX = re.compile(r"^[A-Za-z0-9]{1,11}$")
 HEX_COLOR_REGEX = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+# Pydantic v2 serializes Decimal to a JSON *string* by default (to avoid
+# float precision loss on the wire) — but this API always returned money as
+# a plain JSON number, and the vb-intern frontend types/formats it as such.
+# This alias keeps Decimal internally (exact arithmetic) while restoring the
+# original bare-number wire format on the way out.
+MoneyOut = Annotated[
+    Decimal, PlainSerializer(lambda v: float(v), return_type=float, when_used="json")
+]
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +33,7 @@ class PartnerRef(BaseModel):
 class CategoryDirectResponse(BaseModel):
     id: int
     p4x_category_id: int
-    amount: float
+    amount: MoneyOut
 
 
 class CategoryFilterShortResponse(BaseModel):
@@ -31,8 +42,8 @@ class CategoryFilterShortResponse(BaseModel):
     p4x_account_id: int
     p4x_account_label: str | None
     iban: str | None
-    min_amount: float | None
-    max_amount: float | None
+    min_amount: MoneyOut | None
+    max_amount: MoneyOut | None
     subject: str | None
     subject_mode: str
     p4x_category_id: int
@@ -50,8 +61,8 @@ class AccountResponse(BaseModel):
     bic: str | None
     label: str | None
     init_date: str | None
-    init_balance: float
-    balance: float
+    init_balance: MoneyOut
+    balance: MoneyOut
     transactions_count: int
     transactions_latest: str | None
 
@@ -61,7 +72,9 @@ class AccountSaveRequest(BaseModel):
     bic: str = Field(..., max_length=11)
     label: str = Field(..., max_length=32)
     init_date: date
-    init_balance: float = Field(..., ge=-999999999, le=999999999)
+    init_balance: Decimal = Field(
+        ..., ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+    )
 
     @field_validator("iban")
     @classmethod
@@ -101,7 +114,7 @@ class TransactionResponse(BaseModel):
     booking: str | None
     valuation: str | None
     iban: str
-    amount: float
+    amount: MoneyOut
     subject: str
     p4x_account_id: int
     p4x_account_cn: str
@@ -200,8 +213,8 @@ class CategoryFilterResponse(BaseModel):
     p4x_account_id: int
     p4x_account_label: str | None
     iban: str | None
-    min_amount: float | None
-    max_amount: float | None
+    min_amount: MoneyOut | None
+    max_amount: MoneyOut | None
     subject: str | None
     subject_mode: str
     p4x_category_id: int
@@ -212,8 +225,12 @@ class CategoryFilterSaveRequest(BaseModel):
     name: str = Field(..., max_length=64)
     p4x_account_id: int
     iban: str | None = None
-    min_amount: float | None = Field(None, ge=-999999999, le=999999999)
-    max_amount: float | None = Field(None, ge=-999999999, le=999999999)
+    min_amount: Decimal | None = Field(
+        None, ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+    )
+    max_amount: Decimal | None = Field(
+        None, ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+    )
     subject: str | None = Field(None, max_length=400)
     subject_mode: str
     p4x_category_id: int
@@ -237,7 +254,7 @@ class CategoryFilterSaveRequest(BaseModel):
 
 class FilterHitResponse(BaseModel):
     booking: str | None
-    amount: float
+    amount: MoneyOut
     subject: str
     iban: str
 
@@ -249,14 +266,14 @@ class FilterHitResponse(BaseModel):
 
 class FeeResponse(BaseModel):
     start: str
-    fee: float
+    fee: MoneyOut
     protected: bool
 
 
 class FeeCreateRequest(BaseModel):
     year: int = Field(..., ge=2015)
     month: int = Field(..., ge=1, le=12)
-    fee: float = Field(..., ge=10, le=200)
+    fee: Decimal = Field(..., ge=10, le=200, max_digits=12, decimal_places=2)
 
 
 # ---------------------------------------------------------------------------
@@ -270,23 +287,23 @@ class FeeBalanceCount(BaseModel):
 
 
 class FeeBalanceSum(BaseModel):
-    fees: float
-    payments: float
+    fees: MoneyOut
+    payments: MoneyOut
 
 
 class FeeProgressEntry(BaseModel):
     type: str
     booking: str
-    amount: float
+    amount: MoneyOut
 
 
 class FeeBalanceResponse(BaseModel):
     start_date: str
-    start_balance: float
+    start_balance: MoneyOut
     count: FeeBalanceCount
     sum: FeeBalanceSum
     end_date: str
-    end_balance: float
+    end_balance: MoneyOut
     progress: list[FeeProgressEntry]
 
 
@@ -294,7 +311,7 @@ class FeeMemberResponse(BaseModel):
     id: int
     cn: str
     p4x_init_date: str | None
-    p4x_init_balance: float | None
+    p4x_init_balance: MoneyOut | None
     p4x_freed: bool | None
     p4x_comment: str | None
     balance: FeeBalanceResponse | None
@@ -302,7 +319,9 @@ class FeeMemberResponse(BaseModel):
 
 class FeeMemberUpdateRequest(BaseModel):
     p4x_init_date: date
-    p4x_init_balance: float = Field(..., ge=-999999999, le=999999999)
+    p4x_init_balance: Decimal = Field(
+        ..., ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+    )
     p4x_freed: bool = False
     p4x_comment: str | None = Field(None, max_length=250)
 
@@ -310,7 +329,7 @@ class FeeMemberUpdateRequest(BaseModel):
 class DebtorResponse(BaseModel):
     id: int
     cn: str
-    balance: float
+    balance: MoneyOut
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +387,9 @@ class SummaryOrderRequest(BaseModel):
 
 class SumUpBalanceResponse(BaseModel):
     in_count: int
-    in_sum: float
+    in_sum: MoneyOut
     out_count: int
-    out_sum: float
+    out_sum: MoneyOut
     latest: str | None
 
 

@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, TypedDict
 
 logger = logging.getLogger(__name__)
@@ -41,12 +42,12 @@ class FeeBalanceResult(TypedDict):
     """Typed result of calculate_fee_balance."""
 
     start_date: str
-    start_balance: float
+    start_balance: Decimal
     count: dict[str, int]
-    sum: dict[str, float]
+    sum: dict[str, Decimal]
     end_date: str
-    end_balance: float
-    progress: list[dict[str, str | float]]
+    end_balance: Decimal
+    progress: list[dict[str, str | Decimal]]
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +158,8 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901
             subject = ""
 
         precision = int(str(struct["amount"]["precision"]).strip())
-        raw_value = float(str(struct["amount"]["value"]).strip())
-        amount = raw_value / (10**precision)
+        raw_value = Decimal(str(struct["amount"]["value"]).strip())
+        amount = raw_value / (Decimal(10) ** precision)
 
         result.append(
             {
@@ -260,8 +261,8 @@ def import_transactions(
             summary["error"] = summary.get("error", 0) + 1
             continue
 
-        amount_float = float(payload["amount"])
-        if round(amount_float, 3) == 0.0:
+        amount_decimal = Decimal(payload["amount"])
+        if amount_decimal == 0:
             summary["zero_skipped"] = summary.get("zero_skipped", 0) + 1
             continue
 
@@ -303,7 +304,7 @@ def import_transactions(
             existing.booking = payload["booking"]
             existing.valuation = payload["valuation"]
             existing.iban = payload["iban"]
-            existing.amount = amount_float
+            existing.amount = amount_decimal
             existing.subject = payload["subject"]
             existing.raw = raw
             if existing.p4x_account_id != account.id:
@@ -316,7 +317,7 @@ def import_transactions(
                 booking=payload["booking"],
                 valuation=payload["valuation"],
                 iban=payload["iban"],
-                amount=amount_float,
+                amount=amount_decimal,
                 subject=payload["subject"],
                 p4x_account_id=account.id,
                 raw=raw,
@@ -340,7 +341,7 @@ def get_account_balance(
     db: Session,
     account: P4xAccount,
     up_to_date: date | None = None,
-) -> float:
+) -> Decimal:
     if up_to_date is None:
         up_to_date = datetime.now(UTC).date()
 
@@ -352,9 +353,9 @@ def get_account_balance(
             P4xTransaction.deleted_at.is_(None),
         )
         .scalar()
-    ) or 0.0
+    ) or Decimal("0")
 
-    return round(float(account.init_balance) + total, 2)
+    return account.init_balance + total
 
 
 def get_transactions_by_month(
@@ -914,8 +915,8 @@ def set_category_direct(
     valid_slots = [s for s in slots if s.get("p4x_category_id") and s.get("amount")]
 
     if valid_slots:
-        total = sum(float(str(s["amount"])) for s in valid_slots)
-        if round(float(transaction.amount) - total, 2) != 0.0:
+        total = sum(Decimal(str(s["amount"])) for s in valid_slots)
+        if transaction.amount != total:
             return "Summe der Beträge stimmt nicht mit dem Transaktionsbetrag überein."
 
     now = datetime.now(UTC)
@@ -930,7 +931,7 @@ def set_category_direct(
             P4xCategoryDirect(
                 p4x_transaction_id=transaction.id,
                 p4x_category_id=slot["p4x_category_id"],
-                amount=float(str(slot["amount"])),
+                amount=Decimal(str(slot["amount"])),
             )
         )
 
@@ -1128,7 +1129,7 @@ def get_all_fees(db: Session) -> list[P4xFee]:
     return db.query(P4xFee).order_by(P4xFee.start).all()
 
 
-def fee_for_month(db: Session, target_date: date) -> float:
+def fee_for_month(db: Session, target_date: date) -> Decimal:
     """Returns the fee applicable for a given month (latest start <= target)."""
     from app.models.p4x_fee import P4xFee
 
@@ -1139,14 +1140,14 @@ def fee_for_month(db: Session, target_date: date) -> float:
         .order_by(P4xFee.start.desc())
         .first()
     )
-    return float(result[0]) if result else 0.0
+    return result[0] if result else Decimal("0")
 
 
 def create_fee(
     db: Session,
     year: int,
     month: int,
-    fee_amount: float,
+    fee_amount: Decimal,
 ) -> tuple[Any | None, str | None]:
     """Returns (fee, None) on success or (None, error_message) on failure."""
     from app.models.p4x_fee import P4xFee
@@ -1245,7 +1246,7 @@ def search_fee_members(db: Session, term: str) -> list[dict[str, Any]]:
 def update_fee_member(
     db: Session,
     member: Member,
-    data: dict[str, str | float | bool | None],
+    data: dict[str, str | Decimal | bool | None],
 ) -> None:
     init_date_raw = data["p4x_init_date"]
     if isinstance(init_date_raw, str):
@@ -1255,7 +1256,7 @@ def update_fee_member(
 
     init_balance_raw = data["p4x_init_balance"]
     member.p4x_init_balance = (
-        int(init_balance_raw) if init_balance_raw is not None else None
+        Decimal(str(init_balance_raw)) if init_balance_raw is not None else None
     )
 
     freed_raw = data["p4x_freed"]
@@ -1310,7 +1311,7 @@ def _get_fee_payments_sum(
     to_date: date,
     *,
     inclusive_end: bool = False,
-) -> float:
+) -> Decimal:
     """Get sum of fee payments for a member in a date range.
 
     Fee payments = byPartner('member', id)
@@ -1328,7 +1329,7 @@ def _get_fee_payments_sum(
     ]
 
     if not partner_ibans:
-        return 0.0
+        return Decimal("0")
 
     direct_tx_ids = {
         r[0]
@@ -1373,7 +1374,7 @@ def _get_fee_payments_sum(
     fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
     if not fee_cat_tx_ids:
-        return 0.0
+        return Decimal("0")
 
     query = db.query(func.sum(P4xTransaction.amount)).filter(
         P4xTransaction.deleted_at.is_(None),
@@ -1396,7 +1397,7 @@ def _get_fee_payments_sum(
         query = query.filter(P4xTransaction.booking < to_date)
 
     result = query.scalar()
-    return float(result) if result else 0.0
+    return result if result else Decimal("0")
 
 
 def _get_fee_payments_list(
@@ -1489,7 +1490,7 @@ def _get_fee_payments_list(
         {
             "type": "payment",
             "booking": str(tx.booking),
-            "amount": float(tx.amount),
+            "amount": tx.amount,
         }
         for tx in txs
     ]
@@ -1555,7 +1556,7 @@ def calculate_fee_balance(  # noqa: C901
             )
 
     # Calculate start_balance
-    start_balance = float(member.p4x_init_balance or 0)
+    start_balance = member.p4x_init_balance or Decimal("0")
 
     if not member.p4x_freed:
         prev_month_date = start_date.replace(day=1) - timedelta(days=1)
@@ -1579,7 +1580,7 @@ def calculate_fee_balance(  # noqa: C901
     )
 
     # Build progress
-    progress: list[dict[str, str | float]] = []
+    progress: list[dict[str, str | Decimal]] = []
 
     if not member.p4x_freed:
         n_months = _count_months(start_date, end_date)
@@ -1600,7 +1601,9 @@ def calculate_fee_balance(  # noqa: C901
         _get_fee_payments_list(db, member.id, start_date, end_date),
     )
 
-    end_balance = start_balance + sum(float(e["amount"]) for e in progress)
+    end_balance = start_balance + sum(
+        (Decimal(str(e["amount"])) for e in progress), start=Decimal("0")
+    )
 
     progress.sort(key=lambda e: str(e["booking"]))
 
@@ -1615,8 +1618,13 @@ def calculate_fee_balance(  # noqa: C901
             "payments": len(payment_entries),
         },
         "sum": {
-            "fees": sum(float(e["amount"]) for e in fee_entries),
-            "payments": sum(float(e["amount"]) for e in payment_entries),
+            "fees": sum(
+                (Decimal(str(e["amount"])) for e in fee_entries), start=Decimal("0")
+            ),
+            "payments": sum(
+                (Decimal(str(e["amount"])) for e in payment_entries),
+                start=Decimal("0"),
+            ),
         },
         "end_date": str(end_date),
         "end_balance": end_balance,
@@ -1624,9 +1632,9 @@ def calculate_fee_balance(  # noqa: C901
     }
 
 
-def get_debtors(db: Session) -> list[dict[str, int | str | float]]:
+def get_debtors(db: Session) -> list[dict[str, int | str | Decimal]]:
     fee_members = get_fee_members(db)
-    debtors: list[dict[str, int | str | float]] = []
+    debtors: list[dict[str, int | str | Decimal]] = []
 
     for member in fee_members:
         balance = calculate_fee_balance(db, member)
@@ -1639,7 +1647,7 @@ def get_debtors(db: Session) -> list[dict[str, int | str | float]]:
                 }
             )
 
-    debtors.sort(key=lambda d: float(d.get("balance", 0)))
+    debtors.sort(key=lambda d: Decimal(str(d.get("balance", 0))))
     return debtors
 
 
@@ -1997,7 +2005,7 @@ def generate_summary_xlsx(  # noqa: C901
             cell = ws_mb.cell(row=row_num, column=col_idx)
             cell.number_format = "#,##0.00 €"
             val = cell.value
-            if isinstance(val, (int, float)):
+            if isinstance(val, (int, float, Decimal)):
                 color = "00FF00" if val >= 0 else "FF0000"
                 cell.font = Font(color=color)
         ws_mb.cell(row=row_num, column=9).alignment = Alignment(horizontal="center")
