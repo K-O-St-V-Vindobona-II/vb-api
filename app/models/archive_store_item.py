@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
 class ArchiveStoreItem(Base):
     __tablename__ = "archive_store_items"
+    __table_args__ = (
+        CheckConstraint("size >= 0", name="archive_store_items_size_check"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     original_name: Mapped[str | None]

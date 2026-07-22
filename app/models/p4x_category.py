@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -12,9 +12,21 @@ if TYPE_CHECKING:
     from app.models.p4x_category_direct import P4xCategoryDirect
     from app.models.p4x_category_filter import P4xCategoryFilter
 
+_HEX_COLOR_CHECK = "'^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$'"
+
 
 class P4xCategory(Base):
     __tablename__ = "p4x_categories"
+    __table_args__ = (
+        CheckConstraint(
+            f"background_color ~ {_HEX_COLOR_CHECK}",
+            name="p4x_categories_background_color_check",
+        ),
+        CheckConstraint(
+            f"text_color ~ {_HEX_COLOR_CHECK}",
+            name="p4x_categories_text_color_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True)

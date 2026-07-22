@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -18,9 +18,26 @@ if TYPE_CHECKING:
     from app.models.standesdb_image import StandesdbImage
     from app.models.state import State
 
+_ACCURACY_COLUMNS = (
+    "geburtsdatum_accuracy",
+    "aufnahmedatum_accuracy",
+    "branderdatum_accuracy",
+    "burschungsdatum_accuracy",
+    "philistrierungsdatum_accuracy",
+    "entlassungsdatum_accuracy",
+    "sterbedatum_accuracy",
+)
+
 
 class Member(Base):
     __tablename__ = "members"
+    __table_args__ = tuple(
+        CheckConstraint(
+            f"{col} IS NULL OR {col} BETWEEN 0 AND 3",
+            name=f"members_{col}_check",
+        )
+        for col in _ACCURACY_COLUMNS
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 

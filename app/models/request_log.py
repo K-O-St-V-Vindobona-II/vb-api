@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -8,6 +8,9 @@ from app.db.database import Base
 
 class RequestLog(Base):
     __tablename__ = "request_logs"
+    __table_args__ = (
+        CheckConstraint("memory_usage >= 0", name="request_logs_memory_usage_check"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     client_ip: Mapped[str]

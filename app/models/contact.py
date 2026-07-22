@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -16,6 +16,12 @@ if TYPE_CHECKING:
 
 class Contact(Base):
     __tablename__ = "contacts"
+    __table_args__ = (
+        CheckConstraint(
+            "datum_accuracy IS NULL OR datum_accuracy BETWEEN 0 AND 3",
+            name="contacts_datum_accuracy_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     kontakttyp: Mapped[str] = mapped_column(String)

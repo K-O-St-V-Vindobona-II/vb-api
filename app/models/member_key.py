@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import CheckConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,6 +15,13 @@ if TYPE_CHECKING:
 
 class MemberKey(Base):
     __tablename__ = "members_keys"
+    __table_args__ = (
+        CheckConstraint(
+            "presentationdate_accuracy IS NULL "
+            "OR presentationdate_accuracy BETWEEN 0 AND 3",
+            name="members_keys_presentationdate_accuracy_check",
+        ),
+    )
 
     member_id: Mapped[int] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),

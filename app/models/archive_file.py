@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -16,6 +16,12 @@ if TYPE_CHECKING:
 
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
+    __table_args__ = (
+        CheckConstraint(
+            "archive_dir_id IS NULL OR archive_dir_id >= 0",
+            name="archive_files_archive_dir_id_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)

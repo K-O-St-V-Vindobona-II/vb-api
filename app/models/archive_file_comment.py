@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 
 class ArchiveFileComment(Base):
     __tablename__ = "archive_file_comments"
+    __table_args__ = (
+        CheckConstraint(
+            "content IS NULL OR length(content) BETWEEN 1 AND 1000",
+            name="archive_file_comments_content_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     archive_file_id: Mapped[int] = mapped_column(

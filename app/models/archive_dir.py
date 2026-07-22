@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import CheckConstraint, DateTime, String
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,6 +15,15 @@ if TYPE_CHECKING:
 
 class ArchiveDir(Base):
     __tablename__ = "archive_dirs"
+    __table_args__ = (
+        CheckConstraint(
+            "archive_dir_id IS NULL OR archive_dir_id >= 0",
+            name="archive_dirs_archive_dir_id_check",
+        ),
+        CheckConstraint(
+            "length(name) BETWEEN 3 AND 64", name="archive_dirs_name_check"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String)
