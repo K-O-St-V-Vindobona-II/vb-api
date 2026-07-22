@@ -12,9 +12,35 @@ from sqlalchemy.exc import IntegrityError
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.p4x_account import P4xAccount
+from app.models.p4x_partner import P4xPartner
+from app.models.p4x_specialcontact import P4xSpecialcontact
+from app.models.p4x_transaction import P4xTransaction
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
+
+
+def _seed_p4x_account(db) -> P4xAccount:
+    account = P4xAccount(iban="AT611904300234573201", label="FK Test Account")
+    db.add(account)
+    db.commit()
+    return account
+
+
+def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTransaction:
+    tx = P4xTransaction(
+        sha256hash=f"fk_test_{hash_suffix}",
+        booking=datetime.date(2026, 1, 1),
+        valuation=datetime.date(2026, 1, 1),
+        iban="AT999",
+        amount=10.0,
+        subject="FK test",
+        p4x_account_id=account.id,
+    )
+    db.add(tx)
+    db.commit()
+    return tx
 
 
 def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
@@ -179,3 +205,211 @@ class TestStandesdbImageExclusiveArc:
         db_session.commit()
 
         assert db_session.get(StandesdbImage, img_id) is None
+
+
+class TestP4xPartnerExclusiveArc:
+    """p4x_partners.member_id/contact_id/p4x_account_id/
+    p4x_specialcontact_id (Alembic revision 514ac66eb66e) replaces
+    partner_type/partner_id with an exclusive-arc pair of real FKs —
+    exactly one must be set, enforced by a CHECK constraint. ondelete is
+    RESTRICT (not CASCADE like standesdb_images) since a P4xPartner row is
+    a financial/accounting link, not owned content."""
+
+    def test_two_columns_set_is_rejected(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        contact = Contact(kontakttyp="person", name="Test Contact")
+        db_session.add_all([member, contact])
+        db_session.commit()
+
+        db_session.add(
+            P4xPartner(iban="AT001", member_id=member.id, contact_id=contact.id)
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_no_columns_set_is_rejected(self, db_session):
+        db_session.add(P4xPartner(iban="AT002"))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_member_id_is_rejected(self, db_session):
+        db_session.add(P4xPartner(iban="AT003", member_id=999999))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_contact_id_is_rejected(self, db_session):
+        db_session.add(P4xPartner(iban="AT004", contact_id=999999))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_p4x_account_id_is_rejected(self, db_session):
+        db_session.add(P4xPartner(iban="AT005", p4x_account_id=999999))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_p4x_specialcontact_id_is_rejected(self, db_session):
+        db_session.add(P4xPartner(iban="AT006", p4x_specialcontact_id=999999))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_member_with_a_partner_record_is_restricted(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+        db_session.add(P4xPartner(iban="AT007", member_id=member.id))
+        db_session.commit()
+
+        db_session.delete(member)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_contact_with_a_partner_record_is_restricted(self, db_session):
+        contact = Contact(kontakttyp="person", name="Test Contact")
+        db_session.add(contact)
+        db_session.commit()
+        db_session.add(P4xPartner(iban="AT008", contact_id=contact.id))
+        db_session.commit()
+
+        db_session.delete(contact)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_p4x_account_with_a_partner_record_is_restricted(
+        self, db_session
+    ):
+        account = _seed_p4x_account(db_session)
+        db_session.add(P4xPartner(iban="AT009", p4x_account_id=account.id))
+        db_session.commit()
+
+        db_session.delete(account)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_p4x_specialcontact_with_a_partner_record_is_restricted(
+        self, db_session
+    ):
+        special = P4xSpecialcontact(cn="Test Special")
+        db_session.add(special)
+        db_session.commit()
+        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id))
+        db_session.commit()
+
+        db_session.delete(special)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+
+class TestP4xTransactionDelegatingExclusiveArc:
+    """p4x_transactions.delegating_member_id/delegating_contact_id/
+    delegating_p4x_account_id/delegating_p4x_specialcontact_id (Alembic
+    revision 514ac66eb66e) replaces delegating_partner_type/
+    delegating_partner_id with an exclusive-arc pair of real FKs — at most
+    one may be set (the field is optional, "all four NULL" stays valid).
+    ondelete is SET NULL (not RESTRICT/CASCADE) since this is an optional
+    display annotation, not the transaction's own financial identity."""
+
+    def test_two_delegating_columns_set_is_rejected(self, db_session):
+        account = _seed_p4x_account(db_session)
+        member = Member(vorname="Test", nachname="User")
+        contact = Contact(kontakttyp="person", name="Test Contact")
+        db_session.add_all([member, contact])
+        db_session.commit()
+
+        tx = _seed_p4x_transaction(db_session, account, "two_cols")
+        tx.delegating_member_id = member.id
+        tx.delegating_contact_id = contact.id
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_all_four_delegating_columns_null_is_allowed(self, db_session):
+        account = _seed_p4x_account(db_session)
+        tx = _seed_p4x_transaction(db_session, account, "all_null")
+        assert tx.delegating_partner_type is None
+        assert tx.delegating_partner_id is None
+
+    def test_inserting_with_unknown_delegating_member_id_is_rejected(self, db_session):
+        account = _seed_p4x_account(db_session)
+        tx = _seed_p4x_transaction(db_session, account, "unk_member")
+        tx.delegating_member_id = 999999
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_delegating_contact_id_is_rejected(self, db_session):
+        account = _seed_p4x_account(db_session)
+        tx = _seed_p4x_transaction(db_session, account, "unk_contact")
+        tx.delegating_contact_id = 999999
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_delegating_p4x_account_id_is_rejected(
+        self, db_session
+    ):
+        account = _seed_p4x_account(db_session)
+        tx = _seed_p4x_transaction(db_session, account, "unk_account")
+        tx.delegating_p4x_account_id = 999999
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_delegating_p4x_specialcontact_id_is_rejected(
+        self, db_session
+    ):
+        account = _seed_p4x_account(db_session)
+        tx = _seed_p4x_transaction(db_session, account, "unk_special")
+        tx.delegating_p4x_specialcontact_id = 999999
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_a_delegated_member_sets_delegating_member_id_null(
+        self, db_session
+    ):
+        account = _seed_p4x_account(db_session)
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        tx = _seed_p4x_transaction(db_session, account, "set_null_member")
+        tx.delegating_member_id = member.id
+        db_session.commit()
+        tx_id = tx.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        refreshed = db_session.get(P4xTransaction, tx_id)
+        assert refreshed is not None
+        assert refreshed.delegating_member_id is None
+
+    def test_deleting_a_delegated_p4x_specialcontact_sets_null(self, db_session):
+        account = _seed_p4x_account(db_session)
+        special = P4xSpecialcontact(cn="Test Special")
+        db_session.add(special)
+        db_session.commit()
+
+        tx = _seed_p4x_transaction(db_session, account, "set_null_special")
+        tx.delegating_p4x_specialcontact_id = special.id
+        db_session.commit()
+        tx_id = tx.id
+
+        db_session.execute(
+            delete(P4xSpecialcontact).where(P4xSpecialcontact.id == special.id)
+        )
+        db_session.commit()
+
+        refreshed = db_session.get(P4xTransaction, tx_id)
+        assert refreshed is not None
+        assert refreshed.delegating_p4x_specialcontact_id is None

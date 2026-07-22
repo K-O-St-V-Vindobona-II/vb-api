@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
@@ -112,6 +113,10 @@ class TestFilterToDirect:
     def test_converts_filter_hits_to_directs(self, db_session):
         account, cat, txs = _seed(db_session)
 
+        member = Member(vorname="Test", nachname="Filter")
+        db_session.add(member)
+        db_session.commit()
+
         # Assign all transactions a partner to eliminate partner warnings
         for tx in txs:
             existing = (
@@ -120,8 +125,7 @@ class TestFilterToDirect:
             if not existing:
                 p = P4xPartner(
                     iban=tx.iban,
-                    partner_type="member",
-                    partner_id=1,
+                    member_id=member.id,
                     created_at=_now(),
                     updated_at=_now(),
                 )

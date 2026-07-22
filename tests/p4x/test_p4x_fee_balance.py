@@ -117,8 +117,7 @@ def _add_fee_payment(
     if not partner:
         partner = P4xPartner(
             iban=iban,
-            partner_type="member",
-            partner_id=member.id,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )

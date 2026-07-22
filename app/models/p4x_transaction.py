@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -18,7 +18,20 @@ if TYPE_CHECKING:
 
 
 class P4xTransaction(Base):
+    """delegating_member_id/delegating_contact_id/delegating_p4x_account_id/
+    delegating_p4x_specialcontact_id is an exclusive-arc polymorphic
+    association: at most one is set (the field is optional), enforced by
+    the CHECK below."""
+
     __tablename__ = "p4x_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(delegating_member_id, delegating_contact_id,"
+            " delegating_p4x_account_id, delegating_p4x_specialcontact_id)"
+            " <= 1",
+            name="p4x_transactions_delegating_partner_arc_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sha256hash: Mapped[str] = mapped_column(String, unique=True)
@@ -31,8 +44,22 @@ class P4xTransaction(Base):
         ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    delegating_partner_type: Mapped[str | None] = mapped_column(index=True)
-    delegating_partner_id: Mapped[int | None] = mapped_column(index=True)
+    delegating_member_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    delegating_contact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    delegating_p4x_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("p4x_accounts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    delegating_p4x_specialcontact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("p4x_specialcontacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
     comment: Mapped[str | None]
     raw: Mapped[str | None] = mapped_column(Text)
     attachment: Mapped[str | None] = mapped_column(Text)
@@ -41,7 +68,9 @@ class P4xTransaction(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[P4xAccount] = relationship(
-        back_populates="transactions", lazy="joined"
+        back_populates="transactions",
+        foreign_keys=[p4x_account_id],
+        lazy="joined",
     )
     category_directs: Mapped[list[P4xCategoryDirect]] = relationship(
         back_populates="transaction", lazy="select"
@@ -59,3 +88,27 @@ class P4xTransaction(Base):
     @property
     def has_attachment(self) -> bool:
         return bool(self.attachment)
+
+    @property
+    def delegating_partner_type(self) -> str | None:
+        if self.delegating_member_id is not None:
+            return "member"
+        if self.delegating_contact_id is not None:
+            return "contact"
+        if self.delegating_p4x_account_id is not None:
+            return "account"
+        if self.delegating_p4x_specialcontact_id is not None:
+            return "special"
+        return None
+
+    @property
+    def delegating_partner_id(self) -> int | None:
+        for col in (
+            self.delegating_member_id,
+            self.delegating_contact_id,
+            self.delegating_p4x_account_id,
+            self.delegating_p4x_specialcontact_id,
+        ):
+            if col is not None:
+                return col
+        return None
