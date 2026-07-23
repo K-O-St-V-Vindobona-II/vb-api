@@ -4,12 +4,17 @@ from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 from app.core.scheduler import (
+    BACKUP_HOUR,
     _parse_month_day,
     _parse_year,
     _send_debtor_reminders,
     job_archive_health_check,
     job_birthday_mails,
+    job_db_backup,
     job_refresh_category_filter_hits,
     job_standesdb_chronicles,
     job_standesdb_health_check,
@@ -256,10 +261,6 @@ class TestStandesdbHealthCheck:
 
 class TestBackupJobRegistration:
     def test_backup_job_registered_by_default(self):
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-        from app.core.scheduler import BACKUP_HOUR, job_db_backup
-
         sched = AsyncIOScheduler()
         sched.add_job(
             job_db_backup,
@@ -274,8 +275,6 @@ class TestBackupJobRegistration:
         assert "db_backup" in ids
 
     def test_backup_job_absent_when_disabled(self):
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
         sched = AsyncIOScheduler()
         # When BACKUP_ENABLED=false, no job is added — empty scheduler has no db_backup
         ids = [j.id for j in sched.get_jobs()]
@@ -291,11 +290,6 @@ class TestBackupJobRegistration:
         of 5, 5, 1, 1 days instead of the configured 7). A cron trigger's
         next-fire time depends only on hour/minute/timezone, not on when
         add_job() was called, so it can't drift with restart frequency."""
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-
-        from app.core.scheduler import BACKUP_HOUR, job_db_backup
-
         sched = AsyncIOScheduler()
         sched.add_job(
             job_db_backup,

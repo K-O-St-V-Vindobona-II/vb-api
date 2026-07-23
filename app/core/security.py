@@ -15,9 +15,11 @@ if len(SECRET_KEY) < 32:
     msg = "SECRET_KEY must be at least 32 characters long"
     raise ValueError(msg)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("SESSION_LIFETIME_MINUTES", 15))
-SESSION_IDLE_TIMEOUT_MINUTES = int(os.environ.get("SESSION_IDLE_TIMEOUT_MINUTES", 120))
-REFRESH_TOKEN_LIFETIME_DAYS = int(os.environ.get("REFRESH_TOKEN_LIFETIME_DAYS", 7))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("SESSION_LIFETIME_MINUTES", "15"))
+SESSION_IDLE_TIMEOUT_MINUTES = int(
+    os.environ.get("SESSION_IDLE_TIMEOUT_MINUTES", "120")
+)
+REFRESH_TOKEN_LIFETIME_DAYS = int(os.environ.get("REFRESH_TOKEN_LIFETIME_DAYS", "7"))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

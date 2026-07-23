@@ -208,10 +208,11 @@ def generate_excel_full(  # noqa: C901
         return member_cache[parent_id]
 
     def get_badges_str(member: Member) -> str:
-        badge_names = []
-        for mb in member.member_badges:
-            if mb.badge:
-                badge_names.append(mb.badge.name)
+        # Badge.name is nullable in the DB; skip any badge without one rather
+        # than letting str.join() crash on a None entry.
+        badge_names = [
+            mb.badge.name for mb in member.member_badges if mb.badge and mb.badge.name
+        ]
         return ", ".join(badge_names)
 
     wb = Workbook()

@@ -44,8 +44,8 @@ def _load_env_file(path: str) -> dict[str, str]:
     env: dict[str, str] = {}
     try:
         with Path(path).open() as f:
-            for line in f:
-                line = line.strip()
+            for raw_line in f:
+                line = raw_line.strip()
                 if not line or line.startswith("#"):
                     continue
                 if "=" in line:

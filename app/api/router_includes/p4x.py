@@ -1,5 +1,7 @@
 import base64
+import io
 import json
+import zipfile
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
@@ -1318,7 +1320,7 @@ def _build_fee_member_response(
         id=member.id,
         cn=member.cn,
         p4x_init_date=init_date_str,
-        p4x_init_balance=member.p4x_init_balance or Decimal("0"),
+        p4x_init_balance=member.p4x_init_balance or Decimal(0),
         p4x_freed=bool(member.p4x_freed),
         p4x_comment=member.p4x_comment,
         balance=balance,
@@ -1421,9 +1423,6 @@ def download_summary(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Enddatum muss nach dem Startdatum liegen.",
         )
-
-    import io
-    import zipfile
 
     xlsx_bytes, pdf_attachments = p4x_service.generate_summary_xlsx(
         db,

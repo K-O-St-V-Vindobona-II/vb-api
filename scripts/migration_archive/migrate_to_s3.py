@@ -115,19 +115,21 @@ def build_content_type_map(db: Session) -> tuple[dict[str, str], dict[str, str]]
     # every one of tens of thousands of items — this is what caused an
     # OOM kill (~2.1GB RSS) in production. Column-only queries never touch
     # the relationship.
-    image_types: dict[str, str] = {}
-    for sha256_hash, image_type in db.query(
-        StandesdbImage.sha256_hash, StandesdbImage.type
-    ).all():
-        if sha256_hash and image_type:
-            image_types[sha256_hash] = image_type
+    image_types: dict[str, str] = {
+        sha256_hash: image_type
+        for sha256_hash, image_type in db.query(
+            StandesdbImage.sha256_hash, StandesdbImage.type
+        ).all()
+        if sha256_hash and image_type
+    }
 
-    archive_types: dict[str, str] = {}
-    for sha256_hash, mime_type in db.query(
-        ArchiveStoreItem.sha256_hash, ArchiveStoreItem.mime_type
-    ).all():
-        if sha256_hash and mime_type:
-            archive_types[sha256_hash] = mime_type
+    archive_types: dict[str, str] = {
+        sha256_hash: mime_type
+        for sha256_hash, mime_type in db.query(
+            ArchiveStoreItem.sha256_hash, ArchiveStoreItem.mime_type
+        ).all()
+        if sha256_hash and mime_type
+    }
 
     return image_types, archive_types
 

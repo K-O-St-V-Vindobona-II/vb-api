@@ -1,9 +1,17 @@
 """Tests for the Tracking module (sent emails + activity log)."""
 
+import re
 from datetime import UTC, date, datetime
+from pathlib import Path
+from unittest.mock import patch
 
 import bcrypt
 
+from app.api.router_includes.tracking import (
+    EMAIL_TEMPLATE_REGISTRY,
+    _member_name_map,
+    _resolve_action_label,
+)
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -175,11 +183,6 @@ class TestEmailTemplates:
 
 class TestTemplateRegistryGuard:
     def test_all_template_keys_in_code_are_registered(self):
-        import re
-        from pathlib import Path
-
-        from app.api.router_includes.tracking import EMAIL_TEMPLATE_REGISTRY
-
         registry_keys = {t["key"] for t in EMAIL_TEMPLATE_REGISTRY}
 
         scan_dirs = [
@@ -213,8 +216,6 @@ class TestTemplatePreview:
     def test_preview_all_templates(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        from app.api.router_includes.tracking import EMAIL_TEMPLATE_REGISTRY
-
         for entry in EMAIL_TEMPLATE_REGISTRY:
             key = entry["key"]
             resp = client.get(
@@ -422,7 +423,7 @@ class TestTimezone:
         )
         data = resp.json()
         created_at = data["items"][0]["created_at"]
-        assert created_at.endswith("+00:00") or created_at.endswith("Z")
+        assert created_at.endswith(("+00:00", "Z"))
 
     def test_templates_last_sent_has_utc(self, client, db_session):
         _seed(db_session)
@@ -440,8 +441,6 @@ class TestTimezone:
 
 class TestResolveActionLabel:
     def test_exact_match(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert _resolve_action_label("POST", "/api/auth/login") == "Anmeldung"
         assert _resolve_action_label("POST", "/api/auth/logout") == "Abmeldung"
         assert (
@@ -454,8 +453,6 @@ class TestResolveActionLabel:
         )
 
     def test_prefix_match(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("PUT", "/api/standesdb/members/42")
             == "Mitglied bearbeitet"
@@ -482,13 +479,9 @@ class TestResolveActionLabel:
         )
 
     def test_exact_match_archive_dir_create(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert _resolve_action_label("POST", "/api/archive/dirs") == "Ordner erstellt"
 
     def test_subresource_image_upload(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/standesdb/members/42/images")
             == "Profilbild hochgeladen"
@@ -499,8 +492,6 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_image_edit_delete(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("PUT", "/api/standesdb/members/42/images/5")
             == "Profilbild bearbeitet"
@@ -515,8 +506,6 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_archive_restore(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("PATCH", "/api/archive/dirs/3/restore")
             == "Wiederhergestellt"
@@ -527,16 +516,12 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_archive_receive(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/archive/dirs/5/receive")
             == "Dateien verschoben"
         )
 
     def test_subresource_archive_comments(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/archive/files/7/comments")
             == "Kommentar erstellt"
@@ -547,16 +532,12 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_p4x_import(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/p4x/admin/accounts/1/import")
             == "Transaktionen importiert"
         )
 
     def test_subresource_p4x_transaction_ops(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/p4x/admin/transactions/42/set-partner")
             == "Partner zugeordnet"
@@ -575,8 +556,6 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_p4x_filter2direct(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label(
                 "POST", "/api/p4x/admin/category-filters/5/filter2direct"
@@ -585,8 +564,6 @@ class TestResolveActionLabel:
         )
 
     def test_subresource_download(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("GET", "/api/archive/files/7/download")
             == "Datei heruntergeladen"
@@ -597,37 +574,27 @@ class TestResolveActionLabel:
         )
 
     def test_get_view_member(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("GET", "/api/standesdb/members/42")
             == "Mitglied angezeigt"
         )
 
     def test_get_view_contact(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("GET", "/api/standesdb/contacts/42")
             == "Kontakt angezeigt"
         )
 
     def test_get_view_dir(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("GET", "/api/archive/dirs/5")
             == "Verzeichnis angezeigt"
         )
 
     def test_get_view_file(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert _resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
 
     def test_download_takes_priority_over_file_view(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("GET", "/api/archive/files/7/download")
             == "Datei heruntergeladen"
@@ -635,8 +602,6 @@ class TestResolveActionLabel:
         assert _resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
 
     def test_subresource_takes_priority_over_prefix(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("DELETE", "/api/standesdb/members/42/images/5")
             == "Profilbild gelöscht"
@@ -647,16 +612,12 @@ class TestResolveActionLabel:
         )
 
     def test_contact_deleted(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("DELETE", "/api/standesdb/contacts/42")
             == "Kontakt gelöscht"
         )
 
     def test_no_phantom_matches(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("DELETE", "/api/standesdb/members/42")
             == "DELETE /api/standesdb/members/42"
@@ -667,14 +628,10 @@ class TestResolveActionLabel:
         )
 
     def test_fallback(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         result = _resolve_action_label("GET", "/api/unknown/path")
         assert result == "GET /api/unknown/path"
 
     def test_failed_login(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert (
             _resolve_action_label("POST", "/api/auth/login", 401)
             == "Anmeldung fehlgeschlagen"
@@ -686,8 +643,6 @@ class TestResolveActionLabel:
         assert _resolve_action_label("POST", "/api/auth/login", 200) == "Anmeldung"
 
     def test_case_insensitive_method(self):
-        from app.api.router_includes.tracking import _resolve_action_label
-
         assert _resolve_action_label("post", "/api/auth/login") == "Anmeldung"
 
 
@@ -881,10 +836,6 @@ class TestTemplatePreviewNoData:
     def test_template_without_preview_data_returns_404(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        from unittest.mock import patch
-
-        from app.api.router_includes.tracking import EMAIL_TEMPLATE_REGISTRY
-
         fake_entry = {
             "key": "test-no-preview",
             "name": "No Preview",
@@ -909,7 +860,5 @@ class TestTemplatePreviewNoData:
 
 class TestMemberNameMap:
     def test_empty_set_returns_empty_dict(self):
-        from app.api.router_includes.tracking import _member_name_map
-
         result = _member_name_map(None, set())
         assert result == {}

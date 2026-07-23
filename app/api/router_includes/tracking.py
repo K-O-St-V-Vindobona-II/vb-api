@@ -9,6 +9,7 @@ from app.api.auth_guards import require_permission
 from app.core.mailer import render_template
 from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import get_db
+from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
@@ -526,8 +527,6 @@ def get_activity_detail(
     if log.member_id:
         names = _member_name_map(db, {log.member_id})
         member_name = names.get(log.member_id)
-
-    from app.models.client_user_agent import ClientUserAgent
 
     ua_string = None
     if log.client_user_agent_id:

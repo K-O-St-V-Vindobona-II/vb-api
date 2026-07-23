@@ -1,11 +1,16 @@
+import base64
 import io
 from datetime import UTC, date, datetime
+
+from openpyxl import load_workbook
 
 from app.models.member import Member
 from app.models.org import Org
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
+from app.models.p4x_category_filter import P4xCategoryFilter
+from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
@@ -127,8 +132,6 @@ class TestSummaryXlsx:
         assert isinstance(attachments, list)
 
     def test_xlsx_has_correct_sheets(self, db_session):
-        from openpyxl import load_workbook
-
         _seed(db_session)
         xlsx_bytes, _ = generate_summary_xlsx(
             db_session,
@@ -143,8 +146,6 @@ class TestSummaryXlsx:
         assert len(sheet_names) >= 3
 
     def test_zusammenfassung_has_account(self, db_session):
-        from openpyxl import load_workbook
-
         _seed(db_session)
         xlsx_bytes, _ = generate_summary_xlsx(
             db_session,
@@ -158,8 +159,6 @@ class TestSummaryXlsx:
         assert "Girokonto" in values
 
     def test_account_sheet_has_transactions(self, db_session):
-        from openpyxl import load_workbook
-
         _seed(db_session)
         xlsx_bytes, _ = generate_summary_xlsx(
             db_session,
@@ -175,8 +174,6 @@ class TestSummaryXlsx:
         assert ws.max_row >= 3
 
     def test_mb_zahlungen_has_member(self, db_session):
-        from openpyxl import load_workbook
-
         _seed(db_session)
         xlsx_bytes, _ = generate_summary_xlsx(
             db_session,
@@ -201,8 +198,6 @@ class TestSummaryXlsx:
         assert len(xlsx_bytes) > 0
 
     def test_attachment_extraction(self, db_session):
-        import base64
-
         account = _seed(db_session)
 
         tx = P4xTransaction(
@@ -234,8 +229,6 @@ class TestSummaryXlsx:
 class TestSummaryXlsxEdgeCases:
     def test_xlsx_with_multiple_direct_categories(self, db_session):
         """Transaction with multiple direct category assignments."""
-        from openpyxl import load_workbook
-
         account = _seed(db_session)
 
         cat2 = P4xCategory(
@@ -326,11 +319,6 @@ class TestSummaryXlsxEdgeCases:
 
     def test_xlsx_with_filter_hit_category(self, db_session):
         """Transaction with only a filter hit category (no direct)."""
-        from openpyxl import load_workbook
-
-        from app.models.p4x_category_filter import P4xCategoryFilter
-        from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
-
         account = _seed(db_session)
 
         cat = db_session.query(P4xCategory).first()

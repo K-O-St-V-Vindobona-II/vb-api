@@ -1,34 +1,40 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
+from itertools import count
 from typing import TYPE_CHECKING, Any, TypedDict
 
 logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import ColumnElement, extract, func
 from sqlalchemy import true as sa_true
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.query import RowReturningQuery
 
 if TYPE_CHECKING:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_fee import P4xFee
-    from app.models.p4x_specialcontact import P4xSpecialcontact
+    from sqlalchemy.orm import Session
+    from sqlalchemy.orm.query import RowReturningQuery
 
+from app.models.contact import Contact
+from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
+from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
+from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_transaction import P4xTransaction
 
 FEE_CATEGORY_ID = 1
@@ -63,7 +69,7 @@ class ParseResult:
     entries: list[dict[str, Any]] = field(default_factory=list)
 
 
-def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901
+def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PLR0911, PLR0912
     if bic != GEORGE_BIC:
         return ParseResult(
             success=False, message=f"No parser method found for BIC {bic}"
@@ -354,7 +360,7 @@ def get_account_balance(
             P4xTransaction.deleted_at.is_(None),
         )
         .scalar()
-    ) or Decimal("0")
+    ) or Decimal(0)
 
     return account.init_balance + total
 
@@ -989,10 +995,6 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
 
 
 def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_specialcontact import P4xSpecialcontact
-
     if len(term) < 3:
         return []
 
@@ -1022,8 +1024,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for c in contacts:
-        results.append({"type": "contact", "id": c.id, "label": f"Kontakt: {c.cn}"})
+    results.extend(
+        {"type": "contact", "id": c.id, "label": f"Kontakt: {c.cn}"} for c in contacts
+    )
 
     specials = (
         db.query(P4xSpecialcontact)
@@ -1032,8 +1035,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for s in specials:
-        results.append({"type": "special", "id": s.id, "label": f"Spezial: {s.cn}"})
+    results.extend(
+        {"type": "special", "id": s.id, "label": f"Spezial: {s.cn}"} for s in specials
+    )
 
     accounts = (
         db.query(P4xAccount)
@@ -1043,8 +1047,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for a in accounts:
-        results.append({"type": "account", "id": a.id, "label": f"Konto: {a.cn}"})
+    results.extend(
+        {"type": "account", "id": a.id, "label": f"Konto: {a.cn}"} for a in accounts
+    )
 
     return results
 
@@ -1059,10 +1064,6 @@ def find_partner_entity(
     partner_type: str,
     partner_id: int,
 ) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_specialcontact import P4xSpecialcontact
-
     if partner_type == "member":
         return db.query(Member).filter(Member.id == partner_id).first()
     if partner_type == "contact":
@@ -1184,8 +1185,6 @@ def update_transaction_meta(
     file_bytes: bytes | None,
     delete_attachment: bool,  # noqa: FBT001
 ) -> None:
-    import base64
-
     transaction.comment = comment
 
     if transaction.has_attachment and delete_attachment:
@@ -1202,15 +1201,11 @@ def update_transaction_meta(
 
 
 def get_all_fees(db: Session) -> list[P4xFee]:
-    from app.models.p4x_fee import P4xFee
-
     return db.query(P4xFee).order_by(P4xFee.start).all()
 
 
 def fee_for_month(db: Session, target_date: date) -> Decimal:
     """Returns the fee applicable for a given month (latest start <= target)."""
-    from app.models.p4x_fee import P4xFee
-
     first_of_month = target_date.replace(day=1)
     result = (
         db.query(P4xFee.fee)
@@ -1218,7 +1213,7 @@ def fee_for_month(db: Session, target_date: date) -> Decimal:
         .order_by(P4xFee.start.desc())
         .first()
     )
-    return result[0] if result else Decimal("0")
+    return result[0] if result else Decimal(0)
 
 
 def create_fee(
@@ -1228,8 +1223,6 @@ def create_fee(
     fee_amount: Decimal,
 ) -> tuple[Any | None, str | None]:
     """Returns (fee, None) on success or (None, error_message) on failure."""
-    from app.models.p4x_fee import P4xFee
-
     start = date(year, month, 1)
 
     if start < datetime.now(UTC).date().replace(day=1):
@@ -1247,8 +1240,6 @@ def create_fee(
 
 def delete_fee(db: Session, start_str: str) -> str | None:
     """Returns error message or None on success."""
-    from app.models.p4x_fee import P4xFee
-
     start = date.fromisoformat(start_str[:10])
     fee = (
         db.query(P4xFee)
@@ -1284,8 +1275,6 @@ def is_fee_member(member: Member) -> bool:
 
 
 def get_fee_members(db: Session) -> list[Member]:
-    from app.models.member import Member
-
     return (
         db.query(Member)
         .filter(
@@ -1299,8 +1288,6 @@ def get_fee_members(db: Session) -> list[Member]:
 
 
 def search_fee_members(db: Session, term: str) -> list[dict[str, Any]]:
-    from app.models.member import Member
-
     if len(term) < 3:
         return []
 
@@ -1406,7 +1393,7 @@ def _get_fee_payments_sum(
     ]
 
     if not partner_ibans:
-        return Decimal("0")
+        return Decimal(0)
 
     direct_tx_ids = {
         r[0]
@@ -1451,7 +1438,7 @@ def _get_fee_payments_sum(
     fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
     if not fee_cat_tx_ids:
-        return Decimal("0")
+        return Decimal(0)
 
     query = db.query(func.sum(P4xTransaction.amount)).filter(
         P4xTransaction.deleted_at.is_(None),
@@ -1468,7 +1455,7 @@ def _get_fee_payments_sum(
         query = query.filter(P4xTransaction.booking < to_date)
 
     result = query.scalar()
-    return result if result else Decimal("0")
+    return result or Decimal(0)
 
 
 def _get_fee_payments_list(
@@ -1560,7 +1547,7 @@ def _get_fee_payments_list(
     ]
 
 
-def calculate_fee_balance(  # noqa: C901
+def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     db: Session,
     member: Member,
     start_date_str: str | None = None,
@@ -1573,9 +1560,7 @@ def calculate_fee_balance(  # noqa: C901
     if member.p4x_init_date is None and member.philistrierungsdatum is None:
         return None
 
-    init_date = (
-        member.p4x_init_date if member.p4x_init_date else member.philistrierungsdatum
-    )
+    init_date = member.p4x_init_date or member.philistrierungsdatum
     if init_date is None:
         return None
     if isinstance(init_date, str):
@@ -1591,8 +1576,7 @@ def calculate_fee_balance(  # noqa: C901
     else:
         start_date = init_date
 
-    if start_date < init_date:
-        start_date = init_date
+    start_date = max(start_date, init_date)
 
     # Determine end_date
     if end_date_str:
@@ -1620,7 +1604,7 @@ def calculate_fee_balance(  # noqa: C901
             )
 
     # Calculate start_balance
-    start_balance = member.p4x_init_balance or Decimal("0")
+    start_balance = member.p4x_init_balance or Decimal(0)
 
     if not member.p4x_freed:
         prev_month_date = start_date.replace(day=1) - timedelta(days=1)
@@ -1666,7 +1650,7 @@ def calculate_fee_balance(  # noqa: C901
     )
 
     end_balance = start_balance + sum(
-        (Decimal(str(e["amount"])) for e in progress), start=Decimal("0")
+        (Decimal(str(e["amount"])) for e in progress), start=Decimal(0)
     )
 
     progress.sort(key=lambda e: str(e["booking"]))
@@ -1683,11 +1667,11 @@ def calculate_fee_balance(  # noqa: C901
         },
         "sum": {
             "fees": sum(
-                (Decimal(str(e["amount"])) for e in fee_entries), start=Decimal("0")
+                (Decimal(str(e["amount"])) for e in fee_entries), start=Decimal(0)
             ),
             "payments": sum(
                 (Decimal(str(e["amount"])) for e in payment_entries),
-                start=Decimal("0"),
+                start=Decimal(0),
             ),
         },
         "end_date": str(end_date),
@@ -1833,7 +1817,7 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def generate_summary_xlsx(  # noqa: C901
+def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     db: Session,
     start: date,
     end: date,
@@ -1842,13 +1826,6 @@ def generate_summary_xlsx(  # noqa: C901
 
     Returns (xlsx_bytes, [(filename, pdf_bytes), ...]).
     """
-    import base64
-    import io
-    from itertools import count
-
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-
     start = start.replace(day=1)
     if end.month == 12:
         end = date(end.year + 1, 1, 1) - timedelta(days=1)
@@ -2075,8 +2052,6 @@ def generate_summary_xlsx(  # noqa: C901
         ws_mb.cell(row=row_num, column=9).alignment = Alignment(horizontal="center")
 
     wb.active = 0
-
-    from openpyxl.utils import get_column_letter
 
     for ws_auto in wb.worksheets:
         for col_idx in range(1, ws_auto.max_column + 1):

@@ -1,6 +1,7 @@
 """Tests for the ActivityLoggingMiddleware."""
 
-from datetime import date
+import json
+from datetime import date, timedelta
 
 import bcrypt
 
@@ -120,8 +121,6 @@ class TestSanitizeInput:
         assert _sanitize_input(b"") is None
 
     def test_sanitizes_password(self):
-        import json
-
         body = json.dumps({"email": "a@b.at", "password": "secret123"}).encode()
         result = _sanitize_input(body)
         data = json.loads(result)
@@ -129,8 +128,6 @@ class TestSanitizeInput:
         assert data["email"] == "a@b.at"
 
     def test_sanitizes_credential(self):
-        import json
-
         body = json.dumps({"credential": "google-token-xyz"}).encode()
         result = _sanitize_input(body)
         data = json.loads(result)
@@ -140,8 +137,6 @@ class TestSanitizeInput:
         assert _sanitize_input(b"not json") is None
 
     def test_form_data_login(self):
-        import json
-
         body = b"username=test%40vbw.at&password=secret123"
         result = _sanitize_input(body, "application/x-www-form-urlencoded")
         data = json.loads(result)
@@ -167,8 +162,6 @@ class TestEmailFromToken:
         assert _email_from_token("") is None
 
     def test_extracts_email_with_expired_token(self):
-        from datetime import timedelta
-
         token, _ = create_access_token(
             subject="test@vbw.at",
             expires_delta=timedelta(seconds=-1),

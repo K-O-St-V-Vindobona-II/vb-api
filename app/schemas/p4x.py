@@ -17,7 +17,7 @@ HEX_COLOR_REGEX = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 # This alias keeps Decimal internally (exact arithmetic) while restoring the
 # original bare-number wire format on the way out.
 MoneyOut = Annotated[
-    Decimal, PlainSerializer(lambda v: float(v), return_type=float, when_used="json")
+    Decimal, PlainSerializer(float, return_type=float, when_used="json")
 ]
 
 

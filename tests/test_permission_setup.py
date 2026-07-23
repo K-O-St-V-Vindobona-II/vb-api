@@ -1,6 +1,7 @@
 """Tests for the permission-rules endpoint and rule consistency."""
 
 from datetime import date
+from unittest.mock import patch
 
 import bcrypt
 
@@ -15,6 +16,7 @@ from app.services.auth_service import (
 from app.services.permission_service import (
     ALL_PERMISSIONS,
     PERMISSION_RULES,
+    calculate_permissions,
     get_permission_rules_display,
 )
 
@@ -135,12 +137,8 @@ class TestPermissionRulesEndpoint:
 class TestDevSuperuserGuard:
     def test_dev_superuser_active_in_development(self, db_session):
         """DEV_SUPERUSER_ID grants all permissions in non-production environments."""
-        import bcrypt
-
-        from app.models.member import Member as MemberModel
-
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
-        member = MemberModel(
+        member = Member(
             id=999,
             email="dev@test.at",
             auth_password=hashed,
@@ -154,30 +152,17 @@ class TestDevSuperuserGuard:
         db_session.commit()
 
         with (
-            __import__("unittest.mock", fromlist=["patch"]).patch(
-                "app.services.permission_service.DEV_SUPERUSER_ID", 999
-            ),
-            __import__("unittest.mock", fromlist=["patch"]).patch(
-                "app.services.permission_service.APP_ENVIRONMENT", "development"
-            ),
+            patch("app.services.permission_service.DEV_SUPERUSER_ID", 999),
+            patch("app.services.permission_service.APP_ENVIRONMENT", "development"),
         ):
-            from app.services.permission_service import (
-                ALL_PERMISSIONS,
-                calculate_permissions,
-            )
-
             perms = calculate_permissions(member)
 
         assert sorted(perms) == sorted(ALL_PERMISSIONS)
 
     def test_dev_superuser_disabled_in_production(self, db_session):
         """DEV_SUPERUSER_ID is forced to 0 in production — regular rules apply."""
-        import bcrypt
-
-        from app.models.member import Member as MemberModel
-
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
-        member = MemberModel(
+        member = Member(
             id=888,
             email="prod@test.at",
             auth_password=hashed,
@@ -191,15 +176,9 @@ class TestDevSuperuserGuard:
         db_session.commit()
 
         with (
-            __import__("unittest.mock", fromlist=["patch"]).patch(
-                "app.services.permission_service.DEV_SUPERUSER_ID", 0
-            ),
-            __import__("unittest.mock", fromlist=["patch"]).patch(
-                "app.services.permission_service.APP_ENVIRONMENT", "production"
-            ),
+            patch("app.services.permission_service.DEV_SUPERUSER_ID", 0),
+            patch("app.services.permission_service.APP_ENVIRONMENT", "production"),
         ):
-            from app.services.permission_service import calculate_permissions
-
             perms = calculate_permissions(member)
 
         # No roles → no permissions

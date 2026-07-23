@@ -122,14 +122,14 @@ def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | 
         )
         .all()
     )
-    for c in contacts:
-        results.append(
-            {
-                "type": "contact",
-                "id": c.id,
-                "label": f"Kontakt: {c.cn}",
-            }
-        )
+    results.extend(
+        {
+            "type": "contact",
+            "id": c.id,
+            "label": f"Kontakt: {c.cn}",
+        }
+        for c in contacts
+    )
 
     return results
 
@@ -752,7 +752,7 @@ def _format_date(d: date | None) -> str:
     return f"{d.day}. {months[d.month]} {d.year}"
 
 
-def validate_roles_history(  # noqa: C901
+def validate_roles_history(  # noqa: C901, PLR0912
     db: Session,
     roles_input: list[RoleHistoryEntry] | list[dict[str, object]],
     org_id: str,
@@ -790,7 +790,7 @@ def validate_roles_history(  # noqa: C901
     for idx, entry in enumerate(entries):
         by_role.setdefault(entry.id, []).append((idx, entry))
 
-    for _role_id, role_group in by_role.items():
+    for role_group in by_role.values():
         if len(role_group) < 2:
             continue
         for (idx_a, a), (_idx_b, b) in combinations(role_group, 2):

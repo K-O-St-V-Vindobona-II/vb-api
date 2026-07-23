@@ -27,7 +27,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _create_account(db, init_balance: Decimal = Decimal("0")) -> P4xAccount:
+def _create_account(db, init_balance: Decimal = Decimal(0)) -> P4xAccount:
     account = P4xAccount(
         iban="AT942011100005301947",
         bic="GIBAATWWXXX",

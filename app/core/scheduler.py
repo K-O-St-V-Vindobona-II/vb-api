@@ -94,7 +94,7 @@ def _acquire_scheduler_lock() -> bool:
     instead of once per deployment. SQLite (dev-only fallback) never runs
     with multiple workers, so it skips the lock and always starts.
     """
-    global _scheduler_lock_conn
+    global _scheduler_lock_conn  # noqa: PLW0603 -- lazy singleton, holds the advisory-lock connection open for process lifetime
 
     if engine.dialect.name != "postgresql":
         return True
@@ -783,7 +783,7 @@ def get_scheduled_jobs() -> list[dict[str, str | None]]:
 
 
 def stop_scheduler() -> None:
-    global _scheduler_lock_conn
+    global _scheduler_lock_conn  # noqa: PLW0603 -- releases the singleton set up in ensure_single_scheduler_instance()
 
     if scheduler.running:
         scheduler.shutdown(wait=False)

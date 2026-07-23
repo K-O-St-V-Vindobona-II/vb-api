@@ -16,7 +16,7 @@ class ResetPasswordRequest(BaseModel):
     @classmethod
     def validate_password_length(cls, v: str) -> str:
         # Reads the value from .env, fallback is 8
-        min_length = int(os.environ.get("PASSWORD_MIN_LENGTH", 8))
+        min_length = int(os.environ.get("PASSWORD_MIN_LENGTH", "8"))
         if len(v) < min_length:
             msg = f"Das Passwort muss mindestens {min_length} Zeichen lang sein."
             raise ValueError(msg)

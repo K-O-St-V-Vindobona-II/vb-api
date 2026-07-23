@@ -8,6 +8,9 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from app.db.database import SessionLocal
+from app.models.sent_email import SentEmail
+
 logger = logging.getLogger(__name__)
 
 _current_dir = Path(__file__).resolve().parent
@@ -53,9 +56,6 @@ def _log_sent_email(
     bcc_str: str | None = None,
 ) -> None:
     try:
-        from app.db.database import SessionLocal
-        from app.models.sent_email import SentEmail
-
         db = SessionLocal()
         try:
             now = datetime.now(UTC)

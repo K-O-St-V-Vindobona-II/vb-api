@@ -12,11 +12,11 @@ from app.services.s3_mirror_service import mirror_prefix
 SOURCE_BUCKET = "mirror-source"
 DEST_BUCKET = "mirror-dest"
 
-_S3_CREDS = dict(
-    region_name="us-east-1",
-    aws_access_key_id="testing",
-    aws_secret_access_key="testing",
-)
+_S3_CREDS = {
+    "region_name": "us-east-1",
+    "aws_access_key_id": "testing",
+    "aws_secret_access_key": "testing",
+}
 
 
 @pytest.fixture(scope="session")

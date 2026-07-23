@@ -37,11 +37,11 @@ def _which_side_effect(name: str) -> str:
     return _FAKE_PG_TOOLS[name]
 
 
-_S3_CREDS = dict(
-    region_name="us-east-1",
-    aws_access_key_id="testing",
-    aws_secret_access_key="testing",
-)
+_S3_CREDS = {
+    "region_name": "us-east-1",
+    "aws_access_key_id": "testing",
+    "aws_secret_access_key": "testing",
+}
 
 
 @pytest.fixture(scope="session")

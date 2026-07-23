@@ -54,9 +54,16 @@ max-complexity = 8
 
 [tool.ruff.lint.per-file-ignores]
 # Tests are allowed to be more robust and repetitive
-"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001"]
-"alembic/**" = ["F401", "UP035", "ANN"]
-"scripts/**" = ["T201", "FBT"]
+"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603"]
+"alembic/**" = ["F401", "UP035", "ANN", "PLR0915"]
+"scripts/**" = ["T201", "FBT", "PLR0915"]
+# Declarative models use `from __future__ import annotations`, so SQLAlchemy
+# resolves `Mapped[...]` annotations at mapper-configure time by evaluating
+# the stringified annotation against the module's real (non-TYPE_CHECKING)
+# globals. Hiding stdlib types like `datetime`/`Decimal` behind
+# `TYPE_CHECKING` breaks that resolution with a runtime `NameError` —
+# verified empirically, not just theoretically, before adding this ignore.
+"app/models/**" = ["TC003"]
 
 [tool.ruff.format]
 quote-style = "double"
