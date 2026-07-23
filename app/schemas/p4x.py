@@ -6,6 +6,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 from app.models.enums import SubjectMode
+from app.schemas.base import StrictInputModel
 
 IBAN_REGEX = re.compile(r"^[A-Z]{2}\d{2}\s?[\w\s]{4,}$")
 BIC_REGEX = re.compile(r"^[A-Za-z0-9]{1,11}$")
@@ -69,13 +70,21 @@ class AccountResponse(BaseModel):
     transactions_latest: str | None
 
 
-class AccountSaveRequest(BaseModel):
+class AccountSaveRequest(StrictInputModel):
     iban: str = Field(..., max_length=34)
     bic: str = Field(..., max_length=11)
     label: str = Field(..., max_length=32)
-    init_date: date
+    # strict=False on date/Decimal fields: JSON has no native date or
+    # decimal type, so both always arrive as a string/number that the
+    # model-level strict=True would otherwise reject outright.
+    init_date: date = Field(strict=False)
     init_balance: Decimal = Field(
-        ..., ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+        ...,
+        ge=-999999999,
+        le=999999999,
+        max_digits=12,
+        decimal_places=2,
+        strict=False,
     )
 
     @field_validator("iban")
@@ -189,7 +198,7 @@ class CategoryWithUsageResponse(CategoryResponse):
     used: dict[str, int]
 
 
-class CategorySaveRequest(BaseModel):
+class CategorySaveRequest(StrictInputModel):
     name: str = Field(..., max_length=64)
     label: str = Field(..., max_length=32)
     background_color: str
@@ -223,18 +232,31 @@ class CategoryFilterResponse(BaseModel):
     hitCount: int  # noqa: N815
 
 
-class CategoryFilterSaveRequest(BaseModel):
+class CategoryFilterSaveRequest(StrictInputModel):
     name: str = Field(..., max_length=64)
     p4x_account_id: int
     iban: str | None = None
+    # strict=False: see AccountSaveRequest.init_balance above.
     min_amount: Decimal | None = Field(
-        None, ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+        None,
+        ge=-999999999,
+        le=999999999,
+        max_digits=12,
+        decimal_places=2,
+        strict=False,
     )
     max_amount: Decimal | None = Field(
-        None, ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+        None,
+        ge=-999999999,
+        le=999999999,
+        max_digits=12,
+        decimal_places=2,
+        strict=False,
     )
     subject: str | None = Field(None, max_length=400)
-    subject_mode: SubjectMode
+    # strict=False: the wire value is the enum's raw string, not an actual
+    # SubjectMode instance — JSON has no native enum type either.
+    subject_mode: SubjectMode = Field(strict=False)
     p4x_category_id: int
 
     @field_validator("iban", mode="before")
@@ -264,10 +286,12 @@ class FeeResponse(BaseModel):
     protected: bool
 
 
-class FeeCreateRequest(BaseModel):
+class FeeCreateRequest(StrictInputModel):
     year: int = Field(..., ge=2015)
     month: int = Field(..., ge=1, le=12)
-    fee: Decimal = Field(..., ge=10, le=200, max_digits=12, decimal_places=2)
+    fee: Decimal = Field(
+        ..., ge=10, le=200, max_digits=12, decimal_places=2, strict=False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,10 +335,15 @@ class FeeMemberResponse(BaseModel):
     balance: FeeBalanceResponse | None
 
 
-class FeeMemberUpdateRequest(BaseModel):
-    p4x_init_date: date
+class FeeMemberUpdateRequest(StrictInputModel):
+    p4x_init_date: date = Field(strict=False)
     p4x_init_balance: Decimal = Field(
-        ..., ge=-999999999, le=999999999, max_digits=12, decimal_places=2
+        ...,
+        ge=-999999999,
+        le=999999999,
+        max_digits=12,
+        decimal_places=2,
+        strict=False,
     )
     p4x_freed: bool = False
     p4x_comment: str | None = Field(None, max_length=250)
@@ -337,13 +366,13 @@ class PartnerSearchResult(BaseModel):
     label: str
 
 
-class SetPartnerRequest(BaseModel):
+class SetPartnerRequest(StrictInputModel):
     partner: PartnerRef | None = None
     hasDelegatingPartner: bool = False  # noqa: N815
     delegatingPartner: PartnerRef | None = None  # noqa: N815
 
 
-class TransactionUpdateRequest(BaseModel):
+class TransactionUpdateRequest(StrictInputModel):
     comment: str | None = Field(None, max_length=250)
     delete_attachment: bool = False
 
@@ -353,9 +382,9 @@ class TransactionUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class SummaryOrderRequest(BaseModel):
-    start: date
-    end: date
+class SummaryOrderRequest(StrictInputModel):
+    start: date = Field(strict=False)
+    end: date = Field(strict=False)
 
     @field_validator("start")
     @classmethod

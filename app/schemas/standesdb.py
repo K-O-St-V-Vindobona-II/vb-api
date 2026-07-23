@@ -18,6 +18,7 @@ from app.models.enums import (
     MemberDeliveryPreference,
     RoleGroup,
 )
+from app.schemas.base import StrictInputModel
 
 
 def _ensure_utc(v: datetime | None) -> datetime | None:
@@ -239,7 +240,7 @@ class MemberDetailResponse(BaseModel):
 # --- Member Save Request ---
 
 
-class MemberSaveRequest(BaseModel):
+class MemberSaveRequest(StrictInputModel):
     vortitel: str | None = None
     vorname: str | None = None
     nachname: str | None = None
@@ -254,19 +255,22 @@ class MemberSaveRequest(BaseModel):
     parent_id: int = 0
     grabadresse: str | None = None
 
-    geburtsdatum: date | None = None
+    # strict=False: JSON has no native date type, dates always arrive as
+    # ISO strings — the model-level strict=True would otherwise reject
+    # them outright (it requires an actual `date` object, not a string).
+    geburtsdatum: date | None = Field(default=None, strict=False)
     geburtsdatum_accuracy: int = Field(default=0, ge=0, le=3)
-    aufnahmedatum: date | None = None
+    aufnahmedatum: date | None = Field(default=None, strict=False)
     aufnahmedatum_accuracy: int = Field(default=0, ge=0, le=3)
-    branderdatum: date | None = None
+    branderdatum: date | None = Field(default=None, strict=False)
     branderdatum_accuracy: int = Field(default=0, ge=0, le=3)
-    burschungsdatum: date | None = None
+    burschungsdatum: date | None = Field(default=None, strict=False)
     burschungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
-    philistrierungsdatum: date | None = None
+    philistrierungsdatum: date | None = Field(default=None, strict=False)
     philistrierungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
-    entlassungsdatum: date | None = None
+    entlassungsdatum: date | None = Field(default=None, strict=False)
     entlassungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
-    sterbedatum: date | None = None
+    sterbedatum: date | None = Field(default=None, strict=False)
     sterbedatum_accuracy: int = Field(default=0, ge=0, le=3)
 
     email: EmailStr | None = Field(default=None, max_length=128)
@@ -276,7 +280,12 @@ class MemberSaveRequest(BaseModel):
     rufnummer_privat: str | None = None
     rufnummer_beruf: str | None = None
 
-    zustellungen: MemberDeliveryPreference = MemberDeliveryPreference.DEAKTIVIERT
+    # strict=False: the wire value is the enum's raw string, not an actual
+    # MemberDeliveryPreference instance (same reasoning as the date fields
+    # above — JSON has no native enum type either).
+    zustellungen: MemberDeliveryPreference = Field(
+        default=MemberDeliveryPreference.DEAKTIVIERT, strict=False
+    )
 
     adresse_privat_anschrift: str | None = None
     adresse_privat_plz: str | None = None
@@ -296,9 +305,9 @@ class MemberSaveRequest(BaseModel):
     chroniclemail: bool = False
     auth_locked: bool = True
 
-    roles_history: list[RoleHistoryEntry] = []
-    badges: list[BadgeEntry] = []
-    keys: list[KeyEntry] = []
+    roles_history: list[RoleHistoryEntry] = Field(default_factory=list)
+    badges: list[BadgeEntry] = Field(default_factory=list)
+    keys: list[KeyEntry] = Field(default_factory=list)
 
     @field_validator("vortitel", "nachtitel", mode="before")
     @classmethod
@@ -408,8 +417,10 @@ class ContactDetailResponse(BaseModel):
     anmerkungen: str | None = None
 
 
-class ContactSaveRequest(BaseModel):
-    kontakttyp: ContactType
+class ContactSaveRequest(StrictInputModel):
+    # strict=False: same enum-from-raw-string reasoning as MemberSaveRequest
+    # above.
+    kontakttyp: ContactType = Field(strict=False)
     anrede: str | None = None
     name: str
     couleurname: str | None = None
@@ -421,7 +432,7 @@ class ContactSaveRequest(BaseModel):
     zustellungen: bool = False
     email: EmailStr | None = Field(default=None, max_length=128)
     rufnummer: str | None = None
-    datum: date | None = None
+    datum: date | None = Field(default=None, strict=False)
     datum_accuracy: int = Field(default=0, ge=0, le=3)
     anmerkungen: str | None = None
 
@@ -497,7 +508,7 @@ class ImageGalleryResponse(BaseModel):
     images: list[ImageResponse]
 
 
-class ImageUpdateRequest(BaseModel):
+class ImageUpdateRequest(StrictInputModel):
     description: str | None = None
     default: bool = False
 

@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.schemas.base import StrictInputModel
+
 MAX_CAPTION_LENGTH = 150
 MAX_CONTACT_MESSAGE_LENGTH = 4000
 MAX_CONTACT_NAME_LENGTH = 100
@@ -33,7 +35,7 @@ class GalleryImageAdminResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class GalleryImageUpdateRequest(BaseModel):
+class GalleryImageUpdateRequest(StrictInputModel):
     caption: str | None = None
     is_published: bool = True
 
@@ -46,11 +48,11 @@ class GalleryImageUpdateRequest(BaseModel):
         return v
 
 
-class GalleryImageMoveRequest(BaseModel):
+class GalleryImageMoveRequest(StrictInputModel):
     direction: Literal["up", "down"]
 
 
-class ContactFormRequest(BaseModel):
+class ContactFormRequest(StrictInputModel):
     name: str = Field(min_length=1, max_length=MAX_CONTACT_NAME_LENGTH)
     email: EmailStr
     message: str = Field(min_length=1, max_length=MAX_CONTACT_MESSAGE_LENGTH)

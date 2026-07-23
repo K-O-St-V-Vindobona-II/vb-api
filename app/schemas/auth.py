@@ -1,13 +1,15 @@
 import os
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import EmailStr, field_validator
+
+from app.schemas.base import StrictInputModel
 
 
-class ForgotPasswordRequest(BaseModel):
+class ForgotPasswordRequest(StrictInputModel):
     email: EmailStr
 
 
-class ResetPasswordRequest(BaseModel):
+class ResetPasswordRequest(StrictInputModel):
     email: EmailStr
     token: str
     password: str
@@ -23,11 +25,11 @@ class ResetPasswordRequest(BaseModel):
         return v
 
 
-class GoogleLoginRequest(BaseModel):
+class GoogleLoginRequest(StrictInputModel):
     credential: str  # The JWT (id_token) received from Google by the frontend
 
 
-class GoogleLinkRequest(BaseModel):
+class GoogleLinkRequest(StrictInputModel):
     credential: str
     email: EmailStr
     password: str

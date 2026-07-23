@@ -1,6 +1,8 @@
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.base import StrictInputModel
 
 PERM_REGEX = re.compile(r"^[a-z]{3}_[a-z]{2}$")
 
@@ -128,10 +130,10 @@ class UploadConfigResponse(BaseModel):
 # --- Requests ---
 
 
-class DirSaveRequest(BaseModel):
+class DirSaveRequest(StrictInputModel):
     name: str
     description: str | None = None
-    permissions: list[str] = []
+    permissions: list[str] = Field(default_factory=list)
     recursive_permissions: bool = False
     parentId: int | None = None  # noqa: N815
 
@@ -168,7 +170,7 @@ class DirSaveRequest(BaseModel):
         return v
 
 
-class DirReceiveRequest(BaseModel):
+class DirReceiveRequest(StrictInputModel):
     type: str
     ids: list[int]
     action: str = "move"
@@ -190,7 +192,7 @@ class DirReceiveRequest(BaseModel):
         return v
 
 
-class FileUpdateRequest(BaseModel):
+class FileUpdateRequest(StrictInputModel):
     description: str | None = None
 
     @field_validator("description")
@@ -205,7 +207,7 @@ class FileUpdateRequest(BaseModel):
         return v
 
 
-class CommentCreateRequest(BaseModel):
+class CommentCreateRequest(StrictInputModel):
     content: str
 
     @field_validator("content")
