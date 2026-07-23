@@ -4,6 +4,7 @@ import io
 from unittest.mock import patch
 
 import pytest
+from botocore.exceptions import ClientError
 from PIL import Image as PILImage
 
 from app.core import storage as storage_module
@@ -167,10 +168,6 @@ class TestStorageClient:
         assert isinstance(url, str)
 
     def test_upload_error_raises_runtime(self, mock_s3):
-        from unittest.mock import patch
-
-        from botocore.exceptions import ClientError
-
         with (
             patch.object(
                 mock_s3._client,

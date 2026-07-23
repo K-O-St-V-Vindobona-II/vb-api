@@ -1,5 +1,8 @@
 from datetime import UTC, date, datetime
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.p4x_account import P4xAccount
@@ -158,9 +161,6 @@ class TestP4xCategory:
             text_color="#fff",
         )
         db_session.add(dup)
-        import pytest
-        from sqlalchemy.exc import IntegrityError
-
         with pytest.raises(IntegrityError):
             db_session.commit()
 

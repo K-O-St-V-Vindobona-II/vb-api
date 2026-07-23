@@ -131,17 +131,16 @@ def calculate_permissions(
             if mr.role and mr.role.group:
                 active_role_groups.add(mr.role.group)
 
-    perms: list[str] = []
-    for rule in PERMISSION_RULES:
+    return [
+        rule.permission
+        for rule in PERMISSION_RULES
         if rule.condition(
             active_role_ids,
             active_role_groups,
             member.org_id,
             member.email,
-        ):
-            perms.append(rule.permission)
-
-    return perms
+        )
+    ]
 
 
 def get_permission_rules_display() -> list[dict[str, str]]:

@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -22,9 +21,7 @@ from app.core.mailer import send_entry_changed_email
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.contact import Contact
-from app.models.contacts_log import ContactsLog
 from app.models.member import Member
-from app.models.members_log import MembersLog
 from app.schemas.archive import PresignedUrlResponse
 from app.schemas.standesdb import (
     ChangeLogEntry,
@@ -754,77 +751,24 @@ def delete_contact_image(
 # --- Changelog ---
 
 
-def _changelog_name_map(
-    db: Session,
-    log_entries: Sequence[MembersLog | ContactsLog],
-) -> dict[int, str]:
-    ids = {e.modified_by for e in log_entries if e.modified_by}
-    if not ids:
-        return {}
-    rows = (
-        db.query(Member.id, Member.vorname, Member.nachname)
-        .filter(Member.id.in_(ids))
-        .all()
-    )
-    return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
-
-
 @standesdb_router.get("/members/{member_id}/changelog")
-def get_member_changelog(
+def list_member_changelog(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> list[ChangeLogEntry]:
     """Return the change history for a member."""
-    logs = (
-        db.query(MembersLog)
-        .filter(MembersLog.member_id == member_id)
-        .order_by(MembersLog.modified_at.desc())
-        .limit(200)
-        .all()
-    )
-    names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return standesdb_service.get_member_changelog(db, member_id)
 
 
 @standesdb_router.get("/contacts/{contact_id}/changelog")
-def get_contact_changelog(
+def list_contact_changelog(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> list[ChangeLogEntry]:
     """Return the change history for a contact."""
-    logs = (
-        db.query(ContactsLog)
-        .filter(ContactsLog.contact_id == contact_id)
-        .order_by(ContactsLog.modified_at.desc())
-        .limit(200)
-        .all()
-    )
-    names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return standesdb_service.get_contact_changelog(db, contact_id)
 
 
 # --- Helper ---

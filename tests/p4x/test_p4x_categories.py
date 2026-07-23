@@ -13,6 +13,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+from app.services.p4x_service import get_category_usage
 
 
 def _now() -> datetime:
@@ -224,8 +225,6 @@ class TestCategoryCRUD:
 
 class TestCategoryUsage:
     def test_usage_counts(self, db_session):
-        from app.services.p4x_service import get_category_usage
-
         cat = _create_category(db_session)
         account = P4xAccount(
             iban="AT00TEST",

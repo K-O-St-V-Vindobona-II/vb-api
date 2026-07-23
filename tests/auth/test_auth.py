@@ -7,7 +7,7 @@ import pytest
 from app.core.security import create_access_token, verify_password
 from app.models.member import Member
 from app.models.password_reset import PasswordResetToken
-from app.services.auth_service import logout_user
+from app.services.auth_service import create_user_session, logout_user
 
 
 @pytest.fixture
@@ -164,8 +164,6 @@ class TestAuthTimestamps:
         assert user.auth_lastlogin is not None
 
     def test_google_login_sets_lastlogin(self, db_session):
-        from app.services.auth_service import create_user_session
-
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         m = Member(
             email="google@vbw.at",
@@ -197,8 +195,6 @@ class TestAuthTimestamps:
         assert user.auth_lastsignal is not None
 
     def test_logout_sets_lastlogout(self, client, test_user, db_session):
-        from app.services.auth_service import create_user_session
-
         user, _ = test_user
         token, _, _ = create_user_session(db_session, user)
         assert user.auth_lastlogout is None

@@ -265,19 +265,6 @@ def _classify_dir(
         bucket["admin"].append(_dir_short(d))
 
 
-def _classify_file_root(
-    f: ArchiveFile,
-    admin: bool,  # noqa: FBT001
-    bucket: dict[str, list[dict[str, object]]],
-) -> None:
-    if f.deleted_at:
-        if admin:
-            bucket["trashed"].append(_file_short(f))
-        return
-    if admin:
-        bucket["admin"].append(_file_short(f))
-
-
 def get_root_content(
     db: Session,
     user: Member,
@@ -296,7 +283,12 @@ def get_root_content(
 
     files = db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).all()
     for f in files:
-        _classify_file_root(f, admin, content["files"])
+        if f.deleted_at:
+            if admin:
+                content["files"]["trashed"].append(_file_short(f))
+            continue
+        if admin:
+            content["files"]["admin"].append(_file_short(f))
 
     return {
         "type": "dir",
@@ -318,22 +310,6 @@ def get_root_content(
     }
 
 
-def _classify_file_in_dir(
-    f: ArchiveFile,
-    admin: bool,  # noqa: FBT001
-    has_insight: bool,  # noqa: FBT001
-    bucket: dict[str, list[dict[str, object]]],
-) -> None:
-    if f.deleted_at:
-        if admin:
-            bucket["trashed"].append(_file_short(f))
-        return
-    if has_insight:
-        bucket["insight"].append(_file_short(f))
-    elif admin:
-        bucket["admin"].append(_file_short(f))
-
-
 def _build_dir_detail_content(
     db: Session,
     dir_obj: ArchiveDir,
@@ -349,7 +325,14 @@ def _build_dir_detail_content(
     has_insight = can_insight(user, db, dir_obj)
     files = dir_obj.archive_files.all()
     for f in files:
-        _classify_file_in_dir(f, admin, has_insight, content["files"])
+        if f.deleted_at:
+            if admin:
+                content["files"]["trashed"].append(_file_short(f))
+            continue
+        if has_insight:
+            content["files"]["insight"].append(_file_short(f))
+        elif admin:
+            content["files"]["admin"].append(_file_short(f))
 
     return content
 
@@ -503,53 +486,7 @@ def restore_dir(
     db.commit()
 
 
-def _validate_target_dir(db: Session, target_dir_id: int) -> None:
-    if not target_dir_id:
-        return
-    target = db.get(ArchiveDir, target_dir_id)
-    if not target:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Zielverzeichnis nicht gefunden.",
-        )
-
-
-def _move_dir_item(
-    db: Session,
-    did: int,
-    target_dir_id: int,
-) -> None:
-    d = db.get(ArchiveDir, did)
-    if not d:
-        return
-    if did == target_dir_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Verzeichnis kann nicht in sich selbst verschoben werden.",
-        )
-    if target_dir_id and _is_descendant(db, target_dir_id, did):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "Verzeichnis kann nicht in eigenes Unterverzeichnis verschoben werden."
-            ),
-        )
-    d.archive_dir_id = target_dir_id
-
-
-def _move_file_items(
-    db: Session,
-    item_ids: list[int],
-    target_dir_id: int,
-) -> None:
-    for fid in item_ids:
-        f = db.get(ArchiveFile, fid)
-        if not f:
-            continue
-        f.archive_dir_id = target_dir_id
-
-
-def receive_items(
+def receive_items(  # noqa: C901
     db: Session,
     target_dir_id: int,
     item_type: str,
@@ -557,13 +494,40 @@ def receive_items(
     user: Member,
 ) -> None:
     _require_admin(user)
-    _validate_target_dir(db, target_dir_id)
+
+    if target_dir_id:
+        target = db.get(ArchiveDir, target_dir_id)
+        if not target:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Zielverzeichnis nicht gefunden.",
+            )
 
     if item_type == "dir":
         for did in item_ids:
-            _move_dir_item(db, did, target_dir_id)
+            d = db.get(ArchiveDir, did)
+            if not d:
+                continue
+            if did == target_dir_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Verzeichnis kann nicht in sich selbst verschoben werden.",
+                )
+            if target_dir_id and _is_descendant(db, target_dir_id, did):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        "Verzeichnis kann nicht in eigenes Unterverzeichnis "
+                        "verschoben werden."
+                    ),
+                )
+            d.archive_dir_id = target_dir_id
     elif item_type == "file":
-        _move_file_items(db, item_ids, target_dir_id)
+        for fid in item_ids:
+            f = db.get(ArchiveFile, fid)
+            if not f:
+                continue
+            f.archive_dir_id = target_dir_id
 
     db.commit()
 
@@ -732,32 +696,6 @@ def restore_file(
     db.commit()
 
 
-def _resolve_file_and_item(
-    db: Session,
-    file_id: int,
-    user: Member,
-) -> tuple[ArchiveFile, ArchiveStoreItem]:
-    file_obj = db.get(ArchiveFile, file_id)
-    if not file_obj:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Datei nicht gefunden.",
-        )
-
-    if file_obj.archive_dir_id:
-        dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
-        if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj)
-
-    item = _active_store_item(file_obj)
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Keine Version gefunden.",
-        )
-    return file_obj, item
-
-
 def _serve_thumbnail(
     item: ArchiveStoreItem,
     size: str,
@@ -776,7 +714,24 @@ def serve_download(
     storage: StorageClient,
     size: str | None = None,
 ) -> Response:
-    _, item = _resolve_file_and_item(db, file_id, user)
+    file_obj = db.get(ArchiveFile, file_id)
+    if not file_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Datei nicht gefunden.",
+        )
+
+    if file_obj.archive_dir_id:
+        dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
+        if dir_obj:
+            _require_insight_or_admin(user, db, dir_obj)
+
+    item = _active_store_item(file_obj)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Keine Version gefunden.",
+        )
 
     if size and size in THUMB_SIZES and item.is_image:
         thumb_response = _serve_thumbnail(item, size, storage)

@@ -1,4 +1,4 @@
-"""Tests für Mailer-Hilfsfunktionen und Edge Cases."""
+"""Tests for mailer helper functions and edge cases."""
 
 from datetime import date
 from unittest.mock import patch
@@ -197,7 +197,7 @@ class TestSendToRecipients:
         msg = mock_send_message.call_args[0][0]
         assert msg["From"].startswith('"Philister-ChC Vindobona II"')
 
-    @patch("app.db.database.SessionLocal")
+    @patch("app.core.mailer.SessionLocal")
     @patch("app.core.mailer._send_message")
     def test_bcc_recipients_logged_to_sent_email(
         self, mock_send_message, mock_session_local, db_session

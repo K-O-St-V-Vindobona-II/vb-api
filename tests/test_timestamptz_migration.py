@@ -169,4 +169,4 @@ class TestPublicGalleryEndpointReturnsOffsetTimestamp:
         assert len(images) == 1
         created_at = images[0]["created_at"]
         assert created_at is not None
-        assert created_at.endswith("Z") or created_at.endswith("+00:00")
+        assert created_at.endswith(("Z", "+00:00"))

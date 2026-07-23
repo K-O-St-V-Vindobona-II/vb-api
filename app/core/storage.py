@@ -220,7 +220,7 @@ _storage: StorageClient | None = None
 
 
 def _get_storage_singleton() -> StorageClient:
-    global _storage
+    global _storage  # noqa: PLW0603 -- lazy singleton, avoids reconnecting the S3 client per call
     if _storage is None:
         _storage = StorageClient(
             endpoint_url=os.environ.get("S3_ENDPOINT_URL"),

@@ -1,35 +1,44 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, TypedDict
+from itertools import count
+from typing import TYPE_CHECKING, TypedDict
 
 logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import ColumnElement, extract, func
 from sqlalchemy import true as sa_true
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.query import RowReturningQuery
 
 if TYPE_CHECKING:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_fee import P4xFee
-    from app.models.p4x_specialcontact import P4xSpecialcontact
+    from sqlalchemy.orm import Session
+    from sqlalchemy.orm.query import RowReturningQuery
 
+    from app.schemas.p4x import AccountSaveRequest
+
+from app.models.contact import Contact
+from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
+from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
+from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_transaction import P4xTransaction
+from app.schemas.p4x import PartnerSearchResult, SumUpBalanceResponse
 
 FEE_CATEGORY_ID = 1
 SUMUP_ACCOUNT_ID = 1
@@ -51,19 +60,41 @@ class FeeBalanceResult(TypedDict):
     progress: list[dict[str, str | Decimal]]
 
 
+class FeeMemberSearchResult(TypedDict):
+    """Typed result of search_fee_members."""
+
+    id: int
+    label: str
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
+
+class ParsedTransactionPayload(TypedDict):
+    """Normalized fields extracted from one George bank statement entry."""
+
+    booking: date
+    valuation: date
+    iban: str
+    amount: str
+    subject: str
+
+
+class ParsedTransactionEntry(TypedDict):
+    payload: ParsedTransactionPayload
+    raw: str
 
 
 @dataclass
 class ParseResult:
     success: bool
     message: str
-    entries: list[dict[str, Any]] = field(default_factory=list)
+    entries: list[ParsedTransactionEntry] = field(default_factory=list)
 
 
-def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901
+def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PLR0911, PLR0912
     if bic != GEORGE_BIC:
         return ParseResult(
             success=False, message=f"No parser method found for BIC {bic}"
@@ -77,7 +108,7 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901
     if not isinstance(data, list):
         return ParseResult(success=False, message="failed to parse given raw json data")
 
-    result: list[dict[str, Any]] = []
+    result: list[ParsedTransactionEntry] = []
 
     for struct in data:
         if "booking" not in struct:
@@ -242,8 +273,8 @@ def compute_transaction_hash(
 def import_transactions(
     db: Session,
     account: P4xAccount,
-    parsed_entries: list[dict[str, Any]],
-    original_structs: list[dict[str, Any]],
+    parsed_entries: list[ParsedTransactionEntry],
+    original_structs: list[dict[str, object]],
 ) -> dict[str, int]:
     """Import parsed transactions into the database.
 
@@ -283,7 +314,7 @@ def import_transactions(
             payload["subject"],
         )
 
-        if payload["booking"] < account.init_date:
+        if account.init_date is not None and payload["booking"] < account.init_date:
             db.query(P4xTransaction).filter(
                 P4xTransaction.sha256_hash == sha256_hash,
             ).update({"deleted_at": datetime.now(UTC)})
@@ -334,6 +365,72 @@ def import_transactions(
 
 
 # ---------------------------------------------------------------------------
+# Account CRUD
+# ---------------------------------------------------------------------------
+
+
+def create_account(db: Session, data: AccountSaveRequest) -> P4xAccount:
+    existing = (
+        db.query(P4xAccount)
+        .filter(
+            P4xAccount.iban == data.iban,
+            P4xAccount.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="IBAN existiert bereits.",
+        )
+
+    now = datetime.now(UTC)
+    account = P4xAccount(
+        iban=data.iban,
+        bic=data.bic,
+        label=data.label,
+        init_date=data.init_date,
+        init_balance=data.init_balance,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+def update_account(
+    db: Session,
+    account: P4xAccount,
+    data: AccountSaveRequest,
+) -> P4xAccount:
+    dup = (
+        db.query(P4xAccount)
+        .filter(
+            P4xAccount.iban == data.iban,
+            P4xAccount.id != account.id,
+            P4xAccount.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="IBAN existiert bereits.",
+        )
+
+    account.iban = data.iban
+    account.bic = data.bic
+    account.label = data.label
+    account.init_date = data.init_date
+    account.init_balance = data.init_balance
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+# ---------------------------------------------------------------------------
 # Account queries
 # ---------------------------------------------------------------------------
 
@@ -354,7 +451,7 @@ def get_account_balance(
             P4xTransaction.deleted_at.is_(None),
         )
         .scalar()
-    ) or Decimal("0")
+    ) or Decimal(0)
 
     return account.init_balance + total
 
@@ -381,36 +478,6 @@ def get_transactions_by_month(
     return items, total
 
 
-def _partner_filter(partner_type: str, partner_id: int) -> ColumnElement[bool]:
-    """Translates the partner_type/partner_id pair callers still use into
-    the matching exclusive-arc FK column (see P4xPartner)."""
-    if partner_type == "member":
-        return P4xPartner.member_id == partner_id
-    if partner_type == "contact":
-        return P4xPartner.contact_id == partner_id
-    if partner_type == "account":
-        return P4xPartner.p4x_account_id == partner_id
-    if partner_type == "special":
-        return P4xPartner.p4x_specialcontact_id == partner_id
-    msg = f"Unbekannter partner_type: {partner_type!r}"
-    raise ValueError(msg)
-
-
-def _delegating_filter(partner_type: str, partner_id: int) -> ColumnElement[bool]:
-    """Same translation as _partner_filter, but for the delegating_* columns
-    on P4xTransaction."""
-    if partner_type == "member":
-        return P4xTransaction.delegating_member_id == partner_id
-    if partner_type == "contact":
-        return P4xTransaction.delegating_contact_id == partner_id
-    if partner_type == "account":
-        return P4xTransaction.delegating_p4x_account_id == partner_id
-    if partner_type == "special":
-        return P4xTransaction.delegating_p4x_specialcontact_id == partner_id
-    msg = f"Unbekannter partner_type: {partner_type!r}"
-    raise ValueError(msg)
-
-
 def _no_delegation_filter() -> ColumnElement[bool]:
     """True when a transaction has no delegating partner set at all."""
     return (
@@ -428,11 +495,29 @@ def get_transactions_by_partner(
     partner_id: int,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
+    # Translates the partner_type/partner_id pair callers still use into the
+    # matching exclusive-arc FK columns (see P4xPartner / P4xTransaction).
+    if partner_type == "member":
+        partner_column = P4xPartner.member_id
+        delegating_column = P4xTransaction.delegating_member_id
+    elif partner_type == "contact":
+        partner_column = P4xPartner.contact_id
+        delegating_column = P4xTransaction.delegating_contact_id
+    elif partner_type == "account":
+        partner_column = P4xPartner.p4x_account_id
+        delegating_column = P4xTransaction.delegating_p4x_account_id
+    elif partner_type == "special":
+        partner_column = P4xPartner.p4x_specialcontact_id
+        delegating_column = P4xTransaction.delegating_p4x_specialcontact_id
+    else:
+        msg = f"Unbekannter partner_type: {partner_type!r}"
+        raise ValueError(msg)
+
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            _partner_filter(partner_type, partner_id),
+            partner_column == partner_id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -447,7 +532,7 @@ def get_transactions_by_partner(
         .filter(
             # (partner matches AND no delegating) OR (delegating matches)
             (P4xTransaction.iban.in_(partner_ibans) & _no_delegation_filter())
-            | _delegating_filter(partner_type, partner_id)
+            | (delegating_column == partner_id)
         )
         .order_by(P4xTransaction.booking.desc())
     )
@@ -671,23 +756,15 @@ def _apply_category_filter_criteria(
         query = query.filter(P4xTransaction.amount <= category_filter.max_amount)
 
     if category_filter.subject is not None:
-        query = _apply_subject_filter(query, category_filter)
+        subject = category_filter.subject
+        subject_pattern = {
+            "equals": subject,
+            "contains": f"%{subject}%",
+            "starts": f"{subject}%",
+        }.get(category_filter.subject_mode)
+        if subject_pattern is not None:
+            query = query.filter(P4xTransaction.subject.ilike(subject_pattern))
 
-    return query
-
-
-def _apply_subject_filter(
-    query: RowReturningQuery[tuple[int]],
-    category_filter: P4xCategoryFilter,
-) -> RowReturningQuery[tuple[int]]:
-    if category_filter.subject_mode == "equals":
-        return query.filter(P4xTransaction.subject.ilike(category_filter.subject))
-    if category_filter.subject_mode == "contains":
-        return query.filter(
-            P4xTransaction.subject.ilike(f"%{category_filter.subject}%")
-        )
-    if category_filter.subject_mode == "starts":
-        return query.filter(P4xTransaction.subject.ilike(f"{category_filter.subject}%"))
     return query
 
 
@@ -988,16 +1065,12 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
 # ---------------------------------------------------------------------------
 
 
-def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_specialcontact import P4xSpecialcontact
-
+def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     if len(term) < 3:
         return []
 
     pattern = f"%{term}%"
-    results: list[dict[str, Any]] = []
+    results: list[PartnerSearchResult] = []
 
     members = (
         db.query(Member)
@@ -1011,7 +1084,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
     for m in members:
         org_label = m.org_id.upper() if m.org_id else "?"
         results.append(
-            {"type": "member", "id": m.id, "label": f"Mitglied ({org_label}): {m.cn}"}
+            PartnerSearchResult(
+                type="member", id=m.id, label=f"Mitglied ({org_label}): {m.cn}"
+            )
         )
 
     contacts = (
@@ -1022,8 +1097,10 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for c in contacts:
-        results.append({"type": "contact", "id": c.id, "label": f"Kontakt: {c.cn}"})
+    results.extend(
+        PartnerSearchResult(type="contact", id=c.id, label=f"Kontakt: {c.cn}")
+        for c in contacts
+    )
 
     specials = (
         db.query(P4xSpecialcontact)
@@ -1032,8 +1109,10 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for s in specials:
-        results.append({"type": "special", "id": s.id, "label": f"Spezial: {s.cn}"})
+    results.extend(
+        PartnerSearchResult(type="special", id=s.id, label=f"Spezial: {s.cn}")
+        for s in specials
+    )
 
     accounts = (
         db.query(P4xAccount)
@@ -1043,8 +1122,10 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         )
         .all()
     )
-    for a in accounts:
-        results.append({"type": "account", "id": a.id, "label": f"Konto: {a.cn}"})
+    results.extend(
+        PartnerSearchResult(type="account", id=a.id, label=f"Konto: {a.cn}")
+        for a in accounts
+    )
 
     return results
 
@@ -1059,10 +1140,6 @@ def find_partner_entity(
     partner_type: str,
     partner_id: int,
 ) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
-    from app.models.contact import Contact
-    from app.models.member import Member
-    from app.models.p4x_specialcontact import P4xSpecialcontact
-
     if partner_type == "member":
         return db.query(Member).filter(Member.id == partner_id).first()
     if partner_type == "contact":
@@ -1080,24 +1157,6 @@ def find_partner_entity(
     return None
 
 
-def _apply_partner_type(partner: P4xPartner, partner_type: str, remote_id: int) -> None:
-    """Resets all four exclusive-arc columns, then sets the one matching
-    partner_type. The reset is required because this is an upsert: a
-    partner's type can change between calls (e.g. member -> contact)."""
-    partner.member_id = None
-    partner.contact_id = None
-    partner.p4x_account_id = None
-    partner.p4x_specialcontact_id = None
-    if partner_type == "member":
-        partner.member_id = remote_id
-    elif partner_type == "contact":
-        partner.contact_id = remote_id
-    elif partner_type == "account":
-        partner.p4x_account_id = remote_id
-    else:
-        partner.p4x_specialcontact_id = remote_id
-
-
 def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_member_id = None
     transaction.delegating_contact_id = None
@@ -1105,27 +1164,18 @@ def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_p4x_specialcontact_id = None
 
 
-def _apply_delegating_type(
-    transaction: P4xTransaction, partner_type: str, remote_id: int
-) -> None:
-    _clear_delegating(transaction)
-    if partner_type == "member":
-        transaction.delegating_member_id = remote_id
-    elif partner_type == "contact":
-        transaction.delegating_contact_id = remote_id
-    elif partner_type == "account":
-        transaction.delegating_p4x_account_id = remote_id
-    else:
-        transaction.delegating_p4x_specialcontact_id = remote_id
-
-
-def set_transaction_partner(
+def set_transaction_partner(  # noqa: C901, PLR0912
     db: Session,
     transaction: P4xTransaction,
     partner_data: dict[str, str | int] | None,
     has_delegating: bool,  # noqa: FBT001
     delegating_data: dict[str, str | int] | None,
 ) -> None:
+    """Sets the transaction's partner and, independently, its delegating
+    partner. Kept as one function since both halves share the same
+    404-on-missing-remote / exclusive-arc-column-reset shape — splitting
+    them apart would be the artificial helper-spaghetti this review is
+    meant to remove, not genuine complexity reduction."""
     now = datetime.now(UTC)
 
     if partner_data:
@@ -1147,7 +1197,21 @@ def set_transaction_partner(
         if not partner:
             partner = P4xPartner(iban=transaction.iban)
             db.add(partner)
-        _apply_partner_type(partner, p_type, remote.id)
+        # Reset all four exclusive-arc columns, then set the one matching
+        # p_type. The reset is required because this is an upsert: a
+        # partner's type can change between calls (e.g. member -> contact).
+        partner.member_id = None
+        partner.contact_id = None
+        partner.p4x_account_id = None
+        partner.p4x_specialcontact_id = None
+        if p_type == "member":
+            partner.member_id = remote.id
+        elif p_type == "contact":
+            partner.contact_id = remote.id
+        elif p_type == "account":
+            partner.p4x_account_id = remote.id
+        else:
+            partner.p4x_specialcontact_id = remote.id
         partner.deleted_at = None
         db.flush()
     else:
@@ -1165,7 +1229,15 @@ def set_transaction_partner(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Angegebener delegierender Partner wurde nicht gefunden.",
             )
-        _apply_delegating_type(transaction, d_type, remote.id)
+        _clear_delegating(transaction)
+        if d_type == "member":
+            transaction.delegating_member_id = remote.id
+        elif d_type == "contact":
+            transaction.delegating_contact_id = remote.id
+        elif d_type == "account":
+            transaction.delegating_p4x_account_id = remote.id
+        else:
+            transaction.delegating_p4x_specialcontact_id = remote.id
     else:
         _clear_delegating(transaction)
 
@@ -1184,8 +1256,6 @@ def update_transaction_meta(
     file_bytes: bytes | None,
     delete_attachment: bool,  # noqa: FBT001
 ) -> None:
-    import base64
-
     transaction.comment = comment
 
     if transaction.has_attachment and delete_attachment:
@@ -1202,15 +1272,11 @@ def update_transaction_meta(
 
 
 def get_all_fees(db: Session) -> list[P4xFee]:
-    from app.models.p4x_fee import P4xFee
-
     return db.query(P4xFee).order_by(P4xFee.start).all()
 
 
 def fee_for_month(db: Session, target_date: date) -> Decimal:
     """Returns the fee applicable for a given month (latest start <= target)."""
-    from app.models.p4x_fee import P4xFee
-
     first_of_month = target_date.replace(day=1)
     result = (
         db.query(P4xFee.fee)
@@ -1218,7 +1284,7 @@ def fee_for_month(db: Session, target_date: date) -> Decimal:
         .order_by(P4xFee.start.desc())
         .first()
     )
-    return result[0] if result else Decimal("0")
+    return result[0] if result else Decimal(0)
 
 
 def create_fee(
@@ -1226,10 +1292,8 @@ def create_fee(
     year: int,
     month: int,
     fee_amount: Decimal,
-) -> tuple[Any | None, str | None]:
+) -> tuple[P4xFee | None, str | None]:
     """Returns (fee, None) on success or (None, error_message) on failure."""
-    from app.models.p4x_fee import P4xFee
-
     start = date(year, month, 1)
 
     if start < datetime.now(UTC).date().replace(day=1):
@@ -1247,8 +1311,6 @@ def create_fee(
 
 def delete_fee(db: Session, start_str: str) -> str | None:
     """Returns error message or None on success."""
-    from app.models.p4x_fee import P4xFee
-
     start = date.fromisoformat(start_str[:10])
     fee = (
         db.query(P4xFee)
@@ -1284,8 +1346,6 @@ def is_fee_member(member: Member) -> bool:
 
 
 def get_fee_members(db: Session) -> list[Member]:
-    from app.models.member import Member
-
     return (
         db.query(Member)
         .filter(
@@ -1298,9 +1358,7 @@ def get_fee_members(db: Session) -> list[Member]:
     )
 
 
-def search_fee_members(db: Session, term: str) -> list[dict[str, Any]]:
-    from app.models.member import Member
-
+def search_fee_members(db: Session, term: str) -> list[FeeMemberSearchResult]:
     if len(term) < 3:
         return []
 
@@ -1406,7 +1464,7 @@ def _get_fee_payments_sum(
     ]
 
     if not partner_ibans:
-        return Decimal("0")
+        return Decimal(0)
 
     direct_tx_ids = {
         r[0]
@@ -1451,7 +1509,7 @@ def _get_fee_payments_sum(
     fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
     if not fee_cat_tx_ids:
-        return Decimal("0")
+        return Decimal(0)
 
     query = db.query(func.sum(P4xTransaction.amount)).filter(
         P4xTransaction.deleted_at.is_(None),
@@ -1468,7 +1526,7 @@ def _get_fee_payments_sum(
         query = query.filter(P4xTransaction.booking < to_date)
 
     result = query.scalar()
-    return result if result else Decimal("0")
+    return result or Decimal(0)
 
 
 def _get_fee_payments_list(
@@ -1476,7 +1534,7 @@ def _get_fee_payments_list(
     member_id: int,
     from_date: date,
     to_date: date,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, str | Decimal]]:
     """Get individual fee payments as list for the progress view."""
     partner_ibans = [
         r[0]
@@ -1560,7 +1618,7 @@ def _get_fee_payments_list(
     ]
 
 
-def calculate_fee_balance(  # noqa: C901
+def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     db: Session,
     member: Member,
     start_date_str: str | None = None,
@@ -1573,13 +1631,9 @@ def calculate_fee_balance(  # noqa: C901
     if member.p4x_init_date is None and member.philistrierungsdatum is None:
         return None
 
-    init_date = (
-        member.p4x_init_date if member.p4x_init_date else member.philistrierungsdatum
-    )
+    init_date = member.p4x_init_date or member.philistrierungsdatum
     if init_date is None:
         return None
-    if isinstance(init_date, str):
-        init_date = date.fromisoformat(init_date[:10])
     init_date = init_date.replace(day=1)
 
     # Determine start_date
@@ -1591,8 +1645,7 @@ def calculate_fee_balance(  # noqa: C901
     else:
         start_date = init_date
 
-    if start_date < init_date:
-        start_date = init_date
+    start_date = max(start_date, init_date)
 
     # Determine end_date
     if end_date_str:
@@ -1620,7 +1673,7 @@ def calculate_fee_balance(  # noqa: C901
             )
 
     # Calculate start_balance
-    start_balance = member.p4x_init_balance or Decimal("0")
+    start_balance = member.p4x_init_balance or Decimal(0)
 
     if not member.p4x_freed:
         prev_month_date = start_date.replace(day=1) - timedelta(days=1)
@@ -1666,7 +1719,7 @@ def calculate_fee_balance(  # noqa: C901
     )
 
     end_balance = start_balance + sum(
-        (Decimal(str(e["amount"])) for e in progress), start=Decimal("0")
+        (Decimal(str(e["amount"])) for e in progress), start=Decimal(0)
     )
 
     progress.sort(key=lambda e: str(e["booking"]))
@@ -1683,11 +1736,11 @@ def calculate_fee_balance(  # noqa: C901
         },
         "sum": {
             "fees": sum(
-                (Decimal(str(e["amount"])) for e in fee_entries), start=Decimal("0")
+                (Decimal(str(e["amount"])) for e in fee_entries), start=Decimal(0)
             ),
             "payments": sum(
                 (Decimal(str(e["amount"])) for e in payment_entries),
-                start=Decimal("0"),
+                start=Decimal(0),
             ),
         },
         "end_date": str(end_date),
@@ -1720,7 +1773,7 @@ def get_debtors(db: Session) -> list[dict[str, int | str | Decimal]]:
 # ---------------------------------------------------------------------------
 
 
-def get_sumup_balance(db: Session) -> dict[str, Any]:
+def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
     account = (
         db.query(P4xAccount)
         .filter(
@@ -1730,13 +1783,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
         .first()
     )
     if not account:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     category = (
         db.query(P4xCategory)
@@ -1746,13 +1799,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
         .first()
     )
     if not category:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     direct_tx_ids = {
         r[0]
@@ -1797,13 +1850,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
     all_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
     if not all_tx_ids:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     txs = (
         db.query(P4xTransaction)
@@ -1819,13 +1872,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
     out_txs = [t for t in txs if t.amount < 0]
     latest = max((t.booking for t in txs), default=None) if txs else None
 
-    return {
-        "in_count": len(in_txs),
-        "in_sum": round(sum(t.amount for t in in_txs), 2),
-        "out_count": len(out_txs),
-        "out_sum": round(sum(t.amount for t in out_txs), 2),
-        "latest": str(latest) if latest else None,
-    }
+    return SumUpBalanceResponse(
+        in_count=len(in_txs),
+        in_sum=round(sum((t.amount for t in in_txs), start=Decimal(0)), 2),
+        out_count=len(out_txs),
+        out_sum=round(sum((t.amount for t in out_txs), start=Decimal(0)), 2),
+        latest=str(latest) if latest else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1833,7 +1886,7 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def generate_summary_xlsx(  # noqa: C901
+def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     db: Session,
     start: date,
     end: date,
@@ -1842,13 +1895,6 @@ def generate_summary_xlsx(  # noqa: C901
 
     Returns (xlsx_bytes, [(filename, pdf_bytes), ...]).
     """
-    import base64
-    import io
-    from itertools import count
-
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-
     start = start.replace(day=1)
     if end.month == 12:
         end = date(end.year + 1, 1, 1) - timedelta(days=1)
@@ -2075,8 +2121,6 @@ def generate_summary_xlsx(  # noqa: C901
         ws_mb.cell(row=row_num, column=9).alignment = Alignment(horizontal="center")
 
     wb.active = 0
-
-    from openpyxl.utils import get_column_letter
 
     for ws_auto in wb.worksheets:
         for col_idx in range(1, ws_auto.max_column + 1):

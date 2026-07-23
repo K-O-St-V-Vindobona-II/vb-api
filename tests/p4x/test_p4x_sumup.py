@@ -71,9 +71,9 @@ class TestSumUpBalance:
     def test_empty(self, db_session):
         _seed(db_session)
         result = get_sumup_balance(db_session)
-        assert result["in_count"] == 0
-        assert result["out_count"] == 0
-        assert result["latest"] is None
+        assert result.in_count == 0
+        assert result.out_count == 0
+        assert result.latest is None
 
     def test_with_transactions(self, db_session):
         account, cat = _seed(db_session)
@@ -82,15 +82,15 @@ class TestSumUpBalance:
         _add_sumup_tx(db_session, account, cat, -20.0, date(2025, 5, 15))
 
         result = get_sumup_balance(db_session)
-        assert result["in_count"] == 2
-        assert result["in_sum"] == 80.0
-        assert result["out_count"] == 1
-        assert result["out_sum"] == -20.0
-        assert result["latest"] == "2025-05-15"
+        assert result.in_count == 2
+        assert result.in_sum == 80.0
+        assert result.out_count == 1
+        assert result.out_sum == -20.0
+        assert result.latest == "2025-05-15"
 
     def test_no_account(self, db_session):
         result = get_sumup_balance(db_session)
-        assert result["in_count"] == 0
+        assert result.in_count == 0
 
     def test_no_matching_category(self, db_session):
         account = P4xAccount(
@@ -105,4 +105,4 @@ class TestSumUpBalance:
         db_session.add(account)
         db_session.commit()
         result = get_sumup_balance(db_session)
-        assert result["in_count"] == 0
+        assert result.in_count == 0

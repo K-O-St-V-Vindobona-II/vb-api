@@ -1,6 +1,8 @@
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.base import StrictInputModel
 
 PERM_REGEX = re.compile(r"^[a-z]{3}_[a-z]{2}$")
 
@@ -12,126 +14,13 @@ class PresignedUrlResponse(BaseModel):
     url: str
 
 
-class StoreItemResponse(BaseModel):
-    id: int
-    name: str
-    description: str | None = None
-    extension: str
-    mime_type: str
-    size: int
-    is_image: bool = False
-    created_by: str | None = None
-    created_at: str | None = None
-
-
-class CommentResponse(BaseModel):
-    id: int
-    content: str
-    author: str | None = None
-    created_at: str | None = None
-
-
-class DirShortResponse(BaseModel):
-    type: str = "dir"
-    id: int
-    name: str
-    description: str | None = None
-    created_at: str | None = None
-    deleted_at: str | None = None
-
-
-class FileShortResponse(BaseModel):
-    type: str = "file"
-    id: int
-    name: str | None = None
-    extension: str | None = None
-    description: str | None = None
-    size: int = 0
-    is_image: bool = False
-    mime_type: str | None = None
-    created_at: str | None = None
-    deleted_at: str | None = None
-
-
-class DirContentResponse(BaseModel):
-    subdirs: dict[str, list[DirShortResponse]] = {}
-    files: dict[str, list[FileShortResponse]] = {}
-
-
-class PathEntry(BaseModel):
-    id: int
-    name: str
-
-
-class PermissionsResponse(BaseModel):
-    effective: list[str] = []
-    own: list[str] = []
-    parent: list[str] = []
-
-
-class OrgRef(BaseModel):
-    id: str
-    label: str
-
-
-class StateRef(BaseModel):
-    id: str
-    label: str
-
-
-class SetsResponse(BaseModel):
-    orgs: list[OrgRef] = []
-    states: list[StateRef] = []
-
-
-class DirDetailResponse(BaseModel):
-    type: str = "dir"
-    id: int
-    name: str
-    description: str | None = None
-    path: list[PathEntry] = []
-    permissions: PermissionsResponse = PermissionsResponse()
-    recursive_permissions: bool = False
-    content: DirContentResponse = DirContentResponse()
-    sets: SetsResponse = SetsResponse()
-    created_at: str | None = None
-    updated_at: str | None = None
-    deleted_at: str | None = None
-
-
-class FileDetailResponse(BaseModel):
-    type: str = "file"
-    id: int
-    archive_dir_id: int = 0
-    name: str | None = None
-    extension: str | None = None
-    description: str | None = None
-    size: int = 0
-    is_image: bool = False
-    mime_type: str | None = None
-    path: list[PathEntry] = []
-    active_version: StoreItemResponse | None = None
-    comments: list[CommentResponse] = []
-    trashed_comments: list[CommentResponse] = []
-    created_at: str | None = None
-    deleted_at: str | None = None
-
-
-class UploadConfigResponse(BaseModel):
-    extensions: list[str]
-    minfilesize: int
-    maxfilesize: int
-    descminlength: int
-    descmaxlength: int
-
-
 # --- Requests ---
 
 
-class DirSaveRequest(BaseModel):
+class DirSaveRequest(StrictInputModel):
     name: str
     description: str | None = None
-    permissions: list[str] = []
+    permissions: list[str] = Field(default_factory=list)
     recursive_permissions: bool = False
     parentId: int | None = None  # noqa: N815
 
@@ -168,7 +57,7 @@ class DirSaveRequest(BaseModel):
         return v
 
 
-class DirReceiveRequest(BaseModel):
+class DirReceiveRequest(StrictInputModel):
     type: str
     ids: list[int]
     action: str = "move"
@@ -190,7 +79,7 @@ class DirReceiveRequest(BaseModel):
         return v
 
 
-class FileUpdateRequest(BaseModel):
+class FileUpdateRequest(StrictInputModel):
     description: str | None = None
 
     @field_validator("description")
@@ -205,7 +94,7 @@ class FileUpdateRequest(BaseModel):
         return v
 
 
-class CommentCreateRequest(BaseModel):
+class CommentCreateRequest(StrictInputModel):
     content: str
 
     @field_validator("content")

@@ -10,6 +10,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+from app.services.p4x_service import get_account_balance
 
 
 def _now() -> datetime:
@@ -192,8 +193,6 @@ class TestAccountCRUD:
 
 class TestAccountBalance:
     def test_balance_with_transactions(self, db_session):
-        from app.services.p4x_service import get_account_balance
-
         account = _create_account(db_session)
         for i in range(3):
             db_session.add(
@@ -215,8 +214,6 @@ class TestAccountBalance:
         assert balance == 250.0  # 100 init + 3*50
 
     def test_balance_up_to_date(self, db_session):
-        from app.services.p4x_service import get_account_balance
-
         account = _create_account(db_session)
         db_session.add(
             P4xTransaction(

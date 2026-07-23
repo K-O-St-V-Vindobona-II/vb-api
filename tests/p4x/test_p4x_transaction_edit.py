@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, date, datetime
 
 from app.models.p4x_account import P4xAccount
@@ -81,8 +82,6 @@ class TestUpdateAttachment:
         update_transaction_meta(
             db_session, tx, None, b"original", delete_attachment=False
         )
-        import base64
-
         original = base64.b64encode(b"original").decode()
 
         update_transaction_meta(

@@ -1,3 +1,14 @@
+"""Background jobs run by the process-wide APScheduler instance.
+
+Every job function below catches a broad `Exception` around its body by
+design: jobs run unattended, and one job's failure must never take down
+the shared scheduler thread or block the other jobs from firing on their
+own schedule. Each catch logs via `logger.exception(...)` (not
+`logger.warning`), which Ruff's BLE001 specifically exempts from the
+blind-except check since it preserves the full traceback rather than
+silently swallowing it.
+"""
+
 import logging
 import os
 from datetime import UTC, date, datetime, timedelta
@@ -94,7 +105,7 @@ def _acquire_scheduler_lock() -> bool:
     instead of once per deployment. SQLite (dev-only fallback) never runs
     with multiple workers, so it skips the lock and always starts.
     """
-    global _scheduler_lock_conn
+    global _scheduler_lock_conn  # noqa: PLW0603 -- lazy singleton, holds the advisory-lock connection open for process lifetime
 
     if engine.dialect.name != "postgresql":
         return True
@@ -783,7 +794,7 @@ def get_scheduled_jobs() -> list[dict[str, str | None]]:
 
 
 def stop_scheduler() -> None:
-    global _scheduler_lock_conn
+    global _scheduler_lock_conn  # noqa: PLW0603 -- releases the singleton set up in ensure_single_scheduler_instance()
 
     if scheduler.running:
         scheduler.shutdown(wait=False)

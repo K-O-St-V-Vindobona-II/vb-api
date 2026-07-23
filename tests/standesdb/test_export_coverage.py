@@ -5,6 +5,7 @@ badge classification, org dates, Excel internals (parent_cn, state_label),
 pagination logic, RuntimeError guards, and contact-only_without_email filter.
 """
 
+import base64
 from datetime import UTC, date, datetime
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -32,6 +33,7 @@ from app.services.export_service import (
     _prepare_contact_data,
     _prepare_member_data,
     _resolve_delivery_address,
+    generate_booklet,
     generate_excel_full,
     generate_labels,
 )
@@ -425,8 +427,6 @@ class TestGetImageBase64:
         result = _get_image_base64(db_session, img.id, storage)
         assert result is not None
         # Should be base64 of b"fake-image-data"
-        import base64
-
         expected = base64.b64encode(b"fake-image-data").decode("ascii")
         assert result == expected
 
@@ -471,8 +471,6 @@ class TestGetImageBase64:
             result = _get_image_base64(db_session, img.id, storage)
 
         assert result is not None
-        import base64
-
         assert result == base64.b64encode(b"thumb-bytes").decode("ascii")
         storage.upload.assert_called_once()
 
@@ -711,8 +709,6 @@ class TestGenerateBookletRuntimeError:
         admin = _admin(db_session)
         storage = MagicMock()
         storage.exists.return_value = False
-
-        from app.services.export_service import generate_booklet
 
         with patch("app.services.export_service.HTML") as mock_html_cls:
             mock_instance = MagicMock()

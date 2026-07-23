@@ -2,8 +2,10 @@ import json
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs
 
 import jwt
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -68,8 +70,6 @@ def _sanitize_input(body: bytes, content_type: str = "") -> str | None:
         data = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         if "application/x-www-form-urlencoded" in content_type:
-            from urllib.parse import parse_qs
-
             parsed = parse_qs(body.decode("utf-8", errors="replace"))
             data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
         else:
@@ -217,7 +217,7 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
             )
             db.add(log_entry)
             db.commit()
-        except Exception:
+        except SQLAlchemyError:
             db.rollback()
             raise
         finally:

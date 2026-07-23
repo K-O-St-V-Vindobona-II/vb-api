@@ -9,13 +9,27 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = [
+    # Base rules
     "E", "F", "I", "B", "S", "UP", "SIM", "PT", "C90", "FAST", "RUF", "ANN",
-    "RET", "ARG", "ERA", "T20", "BLE",
-    "DTZ", "A", "PTH", "FBT", "N", "TRY"
+    "RET", "ARG", "ERA", "T20", "BLE", "DTZ", "A", "PTH", "FBT", "N", "TRY",
+
+    # Strictness rules ("Boss Mode")
+    "PERF",   # Performance anti-patterns (e.g., inefficient loops/casts)
+    "ASYNC",  # Async/await errors (essential for FastAPI)
+    "C4",     # More efficient comprehensions instead of list()/dict()
+    "TCH",    # Force type imports cleanly into TYPE_CHECKING blocks
+    "SLF",    # Encapsulate private attributes (no outside access to _variables)
+    "PL",     # Pylint (very strict architecture and logic checks)
+    "EM",     # Clean exception messages (no f-strings in raise)
+    "PIE",    # Various code simplifications
+    "FURB",   # Modernization suggestions (Refurb)
+    "ISC",    # Prevents accidental string concatenation
 ]
 ignore = [
-    "E402",    # logging setup before imports
-    "E741",    # ambiguous-variable-name
+    "E402",    # logging setup before imports (practical exception)
+    "E741",    # ambiguous-variable-name (practical exception)
+    "PLR2004", # Allow "Magic Numbers" (e.g., if status_code == 200)
+    "PLR0913", # Allow > 5 arguments (unavoidable for FastAPI dependencies)
 ]
 
 [tool.ruff.lint.flake8-annotations]
@@ -34,12 +48,22 @@ fixture-parentheses = false
 mark-parentheses = false
 
 [tool.ruff.lint.mccabe]
-max-complexity = 7
+# 8 is the sweet spot: prevents monster functions, but allows
+# linear FastAPI endpoints without enforcing "helper spaghetti".
+max-complexity = 8
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802"]
-"alembic/**" = ["F401", "UP035", "ANN"]
-"scripts/**" = ["T201", "FBT"]
+# Tests are allowed to be more robust and repetitive
+"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603"]
+"alembic/**" = ["F401", "UP035", "ANN", "PLR0915"]
+"scripts/**" = ["T201", "FBT", "PLR0915"]
+# Declarative models use `from __future__ import annotations`, so SQLAlchemy
+# resolves `Mapped[...]` annotations at mapper-configure time by evaluating
+# the stringified annotation against the module's real (non-TYPE_CHECKING)
+# globals. Hiding stdlib types like `datetime`/`Decimal` behind
+# `TYPE_CHECKING` breaks that resolution with a runtime `NameError` —
+# verified empirically, not just theoretically, before adding this ignore.
+"app/models/**" = ["TC003"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -47,9 +71,6 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-# Tests run exclusively against a real PostgreSQL database, never SQLite —
-# see tests/conftest.py for connection setup (TEST_DATABASE_URL env var)
-# and scripts/README.md for the local/CI test-database convention.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=app --cov=scripts --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
@@ -90,3 +111,10 @@ reportMissingTypeStubs = false
 reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
+
+# --- DEAD CODE & UNREACHABLE (Pyright) ---
+reportUnreachable = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportUnusedFunction = "error"
+reportUnusedClass = "error"

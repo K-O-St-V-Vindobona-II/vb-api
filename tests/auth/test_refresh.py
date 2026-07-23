@@ -4,6 +4,7 @@ import bcrypt
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.rate_limit import limiter
 from app.core.security import (
     build_refresh_cookie_value,
     generate_refresh_secret,
@@ -18,8 +19,6 @@ HASHED = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt()).decode()
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
-    from app.core.rate_limit import limiter
-
     limiter.reset()
     return
 

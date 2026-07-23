@@ -298,9 +298,9 @@ class TestAccountInitBalanceDecimalPlaces:
         assert a.init_balance == Decimal("123.45")
 
     def test_whole_number_passes(self) -> None:
-        data = _valid_account_data(init_balance=Decimal("100"))
+        data = _valid_account_data(init_balance=Decimal(100))
         a = AccountSaveRequest(**data)
-        assert a.init_balance == Decimal("100")
+        assert a.init_balance == Decimal(100)
 
     def test_three_decimal_places_rejected(self) -> None:
         data = _valid_account_data(init_balance=Decimal("123.456"))

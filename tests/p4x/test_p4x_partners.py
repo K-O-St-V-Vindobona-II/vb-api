@@ -88,31 +88,31 @@ class TestSearchPartners:
         _, _member, _, _ = _seed(db_session)
         results = search_partners(db_session, "Kopernikus")
         assert len(results) == 1
-        assert results[0]["type"] == "member"
-        assert "Kopernikus" in results[0]["label"]
+        assert results[0].type == "member"
+        assert "Kopernikus" in results[0].label
 
     def test_search_member_label_includes_org(self, db_session):
         _, _member, _, _ = _seed(db_session)
         results = search_partners(db_session, "Kopernikus")
-        assert results[0]["label"] == "Mitglied (VBW): Michael Schimpl v/o Kopernikus"
+        assert results[0].label == "Mitglied (VBW): Michael Schimpl v/o Kopernikus"
 
     def test_search_contact(self, db_session):
         _, _, _contact, _ = _seed(db_session)
         results = search_partners(db_session, "Netcup")
         assert len(results) == 1
-        assert results[0]["type"] == "contact"
+        assert results[0].type == "contact"
 
     def test_search_special(self, db_session):
         _, _, _, _special = _seed(db_session)
         results = search_partners(db_session, "Sparkassen")
         assert len(results) == 1
-        assert results[0]["type"] == "special"
+        assert results[0].type == "special"
 
     def test_search_account(self, db_session):
         _account, _, _, _ = _seed(db_session)
         results = search_partners(db_session, "Girokonto")
         assert len(results) == 1
-        assert results[0]["type"] == "account"
+        assert results[0].type == "account"
 
     def test_search_min_length(self, db_session):
         _seed(db_session)
@@ -131,7 +131,7 @@ class TestSearchPartners:
         _seed(db_session)
         results = search_partners(db_session, "kopernikus")
         assert len(results) == 1
-        assert results[0]["type"] == "member"
+        assert results[0].type == "member"
 
     def test_search_multiple_types(self, db_session):
         _seed(db_session)
@@ -148,7 +148,7 @@ class TestSearchPartners:
         )
         db_session.commit()
         results = search_partners(db_session, "Giro")
-        types = {r["type"] for r in results}
+        types = {r.type for r in results}
         assert "member" in types
         assert "account" in types
 

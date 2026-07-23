@@ -112,8 +112,17 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
 def _block_all_emails():
+    # auth_service imports send_reset_email by name (`from app.core.mailer
+    # import send_reset_email`), so it holds its own reference to the
+    # original function — patching `app.core.mailer.send_reset_email` alone
+    # does not intercept calls made through that reference. Patch it at
+    # its actual call site too, or a background task can slip through and
+    # write a real SentEmail row via its own SessionLocal(), which isn't
+    # covered by the per-test transaction rollback and leaks into later
+    # tests' counts.
     with (
         patch("app.core.mailer.send_reset_email"),
+        patch("app.services.auth_service.send_reset_email"),
         patch("app.core.mailer._send_to_multiple"),
     ):
         yield
