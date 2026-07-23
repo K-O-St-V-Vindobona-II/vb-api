@@ -68,15 +68,6 @@ def get_opted_in_recipients(db: Session) -> list[str]:
     return [r[0] for r in recipients]
 
 
-def _build_target_doys(week_start: date, week_end: date) -> set[int]:
-    target_doys: set[int] = set()
-    current = week_start
-    while current <= week_end:
-        target_doys.add(current.timetuple().tm_yday)
-        current += timedelta(days=1)
-    return target_doys
-
-
 def _safe_anniversary_date(year: int, month: int, day: int) -> tuple[date, bool] | None:
     """Build `date(year, month, day)`, falling back to Feb 28 for a Feb 29
     anniversary in a non-leap year (Austrian/European civil convention)
@@ -88,22 +79,6 @@ def _safe_anniversary_date(year: int, month: int, day: int) -> tuple[date, bool]
         if month == 2 and day == 29:
             return date(year, 2, 28), True
         return None
-
-
-def _match_anniversary_date(
-    ann_month: int,
-    ann_day: int,
-    given: date,
-    target_doys: set[int],
-) -> tuple[date, bool] | None:
-    this_year = _safe_anniversary_date(given.year, ann_month, ann_day)
-    if this_year and this_year[0].timetuple().tm_yday in target_doys:
-        return this_year
-
-    next_year = _safe_anniversary_date(given.year + 1, ann_month, ann_day)
-    if next_year and next_year[0].timetuple().tm_yday in target_doys:
-        return next_year
-    return None
 
 
 def _collect_field_anniversaries(
@@ -131,7 +106,15 @@ def _collect_field_anniversaries(
         if value is None:
             continue
 
-        match = _match_anniversary_date(value.month, value.day, given, target_doys)
+        match = None
+        this_year = _safe_anniversary_date(given.year, value.month, value.day)
+        if this_year and this_year[0].timetuple().tm_yday in target_doys:
+            match = this_year
+        else:
+            next_year = _safe_anniversary_date(given.year + 1, value.month, value.day)
+            if next_year and next_year[0].timetuple().tm_yday in target_doys:
+                match = next_year
+
         if not match:
             continue
         next_date, leap_shifted = match
@@ -154,20 +137,22 @@ def _days_to_key(entry: AnniversaryEntry) -> int:
     return entry["days_to"]
 
 
-def _sort_anniversaries(result: AnniversaryResult) -> None:
-    for org in result.values():
-        for status in org.values():
-            for entries in status.values():
-                entries.sort(key=_days_to_key)
-
-
 def compute_anniversaries(db: Session, given: date) -> AnniversaryResult:
     week_start, week_end = week_window(given)
-    target_doys = _build_target_doys(week_start, week_end)
+
+    target_doys: set[int] = set()
+    current = week_start
+    while current <= week_end:
+        target_doys.add(current.timetuple().tm_yday)
+        current += timedelta(days=1)
 
     result: AnniversaryResult = {}
     for field in ANNIVERSARY_FIELDS:
         _collect_field_anniversaries(db, field, given, target_doys, result)
 
-    _sort_anniversaries(result)
+    for org in result.values():
+        for status in org.values():
+            for entries in status.values():
+                entries.sort(key=_days_to_key)
+
     return result

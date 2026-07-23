@@ -36,25 +36,6 @@ def _owner_filter(owner_type: str, owner_id: int) -> ColumnElement[bool]:
     raise ValueError(msg)
 
 
-def _owner_columns(owner_type: str, owner_id: int) -> dict[str, int | None]:
-    """Same translation as _owner_filter, but as kwargs for constructing a
-    new StandesdbImage row."""
-    if owner_type == "member":
-        return {"owner_member_id": owner_id, "owner_contact_id": None}
-    if owner_type == "contact":
-        return {"owner_member_id": None, "owner_contact_id": owner_id}
-    msg = f"Unbekannter owner_type: {owner_type!r}"
-    raise ValueError(msg)
-
-
-def _sibling_filter(img: StandesdbImage) -> ColumnElement[bool]:
-    """Same-owner filter derived from an existing image's own exclusive-arc
-    column, used to find its sibling images."""
-    if img.owner_member_id is not None:
-        return StandesdbImage.owner_member_id == img.owner_member_id
-    return StandesdbImage.owner_contact_id == img.owner_contact_id
-
-
 def get_image_record(
     db: Session,
     owner_type: str,
@@ -222,9 +203,20 @@ def upload_image(
         .count()
     )
 
+    # Translates the owner_type/owner_id pair callers still use into the
+    # matching exclusive-arc FK columns (see StandesdbImage).
+    if owner_type == "member":
+        owner_member_id, owner_contact_id = owner_id, None
+    elif owner_type == "contact":
+        owner_member_id, owner_contact_id = None, owner_id
+    else:
+        msg = f"Unbekannter owner_type: {owner_type!r}"
+        raise ValueError(msg)
+
     now = datetime.now(UTC)
     img = StandesdbImage(
-        **_owner_columns(owner_type, owner_id),
+        owner_member_id=owner_member_id,
+        owner_contact_id=owner_contact_id,
         extension=ext,
         type=content_type,
         size=file_size,
@@ -252,8 +244,14 @@ def update_image(
     img.description = description
 
     if set_default:
+        # Same-owner filter derived from the image's own exclusive-arc
+        # column, used to find its sibling images.
+        if img.owner_member_id is not None:
+            sibling_filter = StandesdbImage.owner_member_id == img.owner_member_id
+        else:
+            sibling_filter = StandesdbImage.owner_contact_id == img.owner_contact_id
         db.query(StandesdbImage).filter(
-            _sibling_filter(img),
+            sibling_filter,
             StandesdbImage.deleted_at.is_(None),
         ).update({"default": False})
         img.default = True

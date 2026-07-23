@@ -152,28 +152,6 @@ def _build_tree_node(member: Member) -> TreeNodeResponse:
     )
 
 
-def _build_ancestry(member: Member) -> list[dict[str, object]]:
-    ancestry = []
-    current = member
-    while current:
-        ancestry.append(
-            TreeNodeResponse(
-                id=current.id,
-                cn=current.cn,
-                gruender=current.gruender or False,
-                org_id=current.org_id,
-                state_id=current.state_id,
-                entlassen=current.entlassen or False,
-                verstorben=current.verstorben or False,
-            ).model_dump()
-        )
-        if current.parent_id and current.parent_id != 0:
-            current = current.parent
-        else:
-            break
-    return list(reversed(ancestry))
-
-
 def _build_roles_list(member: Member) -> list[RoleHistoryResponse]:
     return [
         RoleHistoryResponse(
@@ -237,9 +215,28 @@ def get_member_detail(
         if parent:
             parent_cn = parent.cn
 
+    ancestry = []
+    current = member
+    while current:
+        ancestry.append(
+            TreeNodeResponse(
+                id=current.id,
+                cn=current.cn,
+                gruender=current.gruender or False,
+                org_id=current.org_id,
+                state_id=current.state_id,
+                entlassen=current.entlassen or False,
+                verstorben=current.verstorben or False,
+            ).model_dump()
+        )
+        if current.parent_id and current.parent_id != 0:
+            current = current.parent
+        else:
+            break
+
     tree: dict[str, object] = {
         "children": [_build_tree_node(c).model_dump() for c in member.children],
-        "ancestry": _build_ancestry(member),
+        "ancestry": list(reversed(ancestry)),
     }
 
     return MemberDetailResponse(
@@ -359,7 +356,23 @@ def _persist_change_log(
 # --- Member Save ---
 
 
-def _normalize_member_input(input_dict: dict[str, object]) -> None:
+def apply_member_input(  # noqa: C901
+    db: Session,
+    member: Member,
+    data: MemberSaveRequest,
+    current_user: Member,
+) -> dict[str, dict[str, object]]:
+    now = datetime.now(UTC)
+    is_new = sa_inspect(member).transient
+
+    badges_entries = data.badges
+    keys_entries = data.keys
+    roles_entries = data.roles_history
+
+    input_dict: dict[str, object] = data.model_dump(
+        exclude={"roles_history", "badges", "keys"}
+    )
+
     # The API contract uses 0 as the "no parent" sentinel (matches how
     # MemberDetailResponse serializes it back out via `parent_id or 0`),
     # but parent_id is a nullable self-referencing FK — 0 is never a
@@ -386,11 +399,9 @@ def _normalize_member_input(input_dict: dict[str, object]) -> None:
         input_dict["sterbedatum_accuracy"] = 0
         input_dict["grabadresse"] = None
 
+    if "email" in input_dict and member.email != input_dict["email"]:
+        member.email_verified_at = None
 
-def _apply_field_changes(
-    member: Member,
-    input_dict: dict[str, object],
-) -> dict[str, dict[str, object]]:
     diff: dict[str, dict[str, object]] = {}
     for field, new_val in input_dict.items():
         old_val = getattr(member, field, None)
@@ -399,31 +410,6 @@ def _apply_field_changes(
             setattr(member, field, new_val)
         elif old_val != new_val:
             setattr(member, field, new_val)
-    return diff
-
-
-def apply_member_input(
-    db: Session,
-    member: Member,
-    data: MemberSaveRequest,
-    current_user: Member,
-) -> dict[str, dict[str, object]]:
-    now = datetime.now(UTC)
-    is_new = sa_inspect(member).transient
-
-    badges_entries = data.badges
-    keys_entries = data.keys
-    roles_entries = data.roles_history
-
-    input_dict: dict[str, object] = data.model_dump(
-        exclude={"roles_history", "badges", "keys"}
-    )
-    _normalize_member_input(input_dict)
-
-    if "email" in input_dict and member.email != input_dict["email"]:
-        member.email_verified_at = None
-
-    diff = _apply_field_changes(member, input_dict)
 
     member.modified_at = now
     member.modified_by = current_user.id
@@ -682,16 +668,6 @@ def validate_parent_id(
             )
 
 
-def _validate_state_ref(db: Session, state_id: str | None) -> None:
-    if not state_id:
-        return
-    if not db.query(State).filter_by(id=state_id).first():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Ungültiger Status.",
-        )
-
-
 def _validate_ids_exist(
     db: Session,
     model: type,
@@ -711,7 +687,11 @@ def validate_member_references(
     db: Session,
     data: "MemberSaveRequest",
 ) -> None:
-    _validate_state_ref(db, data.state_id)
+    if data.state_id and not db.query(State).filter_by(id=data.state_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Ungültiger Status.",
+        )
     _validate_ids_exist(db, Role, data.roles_history, "Ungültige Rolle")
     _validate_ids_exist(db, Badge, data.badges, "Ungültiges Abzeichen")
     _validate_ids_exist(db, Key, data.keys, "Ungültiger Schlüssel")

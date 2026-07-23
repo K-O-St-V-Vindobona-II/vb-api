@@ -101,13 +101,13 @@ def get_export_config(db: Session) -> dict[str, object]:
     }
 
 
-def _build_org_state_conditions(
+def filter_members(
     db: Session,
     filter_data: dict[str, object],
-) -> list[ColumnElement[bool]]:
+) -> list[Member]:
     orgs = db.query(Org).all()
     states = db.query(State).all()
-    conditions = []
+    conditions: list[ColumnElement[bool]] = []
     for org in orgs:
         for state in states:
             key = f"{org.id}_{state.id}"
@@ -115,14 +115,7 @@ def _build_org_state_conditions(
                 conditions.append(
                     (Member.org_id == org.id) & (Member.state_id == state.id)
                 )
-    return conditions
 
-
-def filter_members(
-    db: Session,
-    filter_data: dict[str, object],
-) -> list[Member]:
-    conditions = _build_org_state_conditions(db, filter_data)
     if not conditions:
         return []
 

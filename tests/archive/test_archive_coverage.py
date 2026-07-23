@@ -12,7 +12,6 @@ from io import BytesIO
 
 import bcrypt
 import pytest
-from fastapi import HTTPException
 from PIL import Image as PILImage
 
 from app.core.storage import THUMBNAIL_CACHE_VERSION
@@ -38,11 +37,9 @@ from app.services.archive_service import (
     _file_short,
     _get_or_create_thumbnail,
     _is_descendant,
-    _move_dir_item,
-    _move_file_items,
     _serve_thumbnail,
-    _validate_target_dir,
     get_unsorted_upload_count,
+    receive_items,
 )
 from app.services.auth_service import create_user_session
 
@@ -738,32 +735,26 @@ class TestMoveReceiveEdgeCases:
 
     def test_move_nonexistent_dir_is_skipped(
         self,
+        client,
         db_session,
     ):
-        """_move_dir_item silently skips non-existent dir IDs."""
+        """receive_items silently skips non-existent dir IDs."""
         _seed(db_session)
+        _, admin = _login_admin(db_session, client)
         target = _make_dir(db_session, "Target")
         # Should not raise
-        _move_dir_item(db_session, 99999, target.id)
+        receive_items(db_session, target.id, "dir", [99999], admin)
 
     def test_move_nonexistent_file_ids_skipped(
         self,
+        client,
         db_session,
     ):
-        """_move_file_items silently skips non-existent file IDs."""
+        """receive_items silently skips non-existent file IDs."""
         _seed(db_session)
+        _, admin = _login_admin(db_session, client)
         # Should not raise
-        _move_file_items(db_session, [99999, 88888], 0)
-
-    def test_validate_target_dir_not_found(
-        self,
-        db_session,
-    ):
-        """_validate_target_dir raises 404 for non-existent dir."""
-        _seed(db_session)
-        with pytest.raises(HTTPException, match="404") as exc_info:
-            _validate_target_dir(db_session, 99999)
-        assert exc_info.value.status_code == 404
+        receive_items(db_session, 0, "file", [99999, 88888], admin)
 
     def test_is_descendant_broken_chain(
         self,

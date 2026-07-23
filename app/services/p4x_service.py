@@ -478,36 +478,6 @@ def get_transactions_by_month(
     return items, total
 
 
-def _partner_filter(partner_type: str, partner_id: int) -> ColumnElement[bool]:
-    """Translates the partner_type/partner_id pair callers still use into
-    the matching exclusive-arc FK column (see P4xPartner)."""
-    if partner_type == "member":
-        return P4xPartner.member_id == partner_id
-    if partner_type == "contact":
-        return P4xPartner.contact_id == partner_id
-    if partner_type == "account":
-        return P4xPartner.p4x_account_id == partner_id
-    if partner_type == "special":
-        return P4xPartner.p4x_specialcontact_id == partner_id
-    msg = f"Unbekannter partner_type: {partner_type!r}"
-    raise ValueError(msg)
-
-
-def _delegating_filter(partner_type: str, partner_id: int) -> ColumnElement[bool]:
-    """Same translation as _partner_filter, but for the delegating_* columns
-    on P4xTransaction."""
-    if partner_type == "member":
-        return P4xTransaction.delegating_member_id == partner_id
-    if partner_type == "contact":
-        return P4xTransaction.delegating_contact_id == partner_id
-    if partner_type == "account":
-        return P4xTransaction.delegating_p4x_account_id == partner_id
-    if partner_type == "special":
-        return P4xTransaction.delegating_p4x_specialcontact_id == partner_id
-    msg = f"Unbekannter partner_type: {partner_type!r}"
-    raise ValueError(msg)
-
-
 def _no_delegation_filter() -> ColumnElement[bool]:
     """True when a transaction has no delegating partner set at all."""
     return (
@@ -525,11 +495,29 @@ def get_transactions_by_partner(
     partner_id: int,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
+    # Translates the partner_type/partner_id pair callers still use into the
+    # matching exclusive-arc FK columns (see P4xPartner / P4xTransaction).
+    if partner_type == "member":
+        partner_column = P4xPartner.member_id
+        delegating_column = P4xTransaction.delegating_member_id
+    elif partner_type == "contact":
+        partner_column = P4xPartner.contact_id
+        delegating_column = P4xTransaction.delegating_contact_id
+    elif partner_type == "account":
+        partner_column = P4xPartner.p4x_account_id
+        delegating_column = P4xTransaction.delegating_p4x_account_id
+    elif partner_type == "special":
+        partner_column = P4xPartner.p4x_specialcontact_id
+        delegating_column = P4xTransaction.delegating_p4x_specialcontact_id
+    else:
+        msg = f"Unbekannter partner_type: {partner_type!r}"
+        raise ValueError(msg)
+
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            _partner_filter(partner_type, partner_id),
+            partner_column == partner_id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -544,7 +532,7 @@ def get_transactions_by_partner(
         .filter(
             # (partner matches AND no delegating) OR (delegating matches)
             (P4xTransaction.iban.in_(partner_ibans) & _no_delegation_filter())
-            | _delegating_filter(partner_type, partner_id)
+            | (delegating_column == partner_id)
         )
         .order_by(P4xTransaction.booking.desc())
     )
@@ -768,23 +756,15 @@ def _apply_category_filter_criteria(
         query = query.filter(P4xTransaction.amount <= category_filter.max_amount)
 
     if category_filter.subject is not None:
-        query = _apply_subject_filter(query, category_filter)
+        subject = category_filter.subject
+        subject_pattern = {
+            "equals": subject,
+            "contains": f"%{subject}%",
+            "starts": f"{subject}%",
+        }.get(category_filter.subject_mode)
+        if subject_pattern is not None:
+            query = query.filter(P4xTransaction.subject.ilike(subject_pattern))
 
-    return query
-
-
-def _apply_subject_filter(
-    query: RowReturningQuery[tuple[int]],
-    category_filter: P4xCategoryFilter,
-) -> RowReturningQuery[tuple[int]]:
-    if category_filter.subject_mode == "equals":
-        return query.filter(P4xTransaction.subject.ilike(category_filter.subject))
-    if category_filter.subject_mode == "contains":
-        return query.filter(
-            P4xTransaction.subject.ilike(f"%{category_filter.subject}%")
-        )
-    if category_filter.subject_mode == "starts":
-        return query.filter(P4xTransaction.subject.ilike(f"{category_filter.subject}%"))
     return query
 
 
@@ -1177,24 +1157,6 @@ def find_partner_entity(
     return None
 
 
-def _apply_partner_type(partner: P4xPartner, partner_type: str, remote_id: int) -> None:
-    """Resets all four exclusive-arc columns, then sets the one matching
-    partner_type. The reset is required because this is an upsert: a
-    partner's type can change between calls (e.g. member -> contact)."""
-    partner.member_id = None
-    partner.contact_id = None
-    partner.p4x_account_id = None
-    partner.p4x_specialcontact_id = None
-    if partner_type == "member":
-        partner.member_id = remote_id
-    elif partner_type == "contact":
-        partner.contact_id = remote_id
-    elif partner_type == "account":
-        partner.p4x_account_id = remote_id
-    else:
-        partner.p4x_specialcontact_id = remote_id
-
-
 def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_member_id = None
     transaction.delegating_contact_id = None
@@ -1202,27 +1164,18 @@ def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_p4x_specialcontact_id = None
 
 
-def _apply_delegating_type(
-    transaction: P4xTransaction, partner_type: str, remote_id: int
-) -> None:
-    _clear_delegating(transaction)
-    if partner_type == "member":
-        transaction.delegating_member_id = remote_id
-    elif partner_type == "contact":
-        transaction.delegating_contact_id = remote_id
-    elif partner_type == "account":
-        transaction.delegating_p4x_account_id = remote_id
-    else:
-        transaction.delegating_p4x_specialcontact_id = remote_id
-
-
-def set_transaction_partner(
+def set_transaction_partner(  # noqa: C901, PLR0912
     db: Session,
     transaction: P4xTransaction,
     partner_data: dict[str, str | int] | None,
     has_delegating: bool,  # noqa: FBT001
     delegating_data: dict[str, str | int] | None,
 ) -> None:
+    """Sets the transaction's partner and, independently, its delegating
+    partner. Kept as one function since both halves share the same
+    404-on-missing-remote / exclusive-arc-column-reset shape — splitting
+    them apart would be the artificial helper-spaghetti this review is
+    meant to remove, not genuine complexity reduction."""
     now = datetime.now(UTC)
 
     if partner_data:
@@ -1244,7 +1197,21 @@ def set_transaction_partner(
         if not partner:
             partner = P4xPartner(iban=transaction.iban)
             db.add(partner)
-        _apply_partner_type(partner, p_type, remote.id)
+        # Reset all four exclusive-arc columns, then set the one matching
+        # p_type. The reset is required because this is an upsert: a
+        # partner's type can change between calls (e.g. member -> contact).
+        partner.member_id = None
+        partner.contact_id = None
+        partner.p4x_account_id = None
+        partner.p4x_specialcontact_id = None
+        if p_type == "member":
+            partner.member_id = remote.id
+        elif p_type == "contact":
+            partner.contact_id = remote.id
+        elif p_type == "account":
+            partner.p4x_account_id = remote.id
+        else:
+            partner.p4x_specialcontact_id = remote.id
         partner.deleted_at = None
         db.flush()
     else:
@@ -1262,7 +1229,15 @@ def set_transaction_partner(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Angegebener delegierender Partner wurde nicht gefunden.",
             )
-        _apply_delegating_type(transaction, d_type, remote.id)
+        _clear_delegating(transaction)
+        if d_type == "member":
+            transaction.delegating_member_id = remote.id
+        elif d_type == "contact":
+            transaction.delegating_contact_id = remote.id
+        elif d_type == "account":
+            transaction.delegating_p4x_account_id = remote.id
+        else:
+            transaction.delegating_p4x_specialcontact_id = remote.id
     else:
         _clear_delegating(transaction)
 
