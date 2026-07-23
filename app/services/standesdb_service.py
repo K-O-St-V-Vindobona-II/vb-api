@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from itertools import combinations
 
@@ -23,6 +24,7 @@ from app.models.state import State
 from app.schemas.standesdb import (
     BadgeDetailResponse,
     BadgeEntry,
+    ChangeLogEntry,
     ContactDetailResponse,
     KeyDetailResponse,
     KeyEntry,
@@ -1157,3 +1159,69 @@ def generate_keys_download(db: Session) -> bytes:
             f"{m.get('nachname', '')}, {m.get('vorname', '')}: {', '.join(held)}"
         )
     return "\n".join(lines).encode("utf-8")
+
+
+# --- Changelog ---
+
+
+def _changelog_name_map(
+    db: Session,
+    log_entries: Sequence[MembersLog | ContactsLog],
+) -> dict[int, str]:
+    ids = {e.modified_by for e in log_entries if e.modified_by}
+    if not ids:
+        return {}
+    rows = (
+        db.query(Member.id, Member.vorname, Member.nachname)
+        .filter(Member.id.in_(ids))
+        .all()
+    )
+    return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
+
+
+def get_member_changelog(db: Session, member_id: int) -> list[ChangeLogEntry]:
+    """Return the change history for a member."""
+    logs = (
+        db.query(MembersLog)
+        .filter(MembersLog.member_id == member_id)
+        .order_by(MembersLog.modified_at.desc())
+        .limit(200)
+        .all()
+    )
+    names = _changelog_name_map(db, logs)
+    return [
+        ChangeLogEntry(
+            id=e.id,
+            modified_at=e.modified_at,
+            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+            action=e.action,
+            key=e.key,
+            old=e.old,
+            new=e.new,
+        )
+        for e in logs
+    ]
+
+
+def get_contact_changelog(db: Session, contact_id: int) -> list[ChangeLogEntry]:
+    """Return the change history for a contact."""
+    logs = (
+        db.query(ContactsLog)
+        .filter(ContactsLog.contact_id == contact_id)
+        .order_by(ContactsLog.modified_at.desc())
+        .limit(200)
+        .all()
+    )
+    names = _changelog_name_map(db, logs)
+    return [
+        ChangeLogEntry(
+            id=e.id,
+            modified_at=e.modified_at,
+            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+            action=e.action,
+            key=e.key,
+            old=e.old,
+            new=e.new,
+        )
+        for e in logs
+    ]

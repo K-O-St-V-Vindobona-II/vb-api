@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from sqlalchemy.orm.query import RowReturningQuery
 
+    from app.schemas.p4x import AccountSaveRequest
+
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.p4x_account import P4xAccount
@@ -337,6 +339,72 @@ def import_transactions(
 
     db.commit()
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Account CRUD
+# ---------------------------------------------------------------------------
+
+
+def create_account(db: Session, data: AccountSaveRequest) -> P4xAccount:
+    existing = (
+        db.query(P4xAccount)
+        .filter(
+            P4xAccount.iban == data.iban,
+            P4xAccount.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="IBAN existiert bereits.",
+        )
+
+    now = datetime.now(UTC)
+    account = P4xAccount(
+        iban=data.iban,
+        bic=data.bic,
+        label=data.label,
+        init_date=data.init_date,
+        init_balance=data.init_balance,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+def update_account(
+    db: Session,
+    account: P4xAccount,
+    data: AccountSaveRequest,
+) -> P4xAccount:
+    dup = (
+        db.query(P4xAccount)
+        .filter(
+            P4xAccount.iban == data.iban,
+            P4xAccount.id != account.id,
+            P4xAccount.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="IBAN existiert bereits.",
+        )
+
+    account.iban = data.iban
+    account.bic = data.bic
+    account.label = data.label
+    account.init_date = data.init_date
+    account.init_balance = data.init_balance
+    db.commit()
+    db.refresh(account)
+    return account
 
 
 # ---------------------------------------------------------------------------

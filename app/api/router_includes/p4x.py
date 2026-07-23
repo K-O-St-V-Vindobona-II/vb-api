@@ -16,16 +16,13 @@ from app.models.member import Member
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
-from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_fee import P4xFee
 from app.models.p4x_transaction import P4xTransaction
 from app.schemas.p4x import (
     AccountResponse,
     AccountSaveRequest,
-    CategoryDirectResponse,
     CategoryFilterResponse,
     CategoryFilterSaveRequest,
-    CategoryFilterShortResponse,
     CategoryResponse,
     CategorySaveRequest,
     CategoryWithUsageResponse,
@@ -43,7 +40,6 @@ from app.schemas.p4x import (
     ImportGiven,
     ImportResult,
     PaginatedTransactions,
-    PartnerRef,
     PartnerSearchResult,
     SetPartnerRequest,
     SummaryOrderRequest,
@@ -52,188 +48,11 @@ from app.schemas.p4x import (
     TransactionResponse,
     WarningsResponse,
 )
-from app.services import p4x_service
+from app.services import p4x_response_builders, p4x_service
 
 p4x_router = APIRouter()
 
 PREVIEW_LIMIT = 10
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _build_transaction_response(
-    tx: P4xTransaction,
-    db: Session,
-) -> TransactionResponse:
-    partner = None
-    if tx.partner and tx.partner.deleted_at is None:
-        entity = _find_partner_entity(
-            db,
-            tx.partner.partner_type,
-            tx.partner.partner_id,
-        )
-        if entity:
-            partner = PartnerRef(
-                type=tx.partner.partner_type,
-                id=tx.partner.partner_id,
-                cn=getattr(entity, "cn", ""),
-            )
-
-    delegating_partner = None
-    if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = _find_partner_entity(
-            db,
-            tx.delegating_partner_type,
-            tx.delegating_partner_id,
-        )
-        if entity:
-            delegating_partner = PartnerRef(
-                type=tx.delegating_partner_type,
-                id=tx.delegating_partner_id,
-                cn=getattr(entity, "cn", ""),
-            )
-
-    directs = [
-        CategoryDirectResponse(
-            id=d.id,
-            p4x_category_id=d.p4x_category_id,
-            amount=d.amount,
-        )
-        for d in (tx.category_directs or [])
-        if d.deleted_at is None
-    ]
-
-    filters = []
-    for h in tx.category_filter_hits or []:
-        cf = h.category_filter
-        hit_count = (
-            db.query(P4xCategoryFilterHit)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id == cf.id,
-            )
-            .count()
-        )
-        filters.append(
-            CategoryFilterShortResponse(
-                id=cf.id,
-                name=cf.name,
-                p4x_account_id=cf.p4x_account_id,
-                p4x_account_label=cf.account.label if cf.account else None,
-                iban=cf.iban,
-                min_amount=cf.min_amount,
-                max_amount=cf.max_amount,
-                subject=cf.subject,
-                subject_mode=cf.subject_mode,
-                p4x_category_id=cf.p4x_category_id,
-                hitCount=hit_count,
-            )
-        )
-
-    return TransactionResponse(
-        id=tx.id,
-        booking=str(tx.booking) if tx.booking else None,
-        valuation=str(tx.valuation) if tx.valuation else None,
-        iban=tx.iban,
-        amount=tx.amount,
-        subject=tx.subject,
-        p4x_account_id=tx.p4x_account_id,
-        p4x_account_cn=tx.account.cn if tx.account else "",
-        p4x_account_iban=tx.account.iban if tx.account else "",
-        comment=tx.comment,
-        has_attachment=tx.has_attachment,
-        partner=partner,
-        delegating_partner=delegating_partner,
-        p4x_category_directs=directs,
-        p4x_category_filters=filters,
-    )
-
-
-def _build_account_response(
-    db: Session,
-    account: P4xAccount,
-) -> AccountResponse:
-    tx_count = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.p4x_account_id == account.id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .count()
-    )
-    latest = (
-        db.query(P4xTransaction.booking)
-        .filter(
-            P4xTransaction.p4x_account_id == account.id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .order_by(P4xTransaction.booking.desc())
-        .first()
-    )
-
-    return AccountResponse(
-        id=account.id,
-        iban=account.iban,
-        bic=account.bic,
-        label=account.label,
-        init_date=str(account.init_date) if account.init_date else None,
-        init_balance=account.init_balance,
-        balance=p4x_service.get_account_balance(db, account),
-        transactions_count=tx_count,
-        transactions_latest=str(latest[0]) if latest else None,
-    )
-
-
-def _find_partner_entity(
-    db: Session,
-    partner_type: str,
-    partner_id: int,
-) -> object | None:
-    return p4x_service.find_partner_entity(db, partner_type, partner_id)
-
-
-def _get_account_or_404(
-    db: Session,
-    account_id: int,
-) -> P4xAccount:
-    account = (
-        db.query(P4xAccount)
-        .filter(
-            P4xAccount.id == account_id,
-            P4xAccount.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Konto nicht gefunden.",
-        )
-    return account
-
-
-def _get_transaction_for_account(
-    db: Session,
-    account_id: int,
-    transaction_id: int,
-) -> P4xTransaction:
-    tx = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.id == transaction_id,
-            P4xTransaction.p4x_account_id == account_id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not tx:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transaktion nicht gefunden.",
-        )
-    return tx
 
 
 # ---------------------------------------------------------------------------
@@ -267,14 +86,22 @@ def get_dashboard(
     categories = db.query(P4xCategory).all()
 
     return DashboardResponse(
-        accounts=[_build_account_response(db, a) for a in accounts],
+        accounts=[
+            p4x_response_builders.build_account_response(db, a) for a in accounts
+        ],
         warnings_partner=WarningsResponse(
             count=partner_count,
-            preview=[_build_transaction_response(tx, db) for tx in partner_items],
+            preview=[
+                p4x_response_builders.build_transaction_response(tx, db)
+                for tx in partner_items
+            ],
         ),
         warnings_category=WarningsResponse(
             count=category_count,
-            preview=[_build_transaction_response(tx, db) for tx in category_items],
+            preview=[
+                p4x_response_builders.build_transaction_response(tx, db)
+                for tx in category_items
+            ],
         ),
         categories=[
             CategoryResponse(
@@ -307,7 +134,10 @@ def get_warnings_partner_list(
     end = start + p4x_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
-        items=[_build_transaction_response(tx, db) for tx in page_items],
+        items=[
+            p4x_response_builders.build_transaction_response(tx, db)
+            for tx in page_items
+        ],
         total=total,
         page=page,
         per_page=p4x_service.PAGINATION_SIZE,
@@ -326,7 +156,10 @@ def get_warnings_category_list(
     end = start + p4x_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
-        items=[_build_transaction_response(tx, db) for tx in page_items],
+        items=[
+            p4x_response_builders.build_transaction_response(tx, db)
+            for tx in page_items
+        ],
         total=total,
         page=page,
         per_page=p4x_service.PAGINATION_SIZE,
@@ -345,34 +178,8 @@ def create_account(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> AccountResponse:
     """Create a new bank account."""
-    existing = (
-        db.query(P4xAccount)
-        .filter(
-            P4xAccount.iban == data.iban,
-            P4xAccount.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="IBAN existiert bereits.",
-        )
-
-    now = datetime.now(UTC)
-    account = P4xAccount(
-        iban=data.iban,
-        bic=data.bic,
-        label=data.label,
-        init_date=data.init_date,
-        init_balance=data.init_balance,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(account)
-    db.commit()
-    db.refresh(account)
-    return _build_account_response(db, account)
+    account = p4x_service.create_account(db, data)
+    return p4x_response_builders.build_account_response(db, account)
 
 
 @p4x_router.put("/admin/accounts/{account_id}")
@@ -383,31 +190,9 @@ def update_account(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> AccountResponse:
     """Update bank account details."""
-    account = _get_account_or_404(db, account_id)
-
-    dup = (
-        db.query(P4xAccount)
-        .filter(
-            P4xAccount.iban == data.iban,
-            P4xAccount.id != account.id,
-            P4xAccount.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if dup:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="IBAN existiert bereits.",
-        )
-
-    account.iban = data.iban
-    account.bic = data.bic
-    account.label = data.label
-    account.init_date = data.init_date
-    account.init_balance = data.init_balance
-    db.commit()
-    db.refresh(account)
-    return _build_account_response(db, account)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
+    account = p4x_service.update_account(db, account, data)
+    return p4x_response_builders.build_account_response(db, account)
 
 
 @p4x_router.delete("/admin/accounts/{account_id}")
@@ -417,7 +202,7 @@ def delete_account(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> dict[str, str]:
     """Delete a bank account."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
 
     tx_count = (
         db.query(P4xTransaction)
@@ -451,7 +236,7 @@ async def import_transactions(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> ImportResult | dict[str, object]:
     """Import bank transactions from a CSV file."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
 
     iban_clean = account.iban.replace(" ", "")
     if iban_clean not in (file.filename or "").replace(" ", ""):
@@ -487,7 +272,7 @@ async def import_transactions(
     p4x_service.apply_all_category_filters(db)
 
     db.refresh(account)
-    account_data = _build_account_response(db, account)
+    account_data = p4x_response_builders.build_account_response(db, account)
 
     return {
         "given": {"p4x_account_id": account.id, "parsed": True},
@@ -513,7 +298,7 @@ def get_transactions_by_month(
     page: int = 1,
 ) -> dict[str, list[TransactionResponse] | int | Decimal]:
     """List transactions for a specific month with start/end balances (paginated)."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
     items, total = p4x_service.get_transactions_by_month(
         db,
         account,
@@ -530,7 +315,9 @@ def get_transactions_by_month(
         last_of_month = date(year, month + 1, 1) - timedelta(days=1)
 
     return {
-        "items": [_build_transaction_response(tx, db) for tx in items],
+        "items": [
+            p4x_response_builders.build_transaction_response(tx, db) for tx in items
+        ],
         "total": total,
         "page": page,
         "per_page": p4x_service.PAGINATION_SIZE,
@@ -551,7 +338,7 @@ def get_transactions_by_partner(
     page: int = 1,
 ) -> PaginatedTransactions:
     """List transactions for a specific partner (paginated)."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
     items, total = p4x_service.get_transactions_by_partner(
         db,
         account,
@@ -560,7 +347,9 @@ def get_transactions_by_partner(
         page,
     )
     return PaginatedTransactions(
-        items=[_build_transaction_response(tx, db) for tx in items],
+        items=[
+            p4x_response_builders.build_transaction_response(tx, db) for tx in items
+        ],
         total=total,
         page=page,
         per_page=p4x_service.PAGINATION_SIZE,
@@ -578,7 +367,7 @@ def get_transactions_by_category(
     page: int = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific category (paginated)."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
     items, total = p4x_service.get_transactions_by_category(
         db,
         account,
@@ -586,7 +375,9 @@ def get_transactions_by_category(
         page,
     )
     return PaginatedTransactions(
-        items=[_build_transaction_response(tx, db) for tx in items],
+        items=[
+            p4x_response_builders.build_transaction_response(tx, db) for tx in items
+        ],
         total=total,
         page=page,
         per_page=p4x_service.PAGINATION_SIZE,
@@ -608,7 +399,9 @@ def get_transaction_raw(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> TransactionRawResponse:
     """Return the raw imported CSV data for a transaction."""
-    tx = _get_transaction_for_account(db, account_id, transaction_id)
+    tx = p4x_response_builders.get_transaction_for_account(
+        db, account_id, transaction_id
+    )
     return TransactionRawResponse(raw=tx.raw)
 
 
@@ -622,7 +415,9 @@ def get_transaction_attachment(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> StreamingResponse:
     """Download the PDF attachment of a transaction."""
-    tx = _get_transaction_for_account(db, account_id, transaction_id)
+    tx = p4x_response_builders.get_transaction_for_account(
+        db, account_id, transaction_id
+    )
     if not tx.has_attachment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -708,7 +503,7 @@ def set_transaction_partner(
         delegating_dict,
     )
     db.refresh(tx)
-    return _build_transaction_response(tx, db)
+    return p4x_response_builders.build_transaction_response(tx, db)
 
 
 # ---------------------------------------------------------------------------
@@ -759,23 +554,7 @@ async def update_transaction(
         delete_attachment,
     )
     db.refresh(tx)
-    return _build_transaction_response(tx, db)
-
-
-def _build_category_response(
-    db: Session,
-    cat: P4xCategory,
-) -> CategoryWithUsageResponse:
-    usage = p4x_service.get_category_usage(db, cat)
-    return CategoryWithUsageResponse(
-        id=cat.id,
-        name=cat.name,
-        label=cat.label,
-        background_color=cat.background_color,
-        text_color=cat.text_color,
-        protected=cat.protected,
-        used=usage,
-    )
+    return p4x_response_builders.build_transaction_response(tx, db)
 
 
 @p4x_router.get("/admin/categories")
@@ -785,7 +564,7 @@ def list_categories(
 ) -> list[CategoryWithUsageResponse]:
     """List all transaction categories."""
     cats = db.query(P4xCategory).all()
-    return [_build_category_response(db, c) for c in cats]
+    return [p4x_response_builders.build_category_response(db, c) for c in cats]
 
 
 @p4x_router.post("/admin/categories")
@@ -820,7 +599,7 @@ def create_category(
     db.add(cat)
     db.commit()
     db.refresh(cat)
-    return _build_category_response(db, cat)
+    return p4x_response_builders.build_category_response(db, cat)
 
 
 @p4x_router.put("/admin/categories/{category_id}")
@@ -855,7 +634,7 @@ def update_category(
     cat.text_color = data.text_color
     db.commit()
     db.refresh(cat)
-    return _build_category_response(db, cat)
+    return p4x_response_builders.build_category_response(db, cat)
 
 
 @p4x_router.delete("/admin/categories/{category_id}")
@@ -883,41 +662,6 @@ def delete_category_endpoint(
 # ---------------------------------------------------------------------------
 
 
-def _build_filter_response(
-    db: Session,
-    f: P4xCategoryFilter,
-) -> CategoryFilterResponse:
-    return CategoryFilterResponse(
-        id=f.id,
-        name=f.name,
-        p4x_account_id=f.p4x_account_id,
-        p4x_account_label=f.account.label if f.account else None,
-        iban=f.iban,
-        min_amount=f.min_amount,
-        max_amount=f.max_amount,
-        subject=f.subject,
-        subject_mode=f.subject_mode,
-        p4x_category_id=f.p4x_category_id,
-        hitCount=p4x_service.get_filter_hit_count(db, f),
-    )
-
-
-def _get_filter_or_404(
-    db: Session,
-    filter_id: int,
-) -> P4xCategoryFilter:
-    f = (
-        db.query(P4xCategoryFilter)
-        .filter(
-            P4xCategoryFilter.id == filter_id,
-        )
-        .first()
-    )
-    if not f:
-        raise HTTPException(status_code=404, detail="Filter nicht gefunden.")
-    return f
-
-
 @p4x_router.get("/admin/category-filters")
 def list_category_filters(
     db: Annotated[Session, Depends(get_db)],
@@ -925,7 +669,7 @@ def list_category_filters(
 ) -> list[CategoryFilterResponse]:
     """List all category auto-assignment filters."""
     filters = db.query(P4xCategoryFilter).all()
-    return [_build_filter_response(db, f) for f in filters]
+    return [p4x_response_builders.build_filter_response(db, f) for f in filters]
 
 
 @p4x_router.post("/admin/category-filters")
@@ -987,7 +731,7 @@ def create_category_filter(
     db.commit()
     db.refresh(f)
     p4x_service.apply_all_category_filters(db)
-    return _build_filter_response(db, f)
+    return p4x_response_builders.build_filter_response(db, f)
 
 
 @p4x_router.put("/admin/category-filters/{filter_id}")
@@ -1020,7 +764,7 @@ def update_category_filter(
             detail="Kategorie existiert nicht.",
         )
 
-    f = _get_filter_or_404(db, filter_id)
+    f = p4x_response_builders.get_filter_or_404(db, filter_id)
 
     dup = (
         db.query(P4xCategoryFilter)
@@ -1047,7 +791,7 @@ def update_category_filter(
     db.commit()
     db.refresh(f)
     p4x_service.apply_all_category_filters(db)
-    return _build_filter_response(db, f)
+    return p4x_response_builders.build_filter_response(db, f)
 
 
 @p4x_router.delete("/admin/category-filters/{filter_id}")
@@ -1057,7 +801,7 @@ def delete_category_filter_endpoint(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> dict[str, str]:
     """Delete a category filter rule."""
-    f = _get_filter_or_404(db, filter_id)
+    f = p4x_response_builders.get_filter_or_404(db, filter_id)
     p4x_service.delete_category_filter(db, f)
     return {"status": "ok"}
 
@@ -1071,14 +815,14 @@ def get_filter2direct_preview(
     str, int | CategoryFilterResponse | CategoryResponse | list[FilterHitResponse]
 ]:
     """Preview which transactions a filter would convert to direct assignments."""
-    f = _get_filter_or_404(db, filter_id)
+    f = p4x_response_builders.get_filter_or_404(db, filter_id)
     _, partner_count = p4x_service.get_warnings_partner(db)
     _, category_count = p4x_service.get_warnings_category(db)
     hits = p4x_service.get_filter_hits(db, f)
 
     return {
         "warningsCount": partner_count + category_count,
-        "filter": _build_filter_response(db, f),
+        "filter": p4x_response_builders.build_filter_response(db, f),
         "category": CategoryResponse(
             id=f.category.id,
             name=f.category.name,
@@ -1106,7 +850,7 @@ def process_filter2direct(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> dict[str, list[FilterHitResponse]]:
     """Convert all filter-matched transactions to direct category assignments."""
-    f = _get_filter_or_404(db, filter_id)
+    f = p4x_response_builders.get_filter_or_404(db, filter_id)
     error = p4x_service.filter_to_direct(db, f)
     if error:
         raise HTTPException(
@@ -1158,7 +902,7 @@ def set_category_direct_endpoint(
             detail=error,
         )
     db.refresh(tx)
-    return _build_transaction_response(tx, db)
+    return p4x_response_builders.build_transaction_response(tx, db)
 
 
 @p4x_router.delete("/admin/transactions/{transaction_id}/unset-category-direct")
@@ -1181,7 +925,7 @@ def unset_category_direct_endpoint(
 
     p4x_service.unset_category_direct(db, tx)
     db.refresh(tx)
-    return _build_transaction_response(tx, db)
+    return p4x_response_builders.build_transaction_response(tx, db)
 
 
 # ---------------------------------------------------------------------------
@@ -1200,7 +944,7 @@ def get_transactions_by_filter(
     page: int = 1,
 ) -> PaginatedTransactions:
     """List transactions matched by a specific category filter (paginated)."""
-    account = _get_account_or_404(db, account_id)
+    account = p4x_response_builders.get_account_or_404(db, account_id)
     items, total = p4x_service.get_transactions_by_filter(
         db,
         account,
@@ -1208,7 +952,9 @@ def get_transactions_by_filter(
         page,
     )
     return PaginatedTransactions(
-        items=[_build_transaction_response(tx, db) for tx in items],
+        items=[
+            p4x_response_builders.build_transaction_response(tx, db) for tx in items
+        ],
         total=total,
         page=page,
         per_page=p4x_service.PAGINATION_SIZE,
