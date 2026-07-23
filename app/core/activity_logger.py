@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs
 
 import jwt
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -216,7 +217,7 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
             )
             db.add(log_entry)
             db.commit()
-        except Exception:
+        except SQLAlchemyError:
             db.rollback()
             raise
         finally:

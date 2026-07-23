@@ -7,6 +7,7 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import SessionLocal
 from app.models.sent_email import SentEmail
@@ -75,7 +76,7 @@ def _log_sent_email(
             logger.info("Email logged: template=%s, to=%s", template_key, to_str)
         finally:
             db.close()
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("Failed to log sent email")
 
 

@@ -1,3 +1,14 @@
+"""Background jobs run by the process-wide APScheduler instance.
+
+Every job function below catches a broad `Exception` around its body by
+design: jobs run unattended, and one job's failure must never take down
+the shared scheduler thread or block the other jobs from firing on their
+own schedule. Each catch logs via `logger.exception(...)` (not
+`logger.warning`), which Ruff's BLE001 specifically exempts from the
+blind-except check since it preserves the full traceback rather than
+silently swallowing it.
+"""
+
 import logging
 import os
 from datetime import UTC, date, datetime, timedelta

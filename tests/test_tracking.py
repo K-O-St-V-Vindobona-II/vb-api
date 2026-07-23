@@ -10,7 +10,6 @@ import bcrypt
 from app.api.router_includes.tracking import (
     EMAIL_TEMPLATE_REGISTRY,
     _member_name_map,
-    _resolve_action_label,
 )
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
@@ -21,6 +20,7 @@ from app.models.role import Role
 from app.models.sent_email import SentEmail
 from app.models.state import State
 from app.services.auth_service import create_user_session
+from app.services.tracking_service import resolve_action_label
 
 
 def _seed(db):
@@ -441,115 +441,111 @@ class TestTimezone:
 
 class TestResolveActionLabel:
     def test_exact_match(self):
-        assert _resolve_action_label("POST", "/api/auth/login") == "Anmeldung"
-        assert _resolve_action_label("POST", "/api/auth/logout") == "Abmeldung"
+        assert resolve_action_label("POST", "/api/auth/login") == "Anmeldung"
+        assert resolve_action_label("POST", "/api/auth/logout") == "Abmeldung"
         assert (
-            _resolve_action_label("POST", "/api/p4x/admin/fee-config")
+            resolve_action_label("POST", "/api/p4x/admin/fee-config")
             == "Beitragskonfiguration angelegt"
         )
         assert (
-            _resolve_action_label("POST", "/api/p4x/admin/summary")
+            resolve_action_label("POST", "/api/p4x/admin/summary")
             == "Abrechnung erstellt"
         )
 
     def test_prefix_match(self):
         assert (
-            _resolve_action_label("PUT", "/api/standesdb/members/42")
+            resolve_action_label("PUT", "/api/standesdb/members/42")
             == "Mitglied bearbeitet"
         )
         assert (
-            _resolve_action_label("DELETE", "/api/archive/files/7") == "Datei gelöscht"
+            resolve_action_label("DELETE", "/api/archive/files/7") == "Datei gelöscht"
+        )
+        assert resolve_action_label("PUT", "/api/archive/files/7") == "Datei bearbeitet"
+        assert resolve_action_label("PUT", "/api/archive/dirs/5") == "Ordner bearbeitet"
+        assert (
+            resolve_action_label("DELETE", "/api/archive/dirs/5") == "Ordner gelöscht"
         )
         assert (
-            _resolve_action_label("PUT", "/api/archive/files/7") == "Datei bearbeitet"
-        )
-        assert (
-            _resolve_action_label("PUT", "/api/archive/dirs/5") == "Ordner bearbeitet"
-        )
-        assert (
-            _resolve_action_label("DELETE", "/api/archive/dirs/5") == "Ordner gelöscht"
-        )
-        assert (
-            _resolve_action_label("DELETE", "/api/p4x/admin/fee-config/2024-01")
+            resolve_action_label("DELETE", "/api/p4x/admin/fee-config/2024-01")
             == "Beitragskonfiguration gelöscht"
         )
         assert (
-            _resolve_action_label("POST", "/api/p4x/admin/fee-members/42")
+            resolve_action_label("POST", "/api/p4x/admin/fee-members/42")
             == "Beitragsdaten bearbeitet"
         )
 
     def test_exact_match_archive_dir_create(self):
-        assert _resolve_action_label("POST", "/api/archive/dirs") == "Ordner erstellt"
+        assert resolve_action_label("POST", "/api/archive/dirs") == "Ordner erstellt"
 
     def test_subresource_image_upload(self):
         assert (
-            _resolve_action_label("POST", "/api/standesdb/members/42/images")
+            resolve_action_label("POST", "/api/standesdb/members/42/images")
             == "Profilbild hochgeladen"
         )
         assert (
-            _resolve_action_label("POST", "/api/standesdb/contacts/42/images")
+            resolve_action_label("POST", "/api/standesdb/contacts/42/images")
             == "Profilbild hochgeladen"
         )
 
     def test_subresource_image_edit_delete(self):
         assert (
-            _resolve_action_label("PUT", "/api/standesdb/members/42/images/5")
+            resolve_action_label("PUT", "/api/standesdb/members/42/images/5")
             == "Profilbild bearbeitet"
         )
         assert (
-            _resolve_action_label("DELETE", "/api/standesdb/members/42/images/5")
+            resolve_action_label("DELETE", "/api/standesdb/members/42/images/5")
             == "Profilbild gelöscht"
         )
         assert (
-            _resolve_action_label("DELETE", "/api/standesdb/contacts/42/images/5")
+            resolve_action_label("DELETE", "/api/standesdb/contacts/42/images/5")
             == "Profilbild gelöscht"
         )
 
     def test_subresource_archive_restore(self):
         assert (
-            _resolve_action_label("PATCH", "/api/archive/dirs/3/restore")
+            resolve_action_label("PATCH", "/api/archive/dirs/3/restore")
             == "Wiederhergestellt"
         )
         assert (
-            _resolve_action_label("PATCH", "/api/archive/files/7/restore")
+            resolve_action_label("PATCH", "/api/archive/files/7/restore")
             == "Wiederhergestellt"
         )
 
     def test_subresource_archive_receive(self):
         assert (
-            _resolve_action_label("POST", "/api/archive/dirs/5/receive")
+            resolve_action_label("POST", "/api/archive/dirs/5/receive")
             == "Dateien verschoben"
         )
 
     def test_subresource_archive_comments(self):
         assert (
-            _resolve_action_label("POST", "/api/archive/files/7/comments")
+            resolve_action_label("POST", "/api/archive/files/7/comments")
             == "Kommentar erstellt"
         )
         assert (
-            _resolve_action_label("DELETE", "/api/archive/files/7/comments/3")
+            resolve_action_label("DELETE", "/api/archive/files/7/comments/3")
             == "Kommentar gelöscht"
         )
 
     def test_subresource_p4x_import(self):
         assert (
-            _resolve_action_label("POST", "/api/p4x/admin/accounts/1/import")
+            resolve_action_label("POST", "/api/p4x/admin/accounts/1/import")
             == "Transaktionen importiert"
         )
 
     def test_subresource_p4x_transaction_ops(self):
         assert (
-            _resolve_action_label("POST", "/api/p4x/admin/transactions/42/set-partner")
+            resolve_action_label("POST", "/api/p4x/admin/transactions/42/set-partner")
             == "Partner zugeordnet"
         )
         assert (
-            _resolve_action_label(
+            resolve_action_label(
                 "POST", "/api/p4x/admin/transactions/42/set-category-direct"
             )
             == "Kategorie zugeordnet"
         )
         assert (
-            _resolve_action_label(
+            resolve_action_label(
                 "DELETE", "/api/p4x/admin/transactions/42/unset-category-direct"
             )
             == "Kategoriezuordnung entfernt"
@@ -557,7 +553,7 @@ class TestResolveActionLabel:
 
     def test_subresource_p4x_filter2direct(self):
         assert (
-            _resolve_action_label(
+            resolve_action_label(
                 "POST", "/api/p4x/admin/category-filters/5/filter2direct"
             )
             == "Filter → Direkt konvertiert"
@@ -565,85 +561,85 @@ class TestResolveActionLabel:
 
     def test_subresource_download(self):
         assert (
-            _resolve_action_label("GET", "/api/archive/files/7/download")
+            resolve_action_label("GET", "/api/archive/files/7/download")
             == "Datei heruntergeladen"
         )
         assert (
-            _resolve_action_label("GET", "/api/archive/files/7/download/sm")
+            resolve_action_label("GET", "/api/archive/files/7/download/sm")
             == "Datei heruntergeladen (Thumbnail)"
         )
 
     def test_get_view_member(self):
         assert (
-            _resolve_action_label("GET", "/api/standesdb/members/42")
+            resolve_action_label("GET", "/api/standesdb/members/42")
             == "Mitglied angezeigt"
         )
 
     def test_get_view_contact(self):
         assert (
-            _resolve_action_label("GET", "/api/standesdb/contacts/42")
+            resolve_action_label("GET", "/api/standesdb/contacts/42")
             == "Kontakt angezeigt"
         )
 
     def test_get_view_dir(self):
         assert (
-            _resolve_action_label("GET", "/api/archive/dirs/5")
+            resolve_action_label("GET", "/api/archive/dirs/5")
             == "Verzeichnis angezeigt"
         )
 
     def test_get_view_file(self):
-        assert _resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
+        assert resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
 
     def test_download_takes_priority_over_file_view(self):
         assert (
-            _resolve_action_label("GET", "/api/archive/files/7/download")
+            resolve_action_label("GET", "/api/archive/files/7/download")
             == "Datei heruntergeladen"
         )
-        assert _resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
+        assert resolve_action_label("GET", "/api/archive/files/7") == "Datei angezeigt"
 
     def test_subresource_takes_priority_over_prefix(self):
         assert (
-            _resolve_action_label("DELETE", "/api/standesdb/members/42/images/5")
+            resolve_action_label("DELETE", "/api/standesdb/members/42/images/5")
             == "Profilbild gelöscht"
         )
         assert (
-            _resolve_action_label("DELETE", "/api/archive/files/7/comments/3")
+            resolve_action_label("DELETE", "/api/archive/files/7/comments/3")
             == "Kommentar gelöscht"
         )
 
     def test_contact_deleted(self):
         assert (
-            _resolve_action_label("DELETE", "/api/standesdb/contacts/42")
+            resolve_action_label("DELETE", "/api/standesdb/contacts/42")
             == "Kontakt gelöscht"
         )
 
     def test_no_phantom_matches(self):
         assert (
-            _resolve_action_label("DELETE", "/api/standesdb/members/42")
+            resolve_action_label("DELETE", "/api/standesdb/members/42")
             == "DELETE /api/standesdb/members/42"
         )
         assert (
-            _resolve_action_label("PUT", "/api/p4x/admin/fee-config")
+            resolve_action_label("PUT", "/api/p4x/admin/fee-config")
             == "PUT /api/p4x/admin/fee-config"
         )
 
     def test_fallback(self):
-        result = _resolve_action_label("GET", "/api/unknown/path")
+        result = resolve_action_label("GET", "/api/unknown/path")
         assert result == "GET /api/unknown/path"
 
     def test_failed_login(self):
         assert (
-            _resolve_action_label("POST", "/api/auth/login", 401)
+            resolve_action_label("POST", "/api/auth/login", 401)
             == "Anmeldung fehlgeschlagen"
         )
         assert (
-            _resolve_action_label("POST", "/api/auth/google", 401)
+            resolve_action_label("POST", "/api/auth/google", 401)
             == "Anmeldung fehlgeschlagen"
         )
-        assert _resolve_action_label("POST", "/api/auth/login", 200) == "Anmeldung"
+        assert resolve_action_label("POST", "/api/auth/login", 200) == "Anmeldung"
 
     def test_case_insensitive_method(self):
-        assert _resolve_action_label("post", "/api/auth/login") == "Anmeldung"
+        assert resolve_action_label("post", "/api/auth/login") == "Anmeldung"
 
 
 # --- Tracking Config ---

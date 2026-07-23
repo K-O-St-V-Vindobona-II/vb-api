@@ -1,4 +1,4 @@
-"""Tests für den Information/Payment Endpoint."""
+"""Tests for the information/payment endpoint."""
 
 import datetime
 
@@ -13,6 +13,7 @@ from app.models.state import State
 from app.services.auth_service import (
     create_user_session,
 )
+from app.services.information_service import get_payment_info
 
 
 def _seed(db):
@@ -123,3 +124,27 @@ class TestPaymentEndpoint:
         ah_entry = data[1]
         assert "25" in ah_entry["fee"]
         assert "EUR" in ah_entry["fee"]
+
+
+class TestGetPaymentInfoService:
+    def test_falls_back_to_empty_strings_when_account_missing(self, db_session):
+        """No p4x_accounts row with id=1 — pre-existing business assumption,
+        not exercised by the router tests above (they always seed one)."""
+        result = get_payment_info(db_session)
+        assert result[1]["iban"] == ""
+        assert result[1]["bic"] == ""
+
+    def test_bic_can_be_none_when_account_has_no_bic(self, db_session):
+        db_session.add(
+            P4xAccount(
+                id=1,
+                iban="AT941234567890123456",
+                bic=None,
+                label="AH-Kassa",
+                init_date=datetime.date(2020, 1, 1),
+                init_balance=0,
+            )
+        )
+        db_session.commit()
+        result = get_payment_info(db_session)
+        assert result[1]["bic"] is None

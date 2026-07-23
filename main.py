@@ -7,13 +7,15 @@ from app.api.router import api_router
 from app.core.logging_config import setup_logging
 
 setup_logging()
-from fastapi import FastAPI
+from fastapi import FastAPI, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.api.system import system_router
 from app.core.config import APP_ENVIRONMENT, CORS_ORIGINS
@@ -93,6 +95,41 @@ app.add_middleware(SecurityHeadersMiddleware)
 # --- Register SlowAPI Rate Limiter ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def _validation_error_handler(
+    _request: Request, exc: ValidationError
+) -> JSONResponse:
+    """Give a bare pydantic ValidationError (e.g. raised in service code,
+    as opposed to FastAPI's own RequestValidationError for request
+    parsing) the same {"detail": [...]} response shape that FastAPI's
+    built-in RequestValidationError handler already uses, instead of
+    falling through to the generic 500 handler below.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=jsonable_encoder({"detail": exc.errors()}),
+    )
+
+
+async def _unhandled_exception_handler(
+    _request: Request, exc: Exception
+) -> JSONResponse:
+    """Safety net for anything not caught more specifically: logs the full
+    traceback server-side, but never leaks it (or Starlette's default
+    plain-text body) to the client — every error path in this API returns
+    JSON with a "detail" key, which the frontend's formatApiError() relies
+    on (see vb-intern/src/utils/formatters.ts).
+    """
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Ein unerwarteter Fehler ist aufgetreten."},
+    )
+
+
+app.add_exception_handler(ValidationError, _validation_error_handler)
+app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 # CORS Configuration: Explicitly whitelist our frontend domain(s).
 # This prevents the browser from blocking requests from the Vue app.
