@@ -376,9 +376,9 @@ def apply_member_input(  # noqa: C901
     # The API contract uses 0 as the "no parent" sentinel (matches how
     # MemberDetailResponse serializes it back out via `parent_id or 0`),
     # but parent_id is a nullable self-referencing FK — 0 is never a
-    # valid member id and violates the FK constraint once enforced (see
-    # scripts/migration_archive/sqlite2pg.py's _fix_known_legacy_data_issues
-    # for the same issue in migrated legacy data).
+    # valid member id and would violate the FK constraint if not normalized
+    # to None here (the same issue applied to the original SQLite legacy
+    # data, cleaned up once during the historical Postgres migration).
     if input_dict.get("parent_id") == 0:
         input_dict["parent_id"] = None
 

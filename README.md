@@ -119,14 +119,6 @@ Operational scripts, re-run on demand as part of regular ops:
 | `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local MinIO, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/trigger_chronicles.py` | Manually trigger the chronicle-mail job for an arbitrary reference date (`--date`, `--send`, `--to`) |
 
-Migration archive (`scripts/migration_archive/`) — one-time tools kept for historical reference, already run in production, no longer part of regular ops:
-
-| Script | Purpose |
-|---|---|
-| `scripts/migration_archive/migrate_to_s3.py` | One-time local filesystem → S3 migration |
-| `scripts/migration_archive/sqlite2pg.py` | One-time SQLite → PostgreSQL migration (legacy) |
-| `scripts/migration_archive/migrate_public_gallery.py` | One-time Flickr-hosted gallery → `public_gallery_images` migration |
-
 Full docs (usage, parameters, env vars) for every script: [`scripts/README.md`](scripts/README.md).
 
 ## Branching
