@@ -111,3 +111,10 @@ reportMissingTypeStubs = false
 reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
+
+# --- DEAD CODE & UNREACHABLE (Pyright) ---
+reportUnreachable = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportUnusedFunction = "error"
+reportUnusedClass = "error"

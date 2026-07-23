@@ -484,30 +484,6 @@ class ContactSaveRequest(StrictInputModel):
 # --- Image Responses ---
 
 
-class ImageResponse(BaseModel):
-    id: int
-    type: str | None = None
-    height: int | None = None
-    width: int | None = None
-    size: int | None = None
-    description: str | None = None
-    default: bool = False
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ImageOwnerResponse(BaseModel):
-    type: str
-    id: int
-    cn: str
-    org_id: str | None = None
-    default_image: int | None = None
-
-
-class ImageGalleryResponse(BaseModel):
-    owner: ImageOwnerResponse
-    images: list[ImageResponse]
-
-
 class ImageUpdateRequest(StrictInputModel):
     description: str | None = None
     default: bool = False
@@ -544,21 +520,7 @@ class RolesListResponse(BaseModel):
     roles: list[RolesListEntry]
 
 
-# --- Search ---
-
-
-class SearchResult(BaseModel):
-    type: str
-    id: int
-    label: str
-
-
 # --- Stats ---
-
-
-class OrgCountResponse(BaseModel):
-    vbw: int = 0
-    vbn: int = 0
 
 
 class MemberStatsResponse(BaseModel):

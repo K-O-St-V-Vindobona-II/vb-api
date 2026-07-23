@@ -456,8 +456,7 @@ def search_partners(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suchbegriff muss mindestens 3 Zeichen lang sein.",
         )
-    results = p4x_service.search_partners(db, q)
-    return [PartnerSearchResult(**r) for r in results]
+    return p4x_service.search_partners(db, q)
 
 
 # ---------------------------------------------------------------------------
@@ -967,11 +966,8 @@ def get_transactions_by_filter(
 
 
 def _build_fee_response(fee: P4xFee) -> FeeResponse:
-    start_date = fee.start
-    if isinstance(start_date, str):
-        start_date = date.fromisoformat(start_date[:10])
     return FeeResponse(
-        start=str(start_date.replace(day=1)),
+        start=str(fee.start.replace(day=1)),
         fee=fee.fee,
         protected=bool(fee.protected),
     )
@@ -1078,7 +1074,7 @@ def search_fee_members(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     q: str = "",
-) -> dict[str, list[dict[str, str | int]]]:
+) -> dict[str, list[p4x_service.FeeMemberSearchResult]]:
     """Search members with their fee payment status."""
     if len(q) < 3:
         raise HTTPException(
@@ -1148,8 +1144,7 @@ def get_sumup_balance(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> SumUpBalanceResponse:
     """Return the current SumUp terminal balance and recent transactions."""
-    data = p4x_service.get_sumup_balance(db)
-    return SumUpBalanceResponse(**data)
+    return p4x_service.get_sumup_balance(db)
 
 
 # ---------------------------------------------------------------------------

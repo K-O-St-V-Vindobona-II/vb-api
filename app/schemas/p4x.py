@@ -372,11 +372,6 @@ class SetPartnerRequest(StrictInputModel):
     delegatingPartner: PartnerRef | None = None  # noqa: N815
 
 
-class TransactionUpdateRequest(StrictInputModel):
-    comment: str | None = Field(None, max_length=250)
-    delete_attachment: bool = False
-
-
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

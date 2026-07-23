@@ -85,10 +85,3 @@ class ActivityStats(BaseModel):
     active_users_today: int
     total_actions_today: int
     actions_by_type: dict[str, int]
-
-
-class PaginatedResponse(BaseModel):
-    items: list[SentEmailListItem] | list[ActivityLogItem]
-    total: int
-    page: int
-    page_size: int

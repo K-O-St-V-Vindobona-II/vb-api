@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from itertools import count
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_transaction import P4xTransaction
+from app.schemas.p4x import PartnerSearchResult, SumUpBalanceResponse
 
 FEE_CATEGORY_ID = 1
 SUMUP_ACCOUNT_ID = 1
@@ -59,16 +60,38 @@ class FeeBalanceResult(TypedDict):
     progress: list[dict[str, str | Decimal]]
 
 
+class FeeMemberSearchResult(TypedDict):
+    """Typed result of search_fee_members."""
+
+    id: int
+    label: str
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
+
+class ParsedTransactionPayload(TypedDict):
+    """Normalized fields extracted from one George bank statement entry."""
+
+    booking: date
+    valuation: date
+    iban: str
+    amount: str
+    subject: str
+
+
+class ParsedTransactionEntry(TypedDict):
+    payload: ParsedTransactionPayload
+    raw: str
 
 
 @dataclass
 class ParseResult:
     success: bool
     message: str
-    entries: list[dict[str, Any]] = field(default_factory=list)
+    entries: list[ParsedTransactionEntry] = field(default_factory=list)
 
 
 def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PLR0911, PLR0912
@@ -85,7 +108,7 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PL
     if not isinstance(data, list):
         return ParseResult(success=False, message="failed to parse given raw json data")
 
-    result: list[dict[str, Any]] = []
+    result: list[ParsedTransactionEntry] = []
 
     for struct in data:
         if "booking" not in struct:
@@ -250,8 +273,8 @@ def compute_transaction_hash(
 def import_transactions(
     db: Session,
     account: P4xAccount,
-    parsed_entries: list[dict[str, Any]],
-    original_structs: list[dict[str, Any]],
+    parsed_entries: list[ParsedTransactionEntry],
+    original_structs: list[dict[str, object]],
 ) -> dict[str, int]:
     """Import parsed transactions into the database.
 
@@ -291,7 +314,7 @@ def import_transactions(
             payload["subject"],
         )
 
-        if payload["booking"] < account.init_date:
+        if account.init_date is not None and payload["booking"] < account.init_date:
             db.query(P4xTransaction).filter(
                 P4xTransaction.sha256_hash == sha256_hash,
             ).update({"deleted_at": datetime.now(UTC)})
@@ -1062,12 +1085,12 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
 # ---------------------------------------------------------------------------
 
 
-def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
+def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     if len(term) < 3:
         return []
 
     pattern = f"%{term}%"
-    results: list[dict[str, Any]] = []
+    results: list[PartnerSearchResult] = []
 
     members = (
         db.query(Member)
@@ -1081,7 +1104,9 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
     for m in members:
         org_label = m.org_id.upper() if m.org_id else "?"
         results.append(
-            {"type": "member", "id": m.id, "label": f"Mitglied ({org_label}): {m.cn}"}
+            PartnerSearchResult(
+                type="member", id=m.id, label=f"Mitglied ({org_label}): {m.cn}"
+            )
         )
 
     contacts = (
@@ -1093,7 +1118,8 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         .all()
     )
     results.extend(
-        {"type": "contact", "id": c.id, "label": f"Kontakt: {c.cn}"} for c in contacts
+        PartnerSearchResult(type="contact", id=c.id, label=f"Kontakt: {c.cn}")
+        for c in contacts
     )
 
     specials = (
@@ -1104,7 +1130,8 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         .all()
     )
     results.extend(
-        {"type": "special", "id": s.id, "label": f"Spezial: {s.cn}"} for s in specials
+        PartnerSearchResult(type="special", id=s.id, label=f"Spezial: {s.cn}")
+        for s in specials
     )
 
     accounts = (
@@ -1116,7 +1143,8 @@ def search_partners(db: Session, term: str) -> list[dict[str, Any]]:
         .all()
     )
     results.extend(
-        {"type": "account", "id": a.id, "label": f"Konto: {a.cn}"} for a in accounts
+        PartnerSearchResult(type="account", id=a.id, label=f"Konto: {a.cn}")
+        for a in accounts
     )
 
     return results
@@ -1289,7 +1317,7 @@ def create_fee(
     year: int,
     month: int,
     fee_amount: Decimal,
-) -> tuple[Any | None, str | None]:
+) -> tuple[P4xFee | None, str | None]:
     """Returns (fee, None) on success or (None, error_message) on failure."""
     start = date(year, month, 1)
 
@@ -1355,7 +1383,7 @@ def get_fee_members(db: Session) -> list[Member]:
     )
 
 
-def search_fee_members(db: Session, term: str) -> list[dict[str, Any]]:
+def search_fee_members(db: Session, term: str) -> list[FeeMemberSearchResult]:
     if len(term) < 3:
         return []
 
@@ -1531,7 +1559,7 @@ def _get_fee_payments_list(
     member_id: int,
     from_date: date,
     to_date: date,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, str | Decimal]]:
     """Get individual fee payments as list for the progress view."""
     partner_ibans = [
         r[0]
@@ -1631,8 +1659,6 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     init_date = member.p4x_init_date or member.philistrierungsdatum
     if init_date is None:
         return None
-    if isinstance(init_date, str):
-        init_date = date.fromisoformat(init_date[:10])
     init_date = init_date.replace(day=1)
 
     # Determine start_date
@@ -1772,7 +1798,7 @@ def get_debtors(db: Session) -> list[dict[str, int | str | Decimal]]:
 # ---------------------------------------------------------------------------
 
 
-def get_sumup_balance(db: Session) -> dict[str, Any]:
+def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
     account = (
         db.query(P4xAccount)
         .filter(
@@ -1782,13 +1808,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
         .first()
     )
     if not account:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     category = (
         db.query(P4xCategory)
@@ -1798,13 +1824,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
         .first()
     )
     if not category:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     direct_tx_ids = {
         r[0]
@@ -1849,13 +1875,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
     all_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
     if not all_tx_ids:
-        return {
-            "in_count": 0,
-            "in_sum": 0,
-            "out_count": 0,
-            "out_sum": 0,
-            "latest": None,
-        }
+        return SumUpBalanceResponse(
+            in_count=0,
+            in_sum=Decimal(0),
+            out_count=0,
+            out_sum=Decimal(0),
+            latest=None,
+        )
 
     txs = (
         db.query(P4xTransaction)
@@ -1871,13 +1897,13 @@ def get_sumup_balance(db: Session) -> dict[str, Any]:
     out_txs = [t for t in txs if t.amount < 0]
     latest = max((t.booking for t in txs), default=None) if txs else None
 
-    return {
-        "in_count": len(in_txs),
-        "in_sum": round(sum(t.amount for t in in_txs), 2),
-        "out_count": len(out_txs),
-        "out_sum": round(sum(t.amount for t in out_txs), 2),
-        "latest": str(latest) if latest else None,
-    }
+    return SumUpBalanceResponse(
+        in_count=len(in_txs),
+        in_sum=round(sum((t.amount for t in in_txs), start=Decimal(0)), 2),
+        out_count=len(out_txs),
+        out_sum=round(sum((t.amount for t in out_txs), start=Decimal(0)), 2),
+        latest=str(latest) if latest else None,
+    )
 
 
 # ---------------------------------------------------------------------------
