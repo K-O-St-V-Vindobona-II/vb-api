@@ -107,6 +107,43 @@ podman exec vb-api alembic upgrade head
 podman exec vb-api alembic revision --autogenerate -m "description"
 ```
 
+## Scheduler
+
+Background jobs run via a single in-process APScheduler instance (`app/core/scheduler.py`), started once per deployment (a Postgres advisory lock ensures only one gunicorn worker process actually registers/fires jobs, even though every worker boots its own scheduler instance).
+
+### Job registration is gated by `APP_ENVIRONMENT`
+
+- `cleanup` runs in every stage.
+- All "business" jobs (mails, reminders, chronicles, health-check reports, category-filter refresh) and `db_backup` only run in `production`.
+- `downsync` only runs outside `production` — see below.
+
+| Job ID | Schedule | Stage | Purpose |
+|---|---|---|---|
+| `cleanup` | hourly | all | Deletes expired sessions, reset tokens, and tracking data past retention. |
+| `refresh_category_filter_hits` | daily 07:00 (Vienna) | production | Recomputes which transactions match each P4x category filter. |
+| `birthday_mails` | daily 15:53 (Vienna) | production | Sends birthday greetings to VBW members whose birthday is tomorrow. |
+| `debtor_reminder` | monthly, 25th 18:32 (Vienna) | production | Sends fee-arrears reminders (debt > 300€). |
+| `standesdb_chronicles` | weekly, Tue 17:00 (Vienna) | production | Sends the weekly anniversaries digest (birthdays, admissions, ...). |
+| `archive_health_check` | weekly, Tue 01:00 (Vienna) | production | Verifies archive files referenced in the DB exist in S3, reports orphans. |
+| `standesdb_health_check` | weekly, Tue 03:00 (Vienna) | production | Same integrity check for Standesdb images. |
+| `db_backup` | daily, `BACKUP_HOUR` UTC (default 03:00) | production (+ `BACKUP_ENABLED`) | Dumps PostgreSQL, uploads to S3, deletes backups older than `BACKUP_RETENTION_DAYS`. |
+| `downsync` | daily, `DOWNSYNC_HOUR` UTC (`BACKUP_HOUR + 1`, default 04:00) | non-production | See below. |
+
+### Downsync — keeping non-production stages current with prod
+
+The overall idea: **once a day, every non-production stage (dev, test, qa) automatically gets refreshed with real production data** — nobody has to run a script by hand.
+
+`job_downsync()` fires shortly after the production `db_backup` job (default: one hour later, so that day's dump already exists on prod S3) and does, in this fixed order:
+
+1. Mirrors the **entire** production AWS S3 bucket (`archive/`, `standesdb/`, `public/`, `db-backups/` — everything) down into this stage's own S3-compatible storage (e.g. MinIO on the Dev-VPS).
+2. Immediately restores the local PostgreSQL database from the now freshly-mirrored `db-backups/` prefix (the latest prod dump) and runs `alembic upgrade head`.
+
+This is the same logic `scripts/downsync_prod.py` already performs for manual/interactive use (see [Scripts](#scripts)) — the shared prod-credential-loading and storage-building code lives in `app/services/downsync_service.py`, used by both the CLI script and the automated job. Production never registers this job at all: it's guarded twice — once via the `APP_ENVIRONMENT` check in `start_scheduler()`, and again inside `job_downsync()` itself as a belt-and-suspenders safety net.
+
+### Inspecting the schedule
+
+`GET /api/system/scheduled-jobs` (requires `systemAdmin`) lists whatever is actually registered on the running instance. Since registration itself is gated per stage, this endpoint always reflects reality — there's no separate "which job applies to which stage" list that could drift out of sync.
+
 ## Scripts
 
 Operational scripts, re-run on demand as part of regular ops:

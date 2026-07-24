@@ -35,51 +35,19 @@ sys.path.insert(0, str(_VB_API_ROOT))
 from app.core.config import get_settings
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient, get_storage
 from app.services.backup_service import run_restore
+from app.services.downsync_service import build_prod_storage, load_aws_env
 from app.services.s3_mirror_service import MirrorResult, mirror_prefix
-
-AWS_ENV_PATH = "/run/secrets/aws-prod.env"
-
-
-def _load_env_file(path: str) -> dict[str, str]:
-    env: dict[str, str] = {}
-    try:
-        with Path(path).open() as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, _, value = line.partition("=")
-                    env[key.strip()] = value.strip()
-    except FileNotFoundError:
-        pass
-    return env
 
 
 def _load_aws_env() -> dict[str, str]:
-    # Neither this function nor its return value is named "secret(s)" -
-    # this dict also carries the non-sensitive AWS_BUCKET value that
-    # main() prints, and CodeQL's clear-text-logging query flags any
-    # value whose source name matches sensitive-data patterns (e.g.
-    # "secret"), regardless of which field is actually read from it.
-    aws_env = _load_env_file(AWS_ENV_PATH)
-    if not aws_env.get("AWS_ACCESS_KEY_ID"):
-        print(f"ERROR: No AWS credentials found in {AWS_ENV_PATH}")
+    # Thin CLI wrapper: load_aws_env() raises RuntimeError so the shared
+    # scheduler job can log-and-skip instead of killing the whole worker
+    # process; this script's UX (print + exit) is preserved here.
+    try:
+        return load_aws_env()
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
         sys.exit(1)
-    if not aws_env.get("AWS_BUCKET"):
-        print(f"ERROR: AWS_BUCKET not set in {AWS_ENV_PATH}")
-        sys.exit(1)
-    return aws_env
-
-
-def _build_prod_storage(aws_env: dict[str, str]) -> StorageClient:
-    return StorageClient(
-        endpoint_url=None,
-        access_key=aws_env["AWS_ACCESS_KEY_ID"],
-        secret_key=aws_env["AWS_SECRET_ACCESS_KEY"],
-        bucket=aws_env["AWS_BUCKET"],
-        region=aws_env.get("AWS_REGION", "eu-central-1"),
-    )
 
 
 def _confirm(auto_yes: bool) -> None:
@@ -204,7 +172,7 @@ def main() -> None:
 
     if not args.skip_s3:
         aws_env = _load_aws_env()
-        prod_storage = _build_prod_storage(aws_env)
+        prod_storage = build_prod_storage(aws_env)
         print(f"=== S3 mirror (prod {aws_env['AWS_BUCKET']} -> local MinIO) ===")
         result = _run_s3_mirror(
             prod_storage, local_storage, args.dry_run, args.no_delete

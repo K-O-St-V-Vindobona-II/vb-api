@@ -128,16 +128,34 @@ def _headers(_client_obj: object, db: object, admin: Member) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+_SCHEMA_FIELDS = {
+    "module",
+    "include_disabled_delivery",
+    "include_dead",
+    "include_common_contacts",
+    "only_without_email",
+}
+
+
 def _base_payload(**overrides: object) -> dict[str, object]:
+    """Build an /api/standesdb/export request body. Keyword overrides that
+    match a top-level ExportRequest field are set directly; anything else
+    (org/state matrix keys like "vbw_fu", "vbw_contacts") is routed into
+    the nested "selections" dict."""
     base: dict[str, object] = {
         "module": "mailing-liste",
         "include_disabled_delivery": False,
         "include_dead": False,
         "include_common_contacts": False,
         "only_without_email": False,
-        "vbw_fu": True,
     }
-    base.update(overrides)
+    selections: dict[str, object] = {"vbw_fu": True}
+    for key, value in overrides.items():
+        if key in _SCHEMA_FIELDS:
+            base[key] = value
+        else:
+            selections[key] = value
+    base["selections"] = selections
     return base
 
 

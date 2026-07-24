@@ -123,7 +123,13 @@ def filter_members(
     query = query.filter(Member.entlassen == False)  # noqa: E712
 
     if not filter_data.get("include_disabled_delivery"):
-        query = query.filter(Member.zustellungen != "deaktiviert")
+        # Deceased members always have zustellungen="deaktiviert" as a side
+        # effect of death, not an independent opt-out choice - excluding
+        # them here too would make include_dead have no visible effect
+        # unless include_disabled_delivery was ALSO set.
+        query = query.filter(
+            (Member.zustellungen != "deaktiviert") | (Member.verstorben == True)  # noqa: E712
+        )
     if not filter_data.get("include_dead"):
         query = query.filter(Member.verstorben == False)  # noqa: E712
     if filter_data.get("only_without_email"):

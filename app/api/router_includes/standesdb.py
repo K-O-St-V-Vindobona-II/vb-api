@@ -105,8 +105,11 @@ def do_export(
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
     """Generate and download an export file (booklet, labels, etc.)."""
-    filter_data = data.model_dump()
-    module = filter_data.pop("module")
+    module = data.module
+    filter_data: dict[str, object] = {
+        **data.selections,
+        **data.model_dump(exclude={"selections", "module"}),
+    }
 
     members = export_service.filter_members(db, filter_data)
     contacts = export_service.filter_contacts(db, filter_data)
@@ -763,11 +766,21 @@ def delete_contact_image(
 def list_member_changelog(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    current_user: Annotated[Member, Depends(get_current_user)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> dict[str, list[ChangeLogEntry] | int]:
-    """Return the change history for a member, paginated."""
+    """Return the change history for a member, paginated.
+
+    Requires the standesdb admin permission for the member's own org.
+    """
+    member = db.get(Member, member_id)
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mitglied nicht gefunden.",
+        )
+    _require_standesdb_admin(current_user, member.org_id)
     return standesdb_service.get_member_changelog(db, member_id, page, page_size)
 
 
@@ -775,7 +788,7 @@ def list_member_changelog(
 def list_contact_changelog(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: Annotated[Member, Depends(require_permission("standesdbContactAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> dict[str, list[ChangeLogEntry] | int]:

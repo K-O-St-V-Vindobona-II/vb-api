@@ -1,6 +1,10 @@
 """Tests for the permission-rules endpoint and rule consistency."""
 
+import os
+import subprocess
+import sys
 from datetime import date
+from pathlib import Path
 from unittest.mock import patch
 
 import bcrypt
@@ -136,7 +140,8 @@ class TestPermissionRulesEndpoint:
 
 class TestDevSuperuserGuard:
     def test_dev_superuser_active_in_development(self, db_session):
-        """DEV_SUPERUSER_ID grants all permissions in non-production environments."""
+        """DEV_SUPERUSER_ID grants all permissions when active (development only —
+        see TestDevSuperuserEnvironmentGating for the env-based derivation)."""
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
             id=999,
@@ -156,8 +161,9 @@ class TestDevSuperuserGuard:
 
         assert sorted(perms) == sorted(ALL_PERMISSIONS)
 
-    def test_dev_superuser_disabled_in_production(self, db_session):
-        """DEV_SUPERUSER_ID is forced to 0 in production — regular rules apply."""
+    def test_dev_superuser_disabled_when_inactive(self, db_session):
+        """DEV_SUPERUSER_ID forced to 0 (any non-development stage) — regular
+        rules apply."""
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
             id=888,
@@ -177,3 +183,45 @@ class TestDevSuperuserGuard:
 
         # No roles → no permissions
         assert perms == []
+
+
+class TestDevSuperuserEnvironmentGating:
+    """DEV_SUPERUSER_ID is derived once at import time from APP_ENVIRONMENT
+    (see app/services/permission_service.py) - active in development only,
+    forced to 0 everywhere else. A fresh subprocess per case is required
+    since the derivation only runs once at module import (mirrors
+    tests/core/test_config.py's approach for the same reason)."""
+
+    @staticmethod
+    def _derived_value(app_environment: str, dev_superuser_id: str) -> str:
+        env = {
+            **os.environ,
+            "APP_ENVIRONMENT": app_environment,
+            "DEV_SUPERUSER_ID": dev_superuser_id,
+        }
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from app.services.permission_service import DEV_SUPERUSER_ID; "
+                "print(DEV_SUPERUSER_ID)",
+            ],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+        return result.stdout.strip()
+
+    def test_active_in_development(self) -> None:
+        assert self._derived_value("development", "42") == "42"
+
+    def test_disabled_in_test(self) -> None:
+        assert self._derived_value("test", "42") == "0"
+
+    def test_disabled_in_qa(self) -> None:
+        assert self._derived_value("qa", "42") == "0"
+
+    def test_disabled_in_production(self) -> None:
+        assert self._derived_value("production", "42") == "0"

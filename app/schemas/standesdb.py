@@ -560,10 +560,15 @@ class MemberAuthActivityResponse(BaseModel):
     auth_lastlogout: UtcDatetime | None = None
 
 
-class ExportRequest(BaseModel):
+class ExportRequest(StrictInputModel):
     module: str
+    # Dynamic {org_id}_{state_id} / {org_id}_contacts matrix keys (e.g.
+    # "vbw_fu") - the DB-driven org/state combinations can't be static
+    # Pydantic fields, so they live in this explicit dict instead of
+    # relying on extra="allow" at the top level (which would silently
+    # swallow any misspelled/renamed flag too).
+    selections: dict[str, bool] = Field(default_factory=dict)
     include_disabled_delivery: bool = False
     include_dead: bool = False
     include_common_contacts: bool = False
     only_without_email: bool = False
-    model_config = ConfigDict(extra="allow")
