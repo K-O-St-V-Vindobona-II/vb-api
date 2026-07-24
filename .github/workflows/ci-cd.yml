@@ -49,6 +49,7 @@ jobs:
       TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
       SECRET_KEY: ci-test-secret-key-minimum-32-chars!!
       APP_ENVIRONMENT: test
+      CORS_ORIGINS: http://localhost:20001
       S3_ENDPOINT_URL: https://s3.amazonaws.com
       S3_ACCESS_KEY: testing
       S3_SECRET_KEY: testing
