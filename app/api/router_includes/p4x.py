@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import zipfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -13,11 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.auth_guards import require_permission
 from app.db.database import get_db
 from app.models.member import Member
-from app.models.p4x_account import P4xAccount
-from app.models.p4x_category import P4xCategory
-from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_fee import P4xFee
-from app.models.p4x_transaction import P4xTransaction
 from app.schemas.p4x import (
     AccountResponse,
     AccountSaveRequest,
@@ -66,13 +62,7 @@ def get_dashboard(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> DashboardResponse:
     """Return all bank accounts with balances, categories, and warning counts."""
-    accounts = (
-        db.query(P4xAccount)
-        .filter(
-            P4xAccount.deleted_at.is_(None),
-        )
-        .all()
-    )
+    accounts = p4x_service.get_active_accounts(db)
 
     partner_items, partner_count = p4x_service.get_warnings_partner(
         db,
@@ -83,7 +73,7 @@ def get_dashboard(
         limit=PREVIEW_LIMIT,
     )
 
-    categories = db.query(P4xCategory).all()
+    categories = p4x_service.get_all_categories(db)
 
     return DashboardResponse(
         accounts=[
@@ -205,23 +195,7 @@ def delete_account(
 ) -> None:
     """Delete a bank account."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-
-    tx_count = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.p4x_account_id == account.id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .count()
-    )
-    if tx_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Konto kann nicht gelöscht werden, da Transaktionen vorhanden sind.",
-        )
-
-    account.deleted_at = datetime.now(UTC)
-    db.commit()
+    p4x_service.delete_account(db, account)
 
 
 # ---------------------------------------------------------------------------
@@ -473,16 +447,7 @@ def set_transaction_partner(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> TransactionResponse:
     """Assign a partner to a transaction."""
-    tx = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.id == transaction_id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaktion nicht gefunden.")
+    tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
     partner_dict = None
     if data.partner:
@@ -521,16 +486,7 @@ async def update_transaction(
     file: UploadFile | None = None,
 ) -> TransactionResponse:
     """Update transaction comment or attachment."""
-    tx = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.id == transaction_id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaktion nicht gefunden.")
+    tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
     file_bytes = None
     if file:
@@ -563,7 +519,7 @@ def list_categories(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[CategoryWithUsageResponse]:
     """List all transaction categories."""
-    cats = db.query(P4xCategory).all()
+    cats = p4x_service.get_all_categories(db)
     return [p4x_response_builders.build_category_response(db, c) for c in cats]
 
 
@@ -574,31 +530,7 @@ def create_category(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryWithUsageResponse:
     """Create a new transaction category."""
-    existing = (
-        db.query(P4xCategory)
-        .filter(
-            P4xCategory.name == data.name,
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Name muss eindeutig sein.",
-        )
-
-    now = datetime.now(UTC)
-    cat = P4xCategory(
-        name=data.name,
-        label=data.label,
-        background_color=data.background_color,
-        text_color=data.text_color,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(cat)
-    db.commit()
-    db.refresh(cat)
+    cat = p4x_service.create_category(db, data)
     return p4x_response_builders.build_category_response(db, cat)
 
 
@@ -610,30 +542,8 @@ def update_category(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryWithUsageResponse:
     """Update a transaction category."""
-    cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail="Kategorie nicht gefunden.")
-
-    dup = (
-        db.query(P4xCategory)
-        .filter(
-            P4xCategory.name == data.name,
-            P4xCategory.id != cat.id,
-        )
-        .first()
-    )
-    if dup:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Name muss eindeutig sein.",
-        )
-
-    cat.name = data.name
-    cat.label = data.label
-    cat.background_color = data.background_color
-    cat.text_color = data.text_color
-    db.commit()
-    db.refresh(cat)
+    cat = p4x_response_builders.get_category_or_404(db, category_id)
+    cat = p4x_service.update_category(db, cat, data)
     return p4x_response_builders.build_category_response(db, cat)
 
 
@@ -646,9 +556,7 @@ def delete_category_endpoint(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
     """Delete a transaction category."""
-    cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail="Kategorie nicht gefunden.")
+    cat = p4x_response_builders.get_category_or_404(db, category_id)
 
     error = p4x_service.delete_category(db, cat)
     if error:
@@ -669,7 +577,7 @@ def list_category_filters(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[CategoryFilterResponse]:
     """List all category auto-assignment filters."""
-    filters = db.query(P4xCategoryFilter).all()
+    filters = p4x_service.get_all_category_filters(db)
     return [p4x_response_builders.build_filter_response(db, f) for f in filters]
 
 
@@ -680,58 +588,7 @@ def create_category_filter(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryFilterResponse:
     """Create a new category filter rule."""
-    if not (
-        data.iban
-        or data.min_amount is not None
-        or data.max_amount is not None
-        or data.subject
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Mindestens ein Filterkriterium muss gesetzt sein.",
-        )
-
-    if not db.query(P4xAccount).filter_by(id=data.p4x_account_id).first():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Konto existiert nicht.",
-        )
-    if not db.query(P4xCategory).filter_by(id=data.p4x_category_id).first():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Kategorie existiert nicht.",
-        )
-
-    existing = (
-        db.query(P4xCategoryFilter)
-        .filter(
-            P4xCategoryFilter.name == data.name,
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Name muss eindeutig sein.",
-        )
-
-    now = datetime.now(UTC)
-    f = P4xCategoryFilter(
-        name=data.name,
-        p4x_account_id=data.p4x_account_id,
-        iban=data.iban,
-        min_amount=data.min_amount,
-        max_amount=data.max_amount,
-        subject=data.subject,
-        subject_mode=data.subject_mode,
-        p4x_category_id=data.p4x_category_id,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(f)
-    db.commit()
-    db.refresh(f)
-    p4x_service.apply_all_category_filters(db)
+    f = p4x_service.create_category_filter(db, data)
     return p4x_response_builders.build_filter_response(db, f)
 
 
@@ -743,55 +600,8 @@ def update_category_filter(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryFilterResponse:
     """Update a category filter rule."""
-    if not (
-        data.iban
-        or data.min_amount is not None
-        or data.max_amount is not None
-        or data.subject
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Mindestens ein Filterkriterium muss gesetzt sein.",
-        )
-
-    if not db.query(P4xAccount).filter_by(id=data.p4x_account_id).first():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Konto existiert nicht.",
-        )
-    if not db.query(P4xCategory).filter_by(id=data.p4x_category_id).first():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Kategorie existiert nicht.",
-        )
-
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
-
-    dup = (
-        db.query(P4xCategoryFilter)
-        .filter(
-            P4xCategoryFilter.name == data.name,
-            P4xCategoryFilter.id != f.id,
-        )
-        .first()
-    )
-    if dup:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Name muss eindeutig sein.",
-        )
-
-    f.name = data.name
-    f.p4x_account_id = data.p4x_account_id
-    f.iban = data.iban
-    f.min_amount = data.min_amount
-    f.max_amount = data.max_amount
-    f.subject = data.subject
-    f.subject_mode = data.subject_mode
-    f.p4x_category_id = data.p4x_category_id
-    db.commit()
-    db.refresh(f)
-    p4x_service.apply_all_category_filters(db)
+    f = p4x_service.update_category_filter(db, f, data)
     return p4x_response_builders.build_filter_response(db, f)
 
 
@@ -886,16 +696,7 @@ def set_category_direct_endpoint(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> TransactionResponse:
     """Manually assign a category to a transaction."""
-    tx = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.id == transaction_id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaktion nicht gefunden.")
+    tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
     error = p4x_service.set_category_direct(db, tx, data)
     if error:
@@ -914,16 +715,7 @@ def unset_category_direct_endpoint(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> TransactionResponse:
     """Remove a manual category assignment from a transaction."""
-    tx = (
-        db.query(P4xTransaction)
-        .filter(
-            P4xTransaction.id == transaction_id,
-            P4xTransaction.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaktion nicht gefunden.")
+    tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
     p4x_service.unset_category_direct(db, tx)
     db.refresh(tx)
@@ -1094,9 +886,7 @@ def get_fee_member(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> FeeMemberResponse:
     """Return detailed fee payment data for a specific member."""
-    member = db.query(Member).filter(Member.id == member_id).first()
-    if not member:
-        raise HTTPException(status_code=404, detail="Mitglied nicht gefunden.")
+    member = p4x_response_builders.get_member_or_404(db, member_id)
     if not p4x_service.is_fee_member(member):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
     return _build_fee_member_response(db, member)
@@ -1110,9 +900,7 @@ def update_fee_member(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> FeeMemberResponse:
     """Update fee exemption or notes for a member."""
-    member = db.query(Member).filter(Member.id == member_id).first()
-    if not member:
-        raise HTTPException(status_code=404, detail="Mitglied nicht gefunden.")
+    member = p4x_response_builders.get_member_or_404(db, member_id)
 
     p4x_service.update_fee_member(db, member, data.model_dump())
     db.refresh(member)

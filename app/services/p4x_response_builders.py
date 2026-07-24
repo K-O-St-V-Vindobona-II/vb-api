@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 
+from app.models.member import Member
 from app.models.p4x_account import P4xAccount
+from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_transaction import P4xTransaction
@@ -21,8 +23,6 @@ from app.services import p4x_service
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-    from app.models.p4x_category import P4xCategory
 
 
 def build_transaction_response(
@@ -238,3 +238,40 @@ def get_filter_or_404(
     if not f:
         raise HTTPException(status_code=404, detail="Filter nicht gefunden.")
     return f
+
+
+def get_transaction_or_404(
+    db: Session,
+    transaction_id: int,
+) -> P4xTransaction:
+    tx = (
+        db.query(P4xTransaction)
+        .filter(
+            P4xTransaction.id == transaction_id,
+            P4xTransaction.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaktion nicht gefunden.")
+    return tx
+
+
+def get_member_or_404(
+    db: Session,
+    member_id: int,
+) -> Member:
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Mitglied nicht gefunden.")
+    return member
+
+
+def get_category_or_404(
+    db: Session,
+    category_id: int,
+) -> P4xCategory:
+    cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Kategorie nicht gefunden.")
+    return cat

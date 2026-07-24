@@ -7,10 +7,6 @@ from unittest.mock import patch
 
 import bcrypt
 
-from app.api.router_includes.tracking import (
-    EMAIL_TEMPLATE_REGISTRY,
-    _member_name_map,
-)
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -20,7 +16,11 @@ from app.models.role import Role
 from app.models.sent_email import SentEmail
 from app.models.state import State
 from app.services.auth_service import create_user_session
-from app.services.tracking_service import resolve_action_label
+from app.services.tracking_service import (
+    EMAIL_TEMPLATE_REGISTRY,
+    _member_name_map,
+    resolve_action_label,
+)
 
 
 def _seed(db):
@@ -840,7 +840,7 @@ class TestTemplatePreviewNoData:
         }
         patched_registry = [*EMAIL_TEMPLATE_REGISTRY, fake_entry]
         with patch(
-            "app.api.router_includes.tracking.EMAIL_TEMPLATE_REGISTRY",
+            "app.services.tracking_service.EMAIL_TEMPLATE_REGISTRY",
             patched_registry,
         ):
             resp = client.get(

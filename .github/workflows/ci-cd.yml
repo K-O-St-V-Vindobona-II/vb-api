@@ -25,6 +25,8 @@ jobs:
         run: ruff check --output-format github .
       - name: Check formatting (Ruff)
         run: ruff format --check .
+      - name: Check router separation of concerns
+        run: python scripts/check_router_soc.py
 
   quality:
     name: Typecheck, Migrations & Test

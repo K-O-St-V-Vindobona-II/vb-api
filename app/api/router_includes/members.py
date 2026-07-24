@@ -8,6 +8,7 @@ from app.core.security import SESSION_IDLE_TIMEOUT_MINUTES
 from app.db.database import get_db
 from app.models.member import Member
 from app.schemas.member import MemberResponse
+from app.services import member_service
 from app.services.permission_service import calculate_permissions
 
 members_router = APIRouter()
@@ -41,6 +42,4 @@ def toggle_chroniclemail(
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, bool]:
     """Toggle the weekly chronicle email subscription for the current user."""
-    current_user.chroniclemail = not current_user.chroniclemail
-    db.commit()
-    return {"chroniclemail": current_user.chroniclemail or False}
+    return {"chroniclemail": member_service.toggle_chroniclemail(db, current_user)}

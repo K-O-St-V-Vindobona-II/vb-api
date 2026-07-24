@@ -26,7 +26,11 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from sqlalchemy.orm.query import RowReturningQuery
 
-    from app.schemas.p4x import AccountSaveRequest
+    from app.schemas.p4x import (
+        AccountSaveRequest,
+        CategoryFilterSaveRequest,
+        CategorySaveRequest,
+    )
 
 from app.models.contact import Contact
 from app.models.member import Member
@@ -429,6 +433,28 @@ def update_account(
     db.commit()
     db.refresh(account)
     return account
+
+
+def delete_account(db: Session, account: P4xAccount) -> None:
+    tx_count = (
+        db.query(P4xTransaction)
+        .filter(
+            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.deleted_at.is_(None),
+        )
+        .count()
+    )
+    if tx_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Konto kann nicht gelöscht werden, da Transaktionen vorhanden sind.",
+        )
+    account.deleted_at = datetime.now(UTC)
+    db.commit()
+
+
+def get_active_accounts(db: Session) -> list[P4xAccount]:
+    return db.query(P4xAccount).filter(P4xAccount.deleted_at.is_(None)).all()
 
 
 # ---------------------------------------------------------------------------
@@ -904,6 +930,10 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
 # ---------------------------------------------------------------------------
 
 
+def get_all_categories(db: Session) -> list[P4xCategory]:
+    return db.query(P4xCategory).all()
+
+
 def get_category_usage(db: Session, category: P4xCategory) -> dict[str, int]:
     filter_count = (
         db.query(P4xCategoryFilter)
@@ -923,6 +953,63 @@ def get_category_usage(db: Session, category: P4xCategory) -> dict[str, int]:
     return {"filter": filter_count, "direct": direct_count}
 
 
+def create_category(db: Session, data: CategorySaveRequest) -> P4xCategory:
+    existing = (
+        db.query(P4xCategory)
+        .filter(
+            P4xCategory.name == data.name,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Name muss eindeutig sein.",
+        )
+
+    now = datetime.now(UTC)
+    category = P4xCategory(
+        name=data.name,
+        label=data.label,
+        background_color=data.background_color,
+        text_color=data.text_color,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+    return category
+
+
+def update_category(
+    db: Session,
+    category: P4xCategory,
+    data: CategorySaveRequest,
+) -> P4xCategory:
+    dup = (
+        db.query(P4xCategory)
+        .filter(
+            P4xCategory.name == data.name,
+            P4xCategory.id != category.id,
+        )
+        .first()
+    )
+    if dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Name muss eindeutig sein.",
+        )
+
+    category.name = data.name
+    category.label = data.label
+    category.background_color = data.background_color
+    category.text_color = data.text_color
+    db.commit()
+    db.refresh(category)
+    return category
+
+
 def delete_category(db: Session, category: P4xCategory) -> str | None:
     """Returns an error message string if deletion is blocked, else None."""
     if category.protected:
@@ -938,6 +1025,10 @@ def delete_category(db: Session, category: P4xCategory) -> str | None:
 # ---------------------------------------------------------------------------
 # Category filter CRUD helpers
 # ---------------------------------------------------------------------------
+
+
+def get_all_category_filters(db: Session) -> list[P4xCategoryFilter]:
+    return db.query(P4xCategoryFilter).all()
 
 
 def get_filter_hit_count(db: Session, category_filter: P4xCategoryFilter) -> int:
@@ -996,6 +1087,104 @@ def get_filter_hits(
         )
         .all()
     )
+
+
+def _validate_category_filter_input(
+    db: Session,
+    data: CategoryFilterSaveRequest,
+) -> None:
+    if not (
+        data.iban
+        or data.min_amount is not None
+        or data.max_amount is not None
+        or data.subject
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Mindestens ein Filterkriterium muss gesetzt sein.",
+        )
+    if not db.query(P4xAccount).filter_by(id=data.p4x_account_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Konto existiert nicht.",
+        )
+    if not db.query(P4xCategory).filter_by(id=data.p4x_category_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Kategorie existiert nicht.",
+        )
+
+
+def create_category_filter(
+    db: Session,
+    data: CategoryFilterSaveRequest,
+) -> P4xCategoryFilter:
+    _validate_category_filter_input(db, data)
+    existing = (
+        db.query(P4xCategoryFilter)
+        .filter(
+            P4xCategoryFilter.name == data.name,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Name muss eindeutig sein.",
+        )
+
+    now = datetime.now(UTC)
+    category_filter = P4xCategoryFilter(
+        name=data.name,
+        p4x_account_id=data.p4x_account_id,
+        iban=data.iban,
+        min_amount=data.min_amount,
+        max_amount=data.max_amount,
+        subject=data.subject,
+        subject_mode=data.subject_mode,
+        p4x_category_id=data.p4x_category_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(category_filter)
+    db.commit()
+    db.refresh(category_filter)
+    apply_all_category_filters(db)
+    return category_filter
+
+
+def update_category_filter(
+    db: Session,
+    category_filter: P4xCategoryFilter,
+    data: CategoryFilterSaveRequest,
+) -> P4xCategoryFilter:
+    _validate_category_filter_input(db, data)
+    dup = (
+        db.query(P4xCategoryFilter)
+        .filter(
+            P4xCategoryFilter.name == data.name,
+            P4xCategoryFilter.id != category_filter.id,
+        )
+        .first()
+    )
+    if dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Name muss eindeutig sein.",
+        )
+
+    category_filter.name = data.name
+    category_filter.p4x_account_id = data.p4x_account_id
+    category_filter.iban = data.iban
+    category_filter.min_amount = data.min_amount
+    category_filter.max_amount = data.max_amount
+    category_filter.subject = data.subject
+    category_filter.subject_mode = data.subject_mode
+    category_filter.p4x_category_id = data.p4x_category_id
+    db.commit()
+    db.refresh(category_filter)
+    apply_all_category_filters(db)
+    return category_filter
 
 
 def delete_category_filter(db: Session, category_filter: P4xCategoryFilter) -> None:

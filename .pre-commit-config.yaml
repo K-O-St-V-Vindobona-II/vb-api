@@ -18,6 +18,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: check-router-soc
+        name: Router Separation-of-Concerns Check
+        entry: podman exec vb-api python scripts/check_router_soc.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: pyright
         name: Pyright Strict Type Checking
         entry: podman exec vb-api python -m pyright
