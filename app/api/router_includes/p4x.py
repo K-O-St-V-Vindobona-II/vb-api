@@ -44,7 +44,15 @@ from app.schemas.p4x import (
     TransactionResponse,
     WarningsResponse,
 )
-from app.services import p4x_response_builders, p4x_service
+from app.services import (
+    p4x_account_service,
+    p4x_category_service,
+    p4x_fee_balance_service,
+    p4x_import_service,
+    p4x_partner_service,
+    p4x_response_builders,
+    p4x_summary_service,
+)
 
 p4x_router = APIRouter()
 
@@ -62,18 +70,18 @@ def get_dashboard(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> DashboardResponse:
     """Return all bank accounts with balances, categories, and warning counts."""
-    accounts = p4x_service.get_active_accounts(db)
+    accounts = p4x_account_service.get_active_accounts(db)
 
-    partner_items, partner_count = p4x_service.get_warnings_partner(
+    partner_items, partner_count = p4x_account_service.get_warnings_partner(
         db,
         limit=PREVIEW_LIMIT,
     )
-    category_items, category_count = p4x_service.get_warnings_category(
+    category_items, category_count = p4x_account_service.get_warnings_category(
         db,
         limit=PREVIEW_LIMIT,
     )
 
-    categories = p4x_service.get_all_categories(db)
+    categories = p4x_category_service.get_all_categories(db)
 
     return DashboardResponse(
         accounts=[
@@ -119,9 +127,9 @@ def get_warnings_partner_list(
     page: int = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a partner assignment (paginated)."""
-    items, total = p4x_service.get_warnings_partner(db)
-    start = (page - 1) * p4x_service.PAGINATION_SIZE
-    end = start + p4x_service.PAGINATION_SIZE
+    items, total = p4x_account_service.get_warnings_partner(db)
+    start = (page - 1) * p4x_account_service.PAGINATION_SIZE
+    end = start + p4x_account_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
         items=[
@@ -130,7 +138,7 @@ def get_warnings_partner_list(
         ],
         total=total,
         page=page,
-        per_page=p4x_service.PAGINATION_SIZE,
+        per_page=p4x_account_service.PAGINATION_SIZE,
     )
 
 
@@ -141,9 +149,9 @@ def get_warnings_category_list(
     page: int = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a category (paginated)."""
-    items, total = p4x_service.get_warnings_category(db)
-    start = (page - 1) * p4x_service.PAGINATION_SIZE
-    end = start + p4x_service.PAGINATION_SIZE
+    items, total = p4x_account_service.get_warnings_category(db)
+    start = (page - 1) * p4x_account_service.PAGINATION_SIZE
+    end = start + p4x_account_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
         items=[
@@ -152,7 +160,7 @@ def get_warnings_category_list(
         ],
         total=total,
         page=page,
-        per_page=p4x_service.PAGINATION_SIZE,
+        per_page=p4x_account_service.PAGINATION_SIZE,
     )
 
 
@@ -168,7 +176,7 @@ def create_account(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> AccountResponse:
     """Create a new bank account."""
-    account = p4x_service.create_account(db, data)
+    account = p4x_account_service.create_account(db, data)
     return p4x_response_builders.build_account_response(db, account)
 
 
@@ -181,7 +189,7 @@ def update_account(
 ) -> AccountResponse:
     """Update bank account details."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    account = p4x_service.update_account(db, account, data)
+    account = p4x_account_service.update_account(db, account, data)
     return p4x_response_builders.build_account_response(db, account)
 
 
@@ -195,7 +203,7 @@ def delete_account(
 ) -> None:
     """Delete a bank account."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    p4x_service.delete_account(db, account)
+    p4x_account_service.delete_account(db, account)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +236,7 @@ async def import_transactions(
         )
 
     raw_json = content.decode("utf-8")
-    parse_result = p4x_service.parse_george_json(account.bic or "", raw_json)
+    parse_result = p4x_import_service.parse_george_json(account.bic or "", raw_json)
 
     if not parse_result.success:
         return ImportResult(
@@ -237,7 +245,7 @@ async def import_transactions(
         )
 
     original_structs = json.loads(raw_json)
-    summary = p4x_service.import_and_apply_filters(
+    summary = p4x_import_service.import_and_apply_filters(
         db,
         account,
         parse_result.entries,
@@ -272,7 +280,7 @@ def get_transactions_by_month(
 ) -> dict[str, list[TransactionResponse] | int | Decimal]:
     """List transactions for a specific month with start/end balances (paginated)."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    items, total = p4x_service.get_transactions_by_month(
+    items, total = p4x_account_service.get_transactions_by_month(
         db,
         account,
         year,
@@ -293,9 +301,13 @@ def get_transactions_by_month(
         ],
         "total": total,
         "page": page,
-        "per_page": p4x_service.PAGINATION_SIZE,
-        "startbalance": p4x_service.get_account_balance(db, account, last_of_prev),
-        "endbalance": p4x_service.get_account_balance(db, account, last_of_month),
+        "per_page": p4x_account_service.PAGINATION_SIZE,
+        "startbalance": p4x_account_service.get_account_balance(
+            db, account, last_of_prev
+        ),
+        "endbalance": p4x_account_service.get_account_balance(
+            db, account, last_of_month
+        ),
     }
 
 
@@ -312,7 +324,7 @@ def get_transactions_by_partner(
 ) -> PaginatedTransactions:
     """List transactions for a specific partner (paginated)."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    items, total = p4x_service.get_transactions_by_partner(
+    items, total = p4x_account_service.get_transactions_by_partner(
         db,
         account,
         partner_type,
@@ -325,7 +337,7 @@ def get_transactions_by_partner(
         ],
         total=total,
         page=page,
-        per_page=p4x_service.PAGINATION_SIZE,
+        per_page=p4x_account_service.PAGINATION_SIZE,
     )
 
 
@@ -341,7 +353,7 @@ def get_transactions_by_category(
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific category (paginated)."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    items, total = p4x_service.get_transactions_by_category(
+    items, total = p4x_account_service.get_transactions_by_category(
         db,
         account,
         category_id,
@@ -353,7 +365,7 @@ def get_transactions_by_category(
         ],
         total=total,
         page=page,
-        per_page=p4x_service.PAGINATION_SIZE,
+        per_page=p4x_account_service.PAGINATION_SIZE,
     )
 
 
@@ -429,7 +441,7 @@ def search_partners(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suchbegriff muss mindestens 3 Zeichen lang sein.",
         )
-    return p4x_service.search_partners(db, q)
+    return p4x_partner_service.search_partners(db, q)
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +470,7 @@ def set_transaction_partner(
             "id": data.delegatingPartner.id,
         }
 
-    p4x_service.set_transaction_partner(
+    p4x_partner_service.set_transaction_partner(
         db,
         tx,
         partner_dict,
@@ -500,7 +512,7 @@ async def update_transaction(
                 detail="Datei darf maximal 3 MB groß sein.",
             )
 
-    p4x_service.update_transaction_meta(
+    p4x_partner_service.update_transaction_meta(
         db,
         tx,
         comment,
@@ -517,7 +529,7 @@ def list_categories(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[CategoryWithUsageResponse]:
     """List all transaction categories."""
-    cats = p4x_service.get_all_categories(db)
+    cats = p4x_category_service.get_all_categories(db)
     return [p4x_response_builders.build_category_response(db, c) for c in cats]
 
 
@@ -528,7 +540,7 @@ def create_category(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryWithUsageResponse:
     """Create a new transaction category."""
-    cat = p4x_service.create_category(db, data)
+    cat = p4x_category_service.create_category(db, data)
     return p4x_response_builders.build_category_response(db, cat)
 
 
@@ -541,7 +553,7 @@ def update_category(
 ) -> CategoryWithUsageResponse:
     """Update a transaction category."""
     cat = p4x_response_builders.get_category_or_404(db, category_id)
-    cat = p4x_service.update_category(db, cat, data)
+    cat = p4x_category_service.update_category(db, cat, data)
     return p4x_response_builders.build_category_response(db, cat)
 
 
@@ -556,7 +568,7 @@ def delete_category_endpoint(
     """Delete a transaction category."""
     cat = p4x_response_builders.get_category_or_404(db, category_id)
 
-    error = p4x_service.delete_category(db, cat)
+    error = p4x_category_service.delete_category(db, cat)
     if error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -575,7 +587,7 @@ def list_category_filters(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[CategoryFilterResponse]:
     """List all category auto-assignment filters."""
-    filters = p4x_service.get_all_category_filters(db)
+    filters = p4x_category_service.get_all_category_filters(db)
     return [p4x_response_builders.build_filter_response(db, f) for f in filters]
 
 
@@ -586,7 +598,7 @@ def create_category_filter(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> CategoryFilterResponse:
     """Create a new category filter rule."""
-    f = p4x_service.create_category_filter(db, data)
+    f = p4x_category_service.create_category_filter(db, data)
     return p4x_response_builders.build_filter_response(db, f)
 
 
@@ -599,7 +611,7 @@ def update_category_filter(
 ) -> CategoryFilterResponse:
     """Update a category filter rule."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
-    f = p4x_service.update_category_filter(db, f, data)
+    f = p4x_category_service.update_category_filter(db, f, data)
     return p4x_response_builders.build_filter_response(db, f)
 
 
@@ -613,7 +625,7 @@ def delete_category_filter_endpoint(
 ) -> None:
     """Delete a category filter rule."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
-    p4x_service.delete_category_filter(db, f)
+    p4x_category_service.delete_category_filter(db, f)
 
 
 @p4x_router.get("/admin/category-filters/{filter_id}/filter2direct")
@@ -626,9 +638,9 @@ def get_filter2direct_preview(
 ]:
     """Preview which transactions a filter would convert to direct assignments."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
-    _, partner_count = p4x_service.get_warnings_partner(db)
-    _, category_count = p4x_service.get_warnings_category(db)
-    hits = p4x_service.get_filter_hits(db, f)
+    _, partner_count = p4x_account_service.get_warnings_partner(db)
+    _, category_count = p4x_account_service.get_warnings_category(db)
+    hits = p4x_category_service.get_filter_hits(db, f)
 
     return {
         "warningsCount": partner_count + category_count,
@@ -661,13 +673,13 @@ def process_filter2direct(
 ) -> dict[str, list[FilterHitResponse]]:
     """Convert all filter-matched transactions to direct category assignments."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
-    error = p4x_service.filter_to_direct(db, f)
+    error = p4x_category_service.filter_to_direct(db, f)
     if error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error,
         )
-    remaining_hits = p4x_service.get_filter_hits(db, f)
+    remaining_hits = p4x_category_service.get_filter_hits(db, f)
     return {
         "hits": [
             FilterHitResponse(
@@ -696,7 +708,7 @@ def set_category_direct_endpoint(
     """Manually assign a category to a transaction."""
     tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
-    error = p4x_service.set_category_direct(db, tx, data)
+    error = p4x_category_service.set_category_direct(db, tx, data)
     if error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -715,7 +727,7 @@ def unset_category_direct_endpoint(
     """Remove a manual category assignment from a transaction."""
     tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
-    p4x_service.unset_category_direct(db, tx)
+    p4x_category_service.unset_category_direct(db, tx)
     db.refresh(tx)
     return p4x_response_builders.build_transaction_response(tx, db)
 
@@ -737,7 +749,7 @@ def get_transactions_by_filter(
 ) -> PaginatedTransactions:
     """List transactions matched by a specific category filter (paginated)."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
-    items, total = p4x_service.get_transactions_by_filter(
+    items, total = p4x_account_service.get_transactions_by_filter(
         db,
         account,
         filter_id,
@@ -749,7 +761,7 @@ def get_transactions_by_filter(
         ],
         total=total,
         page=page,
-        per_page=p4x_service.PAGINATION_SIZE,
+        per_page=p4x_account_service.PAGINATION_SIZE,
     )
 
 
@@ -772,7 +784,7 @@ def list_fee_config(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[FeeResponse]:
     """List all membership fee configurations."""
-    fees = p4x_service.get_all_fees(db)
+    fees = p4x_fee_balance_service.get_all_fees(db)
     return [_build_fee_response(f) for f in fees]
 
 
@@ -783,13 +795,13 @@ def create_fee(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[FeeResponse]:
     """Create a new fee configuration entry."""
-    _, error = p4x_service.create_fee(db, data.year, data.month, data.fee)
+    _, error = p4x_fee_balance_service.create_fee(db, data.year, data.month, data.fee)
     if error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error,
         )
-    fees = p4x_service.get_all_fees(db)
+    fees = p4x_fee_balance_service.get_all_fees(db)
     return [_build_fee_response(f) for f in fees]
 
 
@@ -800,13 +812,13 @@ def delete_fee(
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> list[FeeResponse]:
     """Delete a fee configuration entry."""
-    error = p4x_service.delete_fee(db, start)
+    error = p4x_fee_balance_service.delete_fee(db, start)
     if error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error,
         )
-    fees = p4x_service.get_all_fees(db)
+    fees = p4x_fee_balance_service.get_all_fees(db)
     return [_build_fee_response(f) for f in fees]
 
 
@@ -819,7 +831,7 @@ def _build_fee_member_response(
     db: Session,
     member: Member,
 ) -> FeeMemberResponse:
-    balance_data = p4x_service.calculate_fee_balance(db, member)
+    balance_data = p4x_fee_balance_service.calculate_fee_balance(db, member)
 
     balance = None
     if balance_data:
@@ -867,14 +879,14 @@ def search_fee_members(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     q: str = "",
-) -> dict[str, list[p4x_service.FeeMemberSearchResult]]:
+) -> dict[str, list[p4x_fee_balance_service.FeeMemberSearchResult]]:
     """Search members with their fee payment status."""
     if len(q) < 3:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suchbegriff muss mindestens 3 Zeichen lang sein.",
         )
-    return {"data": p4x_service.search_fee_members(db, q)}
+    return {"data": p4x_fee_balance_service.search_fee_members(db, q)}
 
 
 @p4x_router.get("/fee-members/{member_id}")
@@ -885,7 +897,7 @@ def get_fee_member(
 ) -> FeeMemberResponse:
     """Return detailed fee payment data for a specific member."""
     member = p4x_response_builders.get_member_or_404(db, member_id)
-    if not p4x_service.is_fee_member(member):
+    if not p4x_fee_balance_service.is_fee_member(member):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
     return _build_fee_member_response(db, member)
 
@@ -900,7 +912,7 @@ def update_fee_member(
     """Update fee exemption or notes for a member."""
     member = p4x_response_builders.get_member_or_404(db, member_id)
 
-    p4x_service.update_fee_member(db, member, data.model_dump())
+    p4x_fee_balance_service.update_fee_member(db, member, data.model_dump())
     db.refresh(member)
     return _build_fee_member_response(db, member)
 
@@ -911,7 +923,7 @@ def get_fee_debtors(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> list[DebtorResponse]:
     """List all members with outstanding fee debts."""
-    debtors = p4x_service.get_debtors(db)
+    debtors = p4x_fee_balance_service.get_debtors(db)
     return [
         DebtorResponse(
             id=int(d["id"]),
@@ -933,7 +945,7 @@ def get_sumup_balance(
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> SumUpBalanceResponse:
     """Return the current SumUp terminal balance and recent transactions."""
-    return p4x_service.get_sumup_balance(db)
+    return p4x_summary_service.get_sumup_balance(db)
 
 
 # ---------------------------------------------------------------------------
@@ -954,7 +966,7 @@ def download_summary(
             detail="Enddatum muss nach dem Startdatum liegen.",
         )
 
-    xlsx_bytes, pdf_attachments = p4x_service.generate_summary_xlsx(
+    xlsx_bytes, pdf_attachments = p4x_summary_service.generate_summary_xlsx(
         db,
         data.start,
         data.end,

@@ -17,3 +17,4 @@ openpyxl
 weasyprint
 apscheduler
 boto3
+pydantic-settings

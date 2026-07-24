@@ -8,8 +8,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
-from app.services.p4x_response_builders import build_transaction_response
-from app.services.p4x_service import (
+from app.services.p4x_account_service import (
     get_account_balance,
     get_account_categories,
     get_transactions_by_category,
@@ -19,6 +18,7 @@ from app.services.p4x_service import (
     get_warnings_category,
     get_warnings_partner,
 )
+from app.services.p4x_response_builders import build_transaction_response
 
 
 def _now() -> datetime:

@@ -1,25 +1,26 @@
 import hashlib
 import logging
-import os
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import bcrypt
 import jwt
 
+from app.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.environ["SECRET_KEY"]
-if len(SECRET_KEY) < 32:
-    msg = "SECRET_KEY must be at least 32 characters long"
-    raise ValueError(msg)
+_settings = get_settings()
+
+# Settings._validate_tier1 already exits the process if secret_key is unset,
+# so by the time get_settings() returns, it is guaranteed non-None.
+SECRET_KEY = cast("str", _settings.secret_key)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("SESSION_LIFETIME_MINUTES", "15"))
-SESSION_IDLE_TIMEOUT_MINUTES = int(
-    os.environ.get("SESSION_IDLE_TIMEOUT_MINUTES", "120")
-)
-REFRESH_TOKEN_LIFETIME_DAYS = int(os.environ.get("REFRESH_TOKEN_LIFETIME_DAYS", "7"))
+ACCESS_TOKEN_EXPIRE_MINUTES = _settings.session_lifetime_minutes
+SESSION_IDLE_TIMEOUT_MINUTES = _settings.session_idle_timeout_minutes
+REFRESH_TOKEN_LIFETIME_DAYS = _settings.refresh_token_lifetime_days
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

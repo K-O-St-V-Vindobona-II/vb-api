@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from io import BytesIO
 from typing import TypedDict
@@ -10,21 +9,21 @@ from botocore.exceptions import ClientError
 from PIL import Image as PILImage
 from PIL import ImageOps
 
+from app.core.config import get_settings
+
 PILImage.MAX_IMAGE_PIXELS = 100_000_000
 
 MAX_PRESIGNED_EXPIRY = 86400
 MIN_PRESIGNED_EXPIRY = 60
 
-S3_PATH_STANDESDB_IMAGES: str = os.environ.get(
-    "S3_PATH_STANDESDB_IMAGES", "standesdb/images"
-)
-S3_PATH_STANDESDB_CACHE: str = os.environ.get(
-    "S3_PATH_STANDESDB_CACHE", "standesdb/cache"
-)
-S3_PATH_ARCHIVE_STORE: str = os.environ.get("S3_PATH_ARCHIVE_STORE", "archive/store")
-S3_PATH_ARCHIVE_CACHE: str = os.environ.get("S3_PATH_ARCHIVE_CACHE", "archive/cache")
-S3_PATH_DB_BACKUPS: str = os.environ.get("S3_PATH_DB_BACKUPS", "db-backups")
-S3_PATH_PUBLIC_GALLERY: str = os.environ.get("S3_PATH_PUBLIC_GALLERY", "public/gallery")
+_settings = get_settings()
+
+S3_PATH_STANDESDB_IMAGES: str = _settings.s3_path_standesdb_images
+S3_PATH_STANDESDB_CACHE: str = _settings.s3_path_standesdb_cache
+S3_PATH_ARCHIVE_STORE: str = _settings.s3_path_archive_store
+S3_PATH_ARCHIVE_CACHE: str = _settings.s3_path_archive_cache
+S3_PATH_DB_BACKUPS: str = _settings.s3_path_db_backups
+S3_PATH_PUBLIC_GALLERY: str = _settings.s3_path_public_gallery
 
 # Bump when generate_thumbnail()'s output changes, to invalidate stale cached
 # thumbnails in S3 (cache keys are content-hash-based and never expire otherwise).
@@ -222,18 +221,15 @@ _storage: StorageClient | None = None
 def _get_storage_singleton() -> StorageClient:
     global _storage  # noqa: PLW0603 -- lazy singleton, avoids reconnecting the S3 client per call
     if _storage is None:
+        settings = get_settings()
         _storage = StorageClient(
-            endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
-            access_key=os.environ.get("S3_ACCESS_KEY", ""),
-            secret_key=os.environ.get("S3_SECRET_KEY", ""),
-            bucket=os.environ.get("S3_BUCKET", "vindobona2-at"),
-            public_endpoint_url=os.environ.get(
-                "S3_PUBLIC_ENDPOINT_URL",
-            ),
-            region=os.environ.get("S3_REGION", "us-east-1"),
-            presigned_expiry=int(
-                os.environ.get("S3_PRESIGNED_EXPIRY", "900"),
-            ),
+            endpoint_url=settings.s3_endpoint_url,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            bucket=settings.s3_bucket,
+            public_endpoint_url=settings.s3_public_endpoint_url,
+            region=settings.s3_region,
+            presigned_expiry=settings.s3_presigned_expiry,
         )
     return _storage
 

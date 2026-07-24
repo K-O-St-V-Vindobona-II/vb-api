@@ -365,8 +365,10 @@ class TestRunRestore:
     def test_run_restore_production_without_force(self):
         storage = MagicMock(spec=StorageClient)
         with (
-            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch("app.services.backup_service.APP_ENVIRONMENT", "production"),
+            patch.dict(
+                os.environ,
+                {"DATABASE_URL": PG_URL, "APP_ENVIRONMENT": "production"},
+            ),
             pytest.raises(RuntimeError, match="force=True"),
         ):
             run_restore(storage)
@@ -377,8 +379,10 @@ class TestRunRestore:
         _put_backup(storage, backup_name)
 
         with (
-            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
-            patch("app.services.backup_service.APP_ENVIRONMENT", "production"),
+            patch.dict(
+                os.environ,
+                {"DATABASE_URL": PG_URL, "APP_ENVIRONMENT": "production"},
+            ),
             patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),

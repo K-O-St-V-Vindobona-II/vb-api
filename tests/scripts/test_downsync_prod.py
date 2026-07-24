@@ -6,6 +6,7 @@ exercise this script's own orchestration (guard, confirmation prompt, step
 skipping/ordering, alembic invocation, exit codes).
 """
 
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -30,7 +31,7 @@ def _run_main(argv: list[str]) -> None:
 class TestProductionGuard:
     def test_blocks_before_anything_else(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "production"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "production"}),
             patch.object(downsync_prod, "_load_aws_env") as mock_secrets,
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -43,7 +44,7 @@ class TestProductionGuard:
 class TestConfirmation:
     def test_aborts_when_confirmation_is_not_yes(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input", return_value="no"),
             patch.object(downsync_prod, "_run_db_restore") as mock_db,
@@ -58,7 +59,7 @@ class TestConfirmation:
 
     def test_yes_flag_skips_prompt(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input") as mock_input,
             patch.object(
@@ -73,7 +74,7 @@ class TestConfirmation:
 
     def test_dry_run_skips_prompt(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch("builtins.input") as mock_input,
             patch.object(
@@ -90,7 +91,7 @@ class TestConfirmation:
 class TestStepSkipping:
     def test_skip_db_only_runs_s3(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
@@ -109,7 +110,7 @@ class TestStepSkipping:
 
     def test_skip_s3_only_runs_db(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
@@ -129,7 +130,7 @@ class TestStepSkipping:
 
     def test_no_delete_is_threaded_through_to_s3_step(self) -> None:
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()
@@ -148,7 +149,7 @@ class TestStepSkipping:
         mirror reports errors, the DB step must not run against
         potentially-incomplete local data."""
         with (
-            patch.object(downsync_prod, "APP_ENVIRONMENT", "development"),
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
                 downsync_prod, "_build_prod_storage", return_value=MagicMock()

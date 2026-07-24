@@ -11,7 +11,7 @@ from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
-from app.services.p4x_service import (
+from app.services.p4x_partner_service import (
     find_partner_entity,
     search_partners,
     set_transaction_partner,

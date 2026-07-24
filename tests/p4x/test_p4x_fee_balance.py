@@ -9,7 +9,7 @@ from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
-from app.services.p4x_service import (
+from app.services.p4x_fee_balance_service import (
     _count_months,
     calculate_fee_balance,
     get_debtors,
@@ -46,7 +46,7 @@ def _seed_base(db) -> None:
     db.commit()
 
     # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
-    # (app/services/p4x_service.py) — the fee category must have id=1.
+    # (app/services/p4x_fee_balance_service.py) — the fee category must have id=1.
     db.add(
         P4xCategory(
             id=1,

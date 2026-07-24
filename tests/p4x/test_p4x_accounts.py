@@ -10,7 +10,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
-from app.services.p4x_service import get_account_balance
+from app.services.p4x_account_service import get_account_balance
 
 
 def _now() -> datetime:

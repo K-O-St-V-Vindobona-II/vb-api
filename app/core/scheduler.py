@@ -10,7 +10,6 @@ silently swallowing it.
 """
 
 import logging
-import os
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -22,6 +21,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
     from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.mailer import render_template, send_to_recipients
 from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -46,19 +46,16 @@ from app.services.anniversary_service import (
 )
 from app.services.archive_service import get_unsorted_upload_count
 from app.services.backup_service import cleanup_old_backups, run_backup
-from app.services.p4x_service import (
-    apply_all_category_filters,
-    calculate_fee_balance,
-    fee_for_month,
-)
+from app.services.p4x_category_service import apply_all_category_filters
+from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
 from app.services.permission_service import get_emails_with_permission
 from app.services.storage_integrity_service import (
     check_archive_integrity,
     check_standesdb_integrity,
 )
 
-BACKUP_ENABLED: bool = os.environ.get("BACKUP_ENABLED", "true").lower() != "false"
-BACKUP_HOUR: int = int(os.environ.get("BACKUP_HOUR", "3"))
+BACKUP_ENABLED: bool = get_settings().backup_enabled
+BACKUP_HOUR: int = get_settings().backup_hour
 
 logger = logging.getLogger(__name__)
 

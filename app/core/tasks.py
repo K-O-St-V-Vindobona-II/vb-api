@@ -1,3 +1,3 @@
-import os
+from app.core.config import get_settings
 
-TRACKING_RETENTION_MONTHS = int(os.environ.get("TRACKING_RETENTION_MONTHS", "6"))
+TRACKING_RETENTION_MONTHS = get_settings().tracking_retention_months

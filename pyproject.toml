@@ -50,6 +50,8 @@ mark-parentheses = false
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "app.db.database.SessionLocal".msg = "Direct SessionLocal instantiation is banned — inject the DB session via FastAPI Depends(get_db)! (Exception: background jobs without a request context, see per-file-ignores.)"
+"os.environ".msg = "Direct os.environ access is banned — read config via app.core.config.get_settings() instead! (Exception: standalone scripts/tests without Settings access, see per-file-ignores.)"
+"os.getenv".msg = "Direct os.getenv() is banned — read config via app.core.config.get_settings() instead! (Exception: standalone scripts/tests without Settings access, see per-file-ignores.)"
 
 [tool.ruff.lint.mccabe]
 # 8 is the sweet spot: prevents monster functions, but allows
@@ -57,9 +59,16 @@ mark-parentheses = false
 max-complexity = 8
 
 [tool.ruff.lint.per-file-ignores]
-# Tests are allowed to be more robust and repetitive
-"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603"]
-"alembic/**" = ["F401", "UP035", "ANN", "PLR0915"]
+# Tests are allowed to be more robust and repetitive. TID251: tests
+# deliberately drive Settings through monkeypatch.setenv()/patch.dict(
+# os.environ, ...) — get_settings()'s lru_cache is cleared per-test
+# (see conftest.py's _reset_settings_cache fixture), so direct env
+# manipulation is the whole testing strategy, not a violation of it.
+"tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603", "TID251"]
+# alembic/env.py runs as Alembic's own CLI entry point, outside the
+# FastAPI app process — it reads DATABASE_URL directly rather than via
+# app.core.config.get_settings().
+"alembic/**" = ["F401", "UP035", "ANN", "PLR0915", "TID251"]
 "scripts/**" = ["T201", "FBT", "PLR0915"]
 # Declarative models use `from __future__ import annotations`, so SQLAlchemy
 # resolves `Mapped[...]` annotations at mapper-configure time by evaluating
@@ -77,6 +86,12 @@ max-complexity = 8
 "app/core/mailer.py" = ["TID251"]
 "scripts/check_s3_integrity.py" = ["TID251"]
 "scripts/trigger_chronicles.py" = ["TID251"]
+# Different reason from the SessionLocal exceptions above: this file
+# spreads the *entire* current environment (`{**os.environ, "PGPASSWORD":
+# ...}`) to build a pg_dump/pg_restore subprocess env — a legitimate use
+# of the whole os.environ mapping, not a single named config value that
+# belongs in Settings.
+"app/services/backup_service.py" = ["TID251"]
 
 [tool.ruff.format]
 quote-style = "double"

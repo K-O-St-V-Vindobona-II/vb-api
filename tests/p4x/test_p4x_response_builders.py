@@ -14,7 +14,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
-from app.services import p4x_service
+from app.services import p4x_partner_service
 from app.services.p4x_response_builders import (
     build_account_response,
     build_category_response,
@@ -103,7 +103,7 @@ class TestBuildTransactionResponse:
     def test_includes_active_partner(self, db_session):
         account, member, _contact = _seed(db_session)
         tx = _create_tx(db_session, account)
-        p4x_service.set_transaction_partner(
+        p4x_partner_service.set_transaction_partner(
             db_session, tx, {"type": "member", "id": member.id}, False, None
         )
         db_session.refresh(tx)
@@ -118,7 +118,7 @@ class TestBuildTransactionResponse:
     def test_soft_deleted_partner_is_excluded(self, db_session):
         account, member, _contact = _seed(db_session)
         tx = _create_tx(db_session, account)
-        p4x_service.set_transaction_partner(
+        p4x_partner_service.set_transaction_partner(
             db_session, tx, {"type": "member", "id": member.id}, False, None
         )
         db_session.refresh(tx)
@@ -133,7 +133,7 @@ class TestBuildTransactionResponse:
     def test_includes_delegating_partner(self, db_session):
         account, member, contact = _seed(db_session)
         tx = _create_tx(db_session, account)
-        p4x_service.set_transaction_partner(
+        p4x_partner_service.set_transaction_partner(
             db_session,
             tx,
             {"type": "member", "id": member.id},

@@ -32,7 +32,7 @@ from pathlib import Path
 _VB_API_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_VB_API_ROOT))
 
-from app.core.config import APP_ENVIRONMENT
+from app.core.config import get_settings
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient, get_storage
 from app.services.backup_service import run_restore
 from app.services.s3_mirror_service import MirrorResult, mirror_prefix
@@ -182,17 +182,18 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    if APP_ENVIRONMENT == "production":
+    app_environment = get_settings().app_environment
+    if app_environment == "production":
         print(
             "ERROR: This script must not run in production "
-            f"(APP_ENVIRONMENT={APP_ENVIRONMENT!r})."
+            f"(APP_ENVIRONMENT={app_environment!r})."
         )
         sys.exit(1)
 
     args = _parse_args()
     local_storage = get_storage()
 
-    print(f"Environment: {APP_ENVIRONMENT}")
+    print(f"Environment: {app_environment}")
     print(f"Skip DB:     {args.skip_db}")
     print(f"Skip S3:     {args.skip_s3}")
     print(f"Dry run:     {args.dry_run}")

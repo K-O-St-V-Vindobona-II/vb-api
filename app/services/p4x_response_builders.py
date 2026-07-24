@@ -19,7 +19,7 @@ from app.schemas.p4x import (
     PartnerRef,
     TransactionResponse,
 )
-from app.services import p4x_service
+from app.services import p4x_account_service, p4x_category_service, p4x_partner_service
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -31,7 +31,7 @@ def build_transaction_response(
 ) -> TransactionResponse:
     partner = None
     if tx.partner and tx.partner.deleted_at is None:
-        entity = p4x_service.find_partner_entity(
+        entity = p4x_partner_service.find_partner_entity(
             db,
             tx.partner.partner_type,
             tx.partner.partner_id,
@@ -45,7 +45,7 @@ def build_transaction_response(
 
     delegating_partner = None
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_service.find_partner_entity(
+        entity = p4x_partner_service.find_partner_entity(
             db,
             tx.delegating_partner_type,
             tx.delegating_partner_id,
@@ -141,7 +141,7 @@ def build_account_response(
         label=account.label,
         init_date=str(account.init_date) if account.init_date else None,
         init_balance=account.init_balance,
-        balance=p4x_service.get_account_balance(db, account),
+        balance=p4x_account_service.get_account_balance(db, account),
         transactions_count=tx_count,
         transactions_latest=str(latest[0]) if latest else None,
     )
@@ -193,7 +193,7 @@ def build_category_response(
     db: Session,
     cat: P4xCategory,
 ) -> CategoryWithUsageResponse:
-    usage = p4x_service.get_category_usage(db, cat)
+    usage = p4x_category_service.get_category_usage(db, cat)
     return CategoryWithUsageResponse(
         id=cat.id,
         name=cat.name,
@@ -220,7 +220,7 @@ def build_filter_response(
         subject=f.subject,
         subject_mode=f.subject_mode,
         p4x_category_id=f.p4x_category_id,
-        hitCount=p4x_service.get_filter_hit_count(db, f),
+        hitCount=p4x_category_service.get_filter_hit_count(db, f),
     )
 
 

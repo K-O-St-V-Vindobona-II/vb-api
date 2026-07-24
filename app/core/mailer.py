@@ -1,5 +1,4 @@
 import logging
-import os
 import smtplib
 from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
@@ -9,6 +8,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import get_settings, require_setting
 from app.db.database import SessionLocal
 from app.models.sent_email import SentEmail
 
@@ -20,17 +20,19 @@ _jinja_env = Environment(loader=FileSystemLoader(str(_templates_dir)))  # noqa: 
 
 
 def _build_from_header() -> tuple[str, str]:
-    from_email = os.environ["SMTP_FROM_EMAIL"]
-    from_name = os.environ.get("SMTP_FROM_NAME", "Vindobona")
+    settings = get_settings()
+    from_email = require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL")
+    from_name = settings.smtp_from_name
     return from_email, f'"{from_name}" <{from_email}>'
 
 
 def _send_message(msg: MIMEMultipart, recipients: str | list[str]) -> None:
-    smtp_host = os.environ["SMTP_HOST"]
-    smtp_port = int(os.environ["SMTP_PORT"])
-    smtp_user = os.environ.get("SMTP_USER", "null")
-    smtp_password = os.environ.get("SMTP_PASSWORD", "null")
-    from_email = os.environ["SMTP_FROM_EMAIL"]
+    settings = get_settings()
+    smtp_host = require_setting(settings.smtp_host, "SMTP_HOST")
+    smtp_port = require_setting(settings.smtp_port, "SMTP_PORT")
+    smtp_user = settings.smtp_user
+    smtp_password = settings.smtp_password
+    from_email = require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL")
 
     if smtp_port == 465:
         with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
@@ -61,7 +63,8 @@ def _log_sent_email(
         try:
             now = datetime.now(UTC)
             entry = SentEmail(
-                mail_from=from_addr or os.environ.get("SMTP_FROM_EMAIL", ""),
+                mail_from=from_addr
+                or require_setting(get_settings().smtp_from_email, "SMTP_FROM_EMAIL"),
                 to=to_str,
                 bcc=bcc_str,
                 subject=subject,
@@ -101,8 +104,11 @@ def send_to_recipients(
     if not to_emails and not bcc_emails:
         return
 
-    from_email = from_addr or os.environ["SMTP_FROM_EMAIL"]
-    resolved_from_name = from_name or os.environ.get("SMTP_FROM_NAME", "Vindobona")
+    settings = get_settings()
+    from_email = from_addr or require_setting(
+        settings.smtp_from_email, "SMTP_FROM_EMAIL"
+    )
+    resolved_from_name = from_name or settings.smtp_from_name
     from_header = f'"{resolved_from_name}" <{from_email}>'
 
     msg = MIMEMultipart("alternative")
@@ -134,7 +140,9 @@ def send_to_recipients(
 
 def send_reset_email(to_email: str, token: str) -> None:
     _from_email, from_header = _build_from_header()
-    frontend_url = os.environ["FRONTEND_RESET_URL"]
+    frontend_url = require_setting(
+        get_settings().frontend_reset_url, "FRONTEND_RESET_URL"
+    )
     reset_link = f"{frontend_url}?token={token}&email={to_email}"
 
     template = _jinja_env.get_template("password_reset.html")

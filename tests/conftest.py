@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
 from app.core import storage as storage_module
+from app.core.config import get_settings
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from main import app
@@ -80,6 +81,17 @@ def _create_schema() -> None:
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
     command.upgrade(Config("alembic.ini"), "head")
+
+
+@pytest.fixture(autouse=True)
+def _reset_settings_cache():
+    # get_settings() is lru_cache'd for app runtime performance, but tests
+    # need each test to see the current os.environ (e.g. monkeypatch.setenv
+    # or patch.dict(os.environ, ...) of Tier 1/2/3 vars) — clear the cache
+    # before AND after so nothing leaks into neighboring tests.
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
