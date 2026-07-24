@@ -1,5 +1,8 @@
 from datetime import UTC, date, datetime
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
@@ -267,3 +270,64 @@ class TestUnsetCategoryDirect:
             .count()
         )
         assert hits_after_unset == 1
+
+
+class TestActiveDirectUniqueIndex:
+    """Regression tests for Slice 6 of the backend remediation plan: a
+    partial unique index on (p4x_transaction_id, p4x_category_id) WHERE
+    deleted_at IS NULL closes a race condition where two concurrent
+    set-category-direct requests for the same pair could otherwise both
+    succeed."""
+
+    def test_second_active_direct_for_same_pair_is_rejected(self, db_session):
+        _account, cat, tx = _seed(db_session)
+        db_session.add(
+            P4xCategoryDirect(
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
+                amount=tx.amount,
+            )
+        )
+        db_session.commit()
+
+        db_session.add(
+            P4xCategoryDirect(
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
+                amount=tx.amount,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_soft_deleted_duplicate_is_allowed(self, db_session):
+        _account, cat, tx = _seed(db_session)
+        db_session.add(
+            P4xCategoryDirect(
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
+                amount=tx.amount,
+                deleted_at=datetime.now(UTC),
+            )
+        )
+        db_session.commit()
+
+        db_session.add(
+            P4xCategoryDirect(
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
+                amount=tx.amount,
+            )
+        )
+        db_session.commit()
+
+        active_count = (
+            db_session.query(P4xCategoryDirect)
+            .filter(
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
+                P4xCategoryDirect.p4x_category_id == cat.id,
+                P4xCategoryDirect.deleted_at.is_(None),
+            )
+            .count()
+        )
+        assert active_count == 1

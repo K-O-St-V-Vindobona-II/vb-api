@@ -181,6 +181,42 @@ class TestKeysListEndpoint:
         assert len(members) == 1
         assert members[0]["id"] == user.id
 
+    def test_query_count_does_not_scale_with_member_count(
+        self, client, db_session, count_queries
+    ):
+        """Regression test for the N+1 fix in _build_keys_data(): iterating
+        m.member_keys per member must not issue one query per member."""
+        _seed(db_session)
+        headers, user = _login(db_session, client)
+        db_session.add(MemberKey(member_id=user.id, key_id=1))
+        db_session.commit()
+
+        with count_queries() as small:
+            resp_small = client.get("/api/standesdb/keys", headers=headers)
+
+        for i in range(5):
+            hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+            m = Member(
+                email=f"member{i}@vbw.at",
+                auth_password=hashed,
+                auth_locked=False,
+                vorname=f"Member{i}",
+                nachname=f"Test{i}",
+                org_id="vbw",
+            )
+            db_session.add(m)
+            db_session.commit()
+            db_session.add(MemberKey(member_id=m.id, key_id=1))
+            db_session.commit()
+
+        with count_queries() as large:
+            resp_large = client.get("/api/standesdb/keys", headers=headers)
+
+        assert resp_small.status_code == 200
+        assert resp_large.status_code == 200
+        assert len(resp_large.json()["members"]) == 6
+        assert large.count == small.count
+
 
 class TestKeysDownloadEndpoint:
     def test_requires_auth(self, client, db_session):

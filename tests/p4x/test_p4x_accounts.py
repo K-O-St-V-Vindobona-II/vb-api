@@ -93,7 +93,7 @@ class TestAccountCRUD:
             },
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         data = resp.json()
         assert data["iban"] == "AT94 2011 1000 0530 1947"
         assert data["balance"] == 500.0
@@ -147,7 +147,8 @@ class TestAccountCRUD:
             f"/api/p4x/admin/accounts/{account.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
 
     def test_delete_account_with_transactions_rejected(self, db_session, client):
         _seed(db_session)

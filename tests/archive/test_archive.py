@@ -24,7 +24,9 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
 from app.services.archive_service import (
+    _load_perm_sets,
     get_effective_permissions,
+    get_root_content,
 )
 from app.services.auth_service import (
     create_user_session,
@@ -179,7 +181,9 @@ class TestPermissions:
             "test",
             perms=["vbw_fu", "vbn_bi"],
         )
-        effective = get_effective_permissions(db_session, d)
+        effective = get_effective_permissions(
+            db_session, d, _load_perm_sets(db_session)
+        )
         assert "vbw_fu" in effective
         assert "vbn_bi" in effective
 
@@ -199,7 +203,9 @@ class TestPermissions:
             "child",
             parent_id=parent.id,
         )
-        effective = get_effective_permissions(db_session, child)
+        effective = get_effective_permissions(
+            db_session, child, _load_perm_sets(db_session)
+        )
         assert "vbw_fu" in effective
 
     def test_effective_perms_not_recursive(
@@ -218,8 +224,32 @@ class TestPermissions:
             "child",
             parent_id=parent.id,
         )
-        effective = get_effective_permissions(db_session, child)
+        effective = get_effective_permissions(
+            db_session, child, _load_perm_sets(db_session)
+        )
         assert "vbw_fu" not in effective
+
+    def test_query_count_does_not_scale_with_dir_count(self, db_session, count_queries):
+        """Regression test for the N+1 fix in _own_permissions(): querying
+        all orgs/states must happen once per request, not once per
+        directory row in the listing."""
+        _seed(db_session)
+        _headers, user = _login_user(db_session, None)
+
+        _make_dir(db_session, "dir-small-1", perms=["vbw_fu"])
+        _make_dir(db_session, "dir-small-2", perms=["vbw_fu"])
+
+        with count_queries() as small:
+            get_root_content(db_session, user)
+
+        for i in range(5):
+            _make_dir(db_session, f"dir-large-{i}", perms=["vbw_fu"])
+
+        with count_queries() as large:
+            content = get_root_content(db_session, user)
+
+        assert len(content["content"]["subdirs"]["insight"]) == 7
+        assert large.count == small.count
 
 
 class TestDirEndpoints:
@@ -302,7 +332,7 @@ class TestDirEndpoints:
             },
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["id"] > 0
 
     def test_delete_empty_dir_force(
@@ -318,7 +348,8 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{dir_id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.expire_all()
         assert db_session.get(ArchiveDir, dir_id) is None
 
@@ -335,7 +366,8 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{d.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.expire_all()
         refreshed = db_session.get(ArchiveDir, d.id)
         assert refreshed is not None
@@ -454,7 +486,8 @@ class TestFileEndpoints:
             f"/api/archive/files/{f.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.refresh(f)
         assert f.deleted_at is not None
 
@@ -482,7 +515,7 @@ class TestComments:
             json={"content": "Tolle Datei!"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["comment"]["content"] == "Tolle Datei!"
 
     def test_create_comment_too_short(
@@ -545,7 +578,8 @@ class TestComments:
             f"/api/archive/files/{f.id}/comments/{c.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.refresh(c)
         assert c.deleted_at is not None
 

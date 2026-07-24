@@ -6,6 +6,8 @@ from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.role import Role
+from app.services import member_service
+from app.services.auth_service import create_user_session
 from app.services.permission_service import calculate_permissions
 
 
@@ -66,3 +68,48 @@ def test_parent_id_defaults_to_none_not_zero(db_session):
     db_session.refresh(member)
 
     assert member.parent_id is None
+
+
+class TestToggleChroniclemail:
+    def test_flips_from_false_to_true(self, db_session):
+        member = Member(
+            email="chronicle@vindobona.at", org_id="vbw", chroniclemail=False
+        )
+        db_session.add(member)
+        db_session.commit()
+
+        result = member_service.toggle_chroniclemail(db_session, member)
+
+        assert result is True
+        assert member.chroniclemail is True
+
+    def test_flips_from_true_to_false(self, db_session):
+        member = Member(
+            email="chronicle2@vindobona.at", org_id="vbw", chroniclemail=True
+        )
+        db_session.add(member)
+        db_session.commit()
+
+        result = member_service.toggle_chroniclemail(db_session, member)
+
+        assert result is False
+        assert member.chroniclemail is False
+
+    def test_endpoint_toggles_and_persists(self, client, db_session):
+        member = Member(
+            email="chronicle-http@vindobona.at",
+            org_id="vbw",
+            chroniclemail=False,
+            auth_locked=False,
+        )
+        db_session.add(member)
+        db_session.commit()
+        token, _, _ = create_user_session(db_session, member)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.patch("/api/members/me/chroniclemail", headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json() == {"chroniclemail": True}
+        db_session.refresh(member)
+        assert member.chroniclemail is True

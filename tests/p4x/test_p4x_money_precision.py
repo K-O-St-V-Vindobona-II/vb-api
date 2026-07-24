@@ -110,11 +110,45 @@ class TestSetCategoryDirectPrecision:
     def test_many_small_splits_summing_exactly_are_accepted(self, db_session):
         """10 splits of 0.10 each -> exactly 1.00, no float drift possible
         with Decimal arithmetic, so the strict (non-rounded) comparison
-        must still accept this."""
-        tx, category = self._seed_transaction_and_category(
-            db_session, amount=Decimal("1.00")
+        must still accept this. Each split targets a distinct category -
+        a transaction may only have one active direct assignment per
+        category (see the partial unique index on p4x_category_directs)."""
+        account = _create_account(db_session)
+        categories = []
+        for i in range(10):
+            category = P4xCategory(
+                name=f"test.split.{i}",
+                label=f"Split {i}",
+                background_color="#000",
+                text_color="#fff",
+                created_at=_now(),
+                updated_at=_now(),
+            )
+            db_session.add(category)
+            categories.append(category)
+        db_session.commit()
+        for category in categories:
+            db_session.refresh(category)
+
+        tx = P4xTransaction(
+            sha256_hash="split_tx",
+            booking=date(2020, 1, 1),
+            valuation=date(2020, 1, 1),
+            iban="AT001",
+            amount=Decimal("1.00"),
+            subject="Split test",
+            p4x_account_id=account.id,
+            created_at=_now(),
+            updated_at=_now(),
         )
-        slots = [{"p4x_category_id": category.id, "amount": "0.10"} for _ in range(10)]
+        db_session.add(tx)
+        db_session.commit()
+        db_session.refresh(tx)
+
+        slots = [
+            {"p4x_category_id": category.id, "amount": "0.10"}
+            for category in categories
+        ]
 
         error = set_category_direct(db_session, tx, slots)
 

@@ -220,7 +220,7 @@ class TestMemberCRUD:
             json=_member_payload(vorname="Neu", nachname="Mitglied"),
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert "id" in resp.json()
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
@@ -242,7 +242,7 @@ class TestMemberCRUD:
             json=_member_payload(vorname="Ohne", nachname="Elternteil"),
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
         member = db_session.get(Member, resp.json()["id"])
         assert member.parent_id is None
@@ -344,7 +344,7 @@ class TestContactCRUD:
             json={"kontakttyp": "person", "name": "Neuer Kontakt"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_create_contact_duplicate_rejected(self, mock_mail, client, db_session):

@@ -1,11 +1,12 @@
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 
 from app.core.storage import (
     S3_PATH_ARCHIVE_CACHE,
@@ -78,27 +79,42 @@ def is_archive_admin(user: Member) -> bool:
     return "archiveAdmin" in calculate_permissions(user)
 
 
+@dataclass(frozen=True)
+class _PermSets:
+    """Snapshot of valid org/state IDs, loaded once per request instead of
+    once per directory row (previously N+1 queries in directory listings)."""
+
+    orgs: frozenset[str]
+    states: frozenset[str]
+
+
+def _load_perm_sets(db: Session) -> _PermSets:
+    return _PermSets(
+        orgs=frozenset(o.id for o in db.query(Org).all()),
+        states=frozenset(s.id for s in db.query(State).all()),
+    )
+
+
 def get_effective_permissions(
     db: Session,
     dir_obj: ArchiveDir,
+    perm_sets: _PermSets,
 ) -> list[str]:
-    own = _own_permissions(db, dir_obj)
-    inherited = _inherited_permissions(db, dir_obj)
+    own = _own_permissions(dir_obj, perm_sets)
+    inherited = _inherited_permissions(db, dir_obj, perm_sets)
     merged = list(set(own) | set(inherited))
     merged.sort()
     return merged
 
 
 def _own_permissions(
-    db: Session,
     dir_obj: ArchiveDir,
+    perm_sets: _PermSets,
 ) -> list[str]:
-    orgs = {o.id for o in db.query(Org).all()}
-    states = {s.id for s in db.query(State).all()}
     result = []
     # Skip permissions referencing deleted orgs/states
     for p in dir_obj.archive_permissions:
-        if p.org_id in orgs and p.state_id in states:
+        if p.org_id in perm_sets.orgs and p.state_id in perm_sets.states:
             key = f"{p.org_id}_{p.state_id}"
             if key not in result:
                 result.append(key)
@@ -108,6 +124,7 @@ def _own_permissions(
 def _inherited_permissions(
     db: Session,
     dir_obj: ArchiveDir,
+    perm_sets: _PermSets,
 ) -> list[str]:
     parent = (
         db.get(ArchiveDir, dir_obj.archive_dir_id) if dir_obj.archive_dir_id else None
@@ -115,17 +132,18 @@ def _inherited_permissions(
     if not parent:
         return []
     if parent.recursive_permissions:
-        return get_effective_permissions(db, parent)
-    return _inherited_permissions(db, parent)
+        return get_effective_permissions(db, parent, perm_sets)
+    return _inherited_permissions(db, parent, perm_sets)
 
 
 def can_insight(
     user: Member,
     db: Session,
     dir_obj: ArchiveDir,
+    perm_sets: _PermSets,
 ) -> bool:
     key = f"{user.org_id}_{user.state_id}"
-    return key in get_effective_permissions(db, dir_obj)
+    return key in get_effective_permissions(db, dir_obj, perm_sets)
 
 
 def _require_admin(user: Member) -> None:
@@ -140,10 +158,11 @@ def _require_insight_or_admin(
     user: Member,
     db: Session,
     dir_obj: ArchiveDir,
+    perm_sets: _PermSets,
 ) -> None:
     if is_archive_admin(user):
         return
-    if not can_insight(user, db, dir_obj):
+    if not can_insight(user, db, dir_obj, perm_sets):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Keine Berechtigung für dieses Verzeichnis.",
@@ -254,12 +273,13 @@ def _classify_dir(
     user: Member,
     db: Session,
     bucket: dict[str, list[dict[str, object]]],
+    perm_sets: _PermSets,
 ) -> None:
     if d.deleted_at:
         if admin:
             bucket["trashed"].append(_dir_short(d))
         return
-    if can_insight(user, db, d):
+    if can_insight(user, db, d, perm_sets):
         bucket["insight"].append(_dir_short(d))
     elif admin:
         bucket["admin"].append(_dir_short(d))
@@ -270,6 +290,7 @@ def get_root_content(
     user: Member,
 ) -> dict[str, object]:
     admin = is_archive_admin(user)
+    perm_sets = _load_perm_sets(db)
     content = _empty_content()
 
     dirs = (
@@ -279,7 +300,7 @@ def get_root_content(
         .all()
     )
     for d in dirs:
-        _classify_dir(d, admin, user, db, content["subdirs"])
+        _classify_dir(d, admin, user, db, content["subdirs"], perm_sets)
 
     files = db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).all()
     for f in files:
@@ -315,14 +336,15 @@ def _build_dir_detail_content(
     dir_obj: ArchiveDir,
     user: Member,
     admin: bool,  # noqa: FBT001
+    perm_sets: _PermSets,
 ) -> dict[str, dict[str, list[dict[str, object]]]]:
     content = _empty_content()
 
     children = dir_obj.children.order_by(ArchiveDir.name).all()
     for d in children:
-        _classify_dir(d, admin, user, db, content["subdirs"])
+        _classify_dir(d, admin, user, db, content["subdirs"], perm_sets)
 
-    has_insight = can_insight(user, db, dir_obj)
+    has_insight = can_insight(user, db, dir_obj, perm_sets)
     files = dir_obj.archive_files.all()
     for f in files:
         if f.deleted_at:
@@ -348,13 +370,14 @@ def get_dir_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Verzeichnis nicht gefunden.",
         )
-    _require_insight_or_admin(user, db, dir_obj)
+    perm_sets = _load_perm_sets(db)
+    _require_insight_or_admin(user, db, dir_obj, perm_sets)
 
     admin = is_archive_admin(user)
-    content = _build_dir_detail_content(db, dir_obj, user, admin)
+    content = _build_dir_detail_content(db, dir_obj, user, admin, perm_sets)
 
-    own = _own_permissions(db, dir_obj)
-    inherited = _inherited_permissions(db, dir_obj)
+    own = _own_permissions(dir_obj, perm_sets)
+    inherited = _inherited_permissions(db, dir_obj, perm_sets)
     effective = list(set(own) | set(inherited))
     effective.sort()
 
@@ -602,7 +625,7 @@ def get_file_detail(
     if file_obj.archive_dir_id:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj)
+            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
     admin = is_archive_admin(user)
     item = _active_store_item(file_obj)
@@ -724,7 +747,7 @@ def serve_download(
     if file_obj.archive_dir_id:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj)
+            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
     item = _active_store_item(file_obj)
     if not item:
@@ -775,7 +798,7 @@ def get_presigned_url(
     if file_obj.archive_dir_id:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj)
+            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
     item = _active_store_item(file_obj)
     if not item:
@@ -856,6 +879,11 @@ def get_unfiled_uploads(
         .join(
             ArchiveStoreItem,
             ArchiveFileVersion.archive_store_item_id == ArchiveStoreItem.id,
+        )
+        .options(
+            contains_eager(ArchiveFileVersion.archive_file).selectinload(
+                ArchiveFile.file_versions
+            )
         )
         .filter(
             ArchiveFile.archive_dir_id == 0,
@@ -1042,6 +1070,7 @@ def search_archive(
 ) -> list[dict[str, object]]:
     term = f"%{query}%"
     admin = is_archive_admin(user)
+    perm_sets = _load_perm_sets(db)
     results: list[dict[str, object]] = []
 
     dir_hits = (
@@ -1055,7 +1084,7 @@ def search_archive(
         .all()
     )
     for d in dir_hits:
-        if not admin and not can_insight(user, db, d):
+        if not admin and not can_insight(user, db, d, perm_sets):
             continue
         results.append(
             {
@@ -1103,6 +1132,7 @@ def search_archive(
                 user,
                 db,
                 parent,
+                perm_sets,
             )
         ):
             continue

@@ -6,7 +6,7 @@ from itertools import combinations
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.badge import Badge
 from app.models.contact import Contact
@@ -195,6 +195,10 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
 def get_member_detail(
     db: Session, member_id: int
 ) -> MemberDetailResponse | MemberDismissedResponse:
+    # Intentionally not org-scoped: any authenticated member (vbw or vbn)
+    # can read any other member's directory entry - the two orgs
+    # deliberately share one member directory. Only write access
+    # (create/update/delete) is org-restricted, see _require_standesdb_admin.
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -376,9 +380,9 @@ def apply_member_input(  # noqa: C901
     # The API contract uses 0 as the "no parent" sentinel (matches how
     # MemberDetailResponse serializes it back out via `parent_id or 0`),
     # but parent_id is a nullable self-referencing FK — 0 is never a
-    # valid member id and violates the FK constraint once enforced (see
-    # scripts/migration_archive/sqlite2pg.py's _fix_known_legacy_data_issues
-    # for the same issue in migrated legacy data).
+    # valid member id and would violate the FK constraint if not normalized
+    # to None here (the same issue applied to the original SQLite legacy
+    # data, cleaned up once during the historical Postgres migration).
     if input_dict.get("parent_id") == 0:
         input_dict["parent_id"] = None
 
@@ -423,9 +427,6 @@ def apply_member_input(  # noqa: C901
     validate_roles_history(db, roles_entries, member.org_id or "", member.id)
     _sync_roles(db, member, roles_entries, diff)
 
-    db.commit()
-    db.refresh(member)
-
     if diff:
         _persist_change_log(
             db,
@@ -437,7 +438,9 @@ def apply_member_input(  # noqa: C901
             current_user.id,
             now,
         )
-        db.commit()
+
+    db.commit()
+    db.refresh(member)
 
     return diff
 
@@ -877,6 +880,8 @@ def search_parent(
 
 
 def get_contact_detail(db: Session, contact_id: int) -> ContactDetailResponse:
+    # Intentionally not org-scoped, same reasoning as get_member_detail:
+    # vbw and vbn deliberately share one contact directory for reads.
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -935,8 +940,7 @@ def apply_contact_input(
     contact.modified_by = current_user.id
 
     db.add(contact)
-    db.commit()
-    db.refresh(contact)
+    db.flush()
 
     if diff:
         _persist_change_log(
@@ -949,7 +953,9 @@ def apply_contact_input(
             current_user.id,
             now,
         )
-        db.commit()
+
+    db.commit()
+    db.refresh(contact)
 
     return diff
 
@@ -1018,22 +1024,30 @@ def get_roles_list(
         end = None
 
     roles = db.query(Role).order_by(Role.order).all()
+    role_ids = [role.id for role in roles]
+
+    query = (
+        db.query(MemberRole)
+        .filter(MemberRole.role_id.in_(role_ids))
+        .options(selectinload(MemberRole.member))
+    )
+    if start and end:
+        query = query.filter(
+            MemberRole.startdate < end,
+            (MemberRole.enddate > start) | (MemberRole.enddate.is_(None)),
+        )
+    else:
+        query = query.filter(
+            MemberRole.startdate < now,
+            (MemberRole.enddate > now) | (MemberRole.enddate.is_(None)),
+        )
+    assignments_by_role: dict[str, list[MemberRole]] = {}
+    for a in query.order_by(MemberRole.startdate).all():
+        assignments_by_role.setdefault(a.role_id, []).append(a)
 
     result = []
     for role in roles:
-        query = db.query(MemberRole).join(Member).filter(MemberRole.role_id == role.id)
-        if start and end:
-            query = query.filter(
-                MemberRole.startdate < end,
-                (MemberRole.enddate > start) | (MemberRole.enddate.is_(None)),
-            )
-        else:
-            query = query.filter(
-                MemberRole.startdate < now,
-                (MemberRole.enddate > now) | (MemberRole.enddate.is_(None)),
-            )
-        assignments = query.order_by(MemberRole.startdate).all()
-
+        role_assignments = assignments_by_role.get(role.id, [])
         vbw = next(
             (
                 {
@@ -1042,7 +1056,7 @@ def get_roles_list(
                     "startdate": a.startdate,
                     "enddate": a.enddate,
                 }
-                for a in assignments
+                for a in role_assignments
                 if a.member.org_id == "vbw"
             ),
             None,
@@ -1055,7 +1069,7 @@ def get_roles_list(
                     "startdate": a.startdate,
                     "enddate": a.enddate,
                 }
-                for a in assignments
+                for a in role_assignments
                 if a.member.org_id == "vbn"
             ),
             None,
@@ -1096,6 +1110,7 @@ def _build_keys_data(
     members = (
         db.query(Member)
         .filter(Member.member_keys.any())
+        .options(selectinload(Member.member_keys))
         .order_by(Member.nachname)
         .all()
     )
@@ -1159,49 +1174,71 @@ def _changelog_name_map(
     return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
 
 
-def get_member_changelog(db: Session, member_id: int) -> list[ChangeLogEntry]:
-    """Return the change history for a member."""
+def get_member_changelog(
+    db: Session,
+    member_id: int,
+    page: int,
+    page_size: int,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a member, paginated."""
+    query = db.query(MembersLog).filter(MembersLog.member_id == member_id)
+    total = query.count()
     logs = (
-        db.query(MembersLog)
-        .filter(MembersLog.member_id == member_id)
-        .order_by(MembersLog.modified_at.desc())
-        .limit(200)
+        query.order_by(MembersLog.modified_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
     names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return {
+        "items": [
+            ChangeLogEntry(
+                id=e.id,
+                modified_at=e.modified_at,
+                modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+                action=e.action,
+                key=e.key,
+                old=e.old,
+                new=e.new,
+            )
+            for e in logs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
-def get_contact_changelog(db: Session, contact_id: int) -> list[ChangeLogEntry]:
-    """Return the change history for a contact."""
+def get_contact_changelog(
+    db: Session,
+    contact_id: int,
+    page: int,
+    page_size: int,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a contact, paginated."""
+    query = db.query(ContactsLog).filter(ContactsLog.contact_id == contact_id)
+    total = query.count()
     logs = (
-        db.query(ContactsLog)
-        .filter(ContactsLog.contact_id == contact_id)
-        .order_by(ContactsLog.modified_at.desc())
-        .limit(200)
+        query.order_by(ContactsLog.modified_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
     names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return {
+        "items": [
+            ChangeLogEntry(
+                id=e.id,
+                modified_at=e.modified_at,
+                modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+                action=e.action,
+                key=e.key,
+                old=e.old,
+                new=e.new,
+            )
+            for e in logs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

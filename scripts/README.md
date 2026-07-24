@@ -1,8 +1,8 @@
 # Scripts
 
-Operational and one-time-migration scripts for the backend. All scripts are
-run manually (not part of the request/response path) and expect to be
-executed from the `vb-api` project root.
+Operational scripts for the backend. All scripts are run manually (not part
+of the request/response path) and expect to be executed from the `vb-api`
+project root.
 
 They read their configuration from environment variables (`DATABASE_URL`,
 `S3_*`, ...) — normally the same `.env` the backend container uses. Each
@@ -147,106 +147,11 @@ podman exec -it vb-api python scripts/downsync_prod.py
 
 ---
 
-# Migration Archive (`scripts/migration_archive/`)
-
-One-time migration tools kept for historical reference. Each already ran
-successfully in production and is no longer part of any regular operational
-workflow (unlike the scripts above, which are re-run on demand) — they stay
-in the repo only in case a very old Dev/staging environment still needs the
-same one-time step.
-
-## `migrate_to_s3.py`
-
-One-time migration that uploads all files from the local filesystem
-(`/data/standesdb/images`, `/data/archive/store`, and optionally the cache/
-thumbnail directories) to the configured S3 bucket. Content types are taken
-from the corresponding DB rows (`StandesdbImage.type`, `ArchiveStoreItem.mime_type`).
-Files already present in S3 (checked via `head_object`) are skipped, so the
-script is safe to re-run. After uploading it always runs a verification pass
-that confirms every non-deleted `StandesdbImage` / `ArchiveStoreItem` row has
-a matching S3 object.
-
-**Usage:**
-```bash
-# Inside the container
-python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
-```
-
-**Parameters:**
-- `--verify-only` — skip the upload step, only run the DB → S3 verification and report missing objects (exit code 1 if any are missing).
-- `--include-cache` — additionally migrate the thumbnail/cache directories (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); these are omitted by default.
-
-**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
-
----
-
-## `sqlite2pg.py`
-
-Idempotent one-time migration that copies all data from the legacy SQLite
-database into PostgreSQL. It creates all tables in PostgreSQL (if they don't
-exist yet, via SQLAlchemy metadata), truncates them (`TRUNCATE ... CASCADE`),
-then copies every row table-by-table in batches of 1000, temporarily
-disabling FK/trigger checks (`session_replication_role = 'replica'`) so
-insertion order doesn't matter. After copying, auto-increment sequences for
-integer primary keys are reset to `MAX(id) + 1` so future inserts don't
-collide with migrated rows. Re-running the script is safe — it always starts
-from a clean truncate.
-
-**Usage:**
-```bash
-# Inside the container
-python scripts/migration_archive/sqlite2pg.py
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/sqlite2pg.py
-```
-
-**Parameters:** none — the script is non-interactive and takes no CLI flags.
-
-**Relevant env vars:** `DATABASE_URL` (must be a PostgreSQL URL — the script aborts otherwise). The SQLite source path is hardcoded to `/database/legacy_db.sqlite3`.
-
----
-
-## `migrate_public_gallery.py`
-
-One-time migration of the legacy `www.vindobona2.at` "Eindrücke" gallery,
-which is backed by a real Flickr account's photostream (via the "Flickr
-Justified Gallery" WordPress plugin) rather than local uploads. The script
-scrapes the given page for Flickr-hosted (`static.flickr.com`) `<img>` tags,
-downloads each unique image (deduplicated by URL, so the same photostream
-rendered twice on the page only counts once), and inserts it into the new
-`public_gallery_images` table — the table that backs the new `vb-www` site's
-own Eindrücke section (`GET /api/public/gallery`). Images already present
-(matched by `sha256_hash`) are skipped, so the script is safe to re-run.
-After this runs once, the gallery is fully decoupled from Flickr — editors
-manage it from then on via `vb-intern`'s "www-Administration" → "Galerie".
-
-**Usage:**
-```bash
-# Inside the container
-python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
-```
-
-**Parameters:**
-- `--dry-run` — list what would be migrated (caption, dimensions, size) without writing to S3 or the database.
-- `--source-url` — page to scrape for gallery images (default: `https://www.vindobona2.at/vb/`).
-
-**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_PUBLIC_GALLERY`, `DATABASE_URL`.
-
----
-
 # Scripts (Deutsch)
 
-Betriebs- und einmalige Migrations-Scripts für das Backend. Alle Scripts
-werden manuell ausgeführt (sind nicht Teil des Request/Response-Pfads) und
-gehen davon aus, dass sie aus dem `vb-api`-Projekt-Root heraus gestartet
-werden.
+Betriebs-Scripts für das Backend. Alle Scripts werden manuell ausgeführt
+(sind nicht Teil des Request/Response-Pfads) und gehen davon aus, dass sie
+aus dem `vb-api`-Projekt-Root heraus gestartet werden.
 
 Sie beziehen ihre Konfiguration aus Umgebungsvariablen (`DATABASE_URL`,
 `S3_*`, ...) — normalerweise dieselbe `.env`, die auch der Backend-Container
@@ -393,103 +298,3 @@ podman exec -it vb-api python scripts/downsync_prod.py
 - `--no-delete` — nur S3-Schritt: synct neue/geänderte Dateien, überspringt aber das Löschen lokaler Waisen.
 
 **Relevante Env-Vars:** `DATABASE_URL` (Restore-Ziel, muss PostgreSQL sein), `APP_ENVIRONMENT` (darf nicht `production` sein), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (lokales MinIO, sowohl Mirror-Ziel als auch DB-Restore-Quelle). Die Prod-AWS-Quell-Credentials für den S3-Schritt kommen aus `/run/secrets/aws-prod.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET=vindobona2-at`).
-
----
-
-# Migrations-Archiv (`scripts/migration_archive/`)
-
-Einmalige Migrations-Werkzeuge, die nur zur historischen Referenz im Repo
-bleiben. Jedes davon ist bereits erfolgreich in Produktion gelaufen und ist
-kein Teil eines regelmäßigen Betriebsablaufs mehr (anders als die Scripts
-oben, die bei Bedarf erneut ausgeführt werden) — sie bleiben nur für den
-Fall im Repo, dass eine sehr alte Dev-/Staging-Umgebung denselben
-Einmalschritt noch braucht.
-
-## `sqlite2pg.py`
-
-Idempotente einmalige Migration, die alle Daten aus der alten SQLite-
-Datenbank nach PostgreSQL kopiert. Legt zunächst alle Tabellen in
-PostgreSQL an (falls noch nicht vorhanden, via SQLAlchemy-Metadata), leert
-sie (`TRUNCATE ... CASCADE`), kopiert dann jede Zeile tabellenweise in
-Batches von 1000, wobei FK-/Trigger-Prüfungen vorübergehend deaktiviert
-werden (`session_replication_role = 'replica'`), sodass die Reihenfolge der
-Einfügungen keine Rolle spielt. Nach dem Kopieren werden Auto-Increment-
-Sequenzen für Integer-Primärschlüssel auf `MAX(id) + 1` zurückgesetzt,
-damit künftige Inserts nicht mit migrierten Zeilen kollidieren. Ein erneuter
-Lauf ist gefahrlos möglich — das Script beginnt immer mit einem sauberen
-Truncate.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/migration_archive/sqlite2pg.py
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/sqlite2pg.py
-```
-
-**Parameter:** keine — das Script ist nicht-interaktiv und kennt keine CLI-Flags.
-
-**Relevante Env-Vars:** `DATABASE_URL` (muss eine PostgreSQL-URL sein — sonst bricht das Script ab). Der SQLite-Quellpfad ist fest auf `/database/legacy_db.sqlite3` gesetzt.
-
----
-
-## `migrate_to_s3.py`
-
-Einmalige Migration, die alle Dateien vom lokalen Dateisystem
-(`/data/standesdb/images`, `/data/archive/store`, optional auch die Cache-/
-Thumbnail-Verzeichnisse) in den konfigurierten S3-Bucket hochlädt. Die
-Content-Types werden aus den zugehörigen DB-Zeilen übernommen
-(`StandesdbImage.type`, `ArchiveStoreItem.mime_type`). Bereits in S3
-vorhandene Dateien (geprüft via `head_object`) werden übersprungen, das
-Script kann also gefahrlos erneut ausgeführt werden. Nach dem Upload läuft
-immer ein Verifikationsdurchgang, der prüft, ob jede nicht gelöschte
-`StandesdbImage`- / `ArchiveStoreItem`-Zeile ein passendes S3-Objekt hat.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/migrate_to_s3.py [--verify-only] [--include-cache]
-```
-
-**Parameter:**
-- `--verify-only` — überspringt den Upload, führt nur die DB→S3-Verifikation aus und meldet fehlende Objekte (Exit-Code 1, falls welche fehlen).
-- `--include-cache` — migriert zusätzlich die Thumbnail-/Cache-Verzeichnisse (`STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`); standardmäßig ausgelassen.
-
-**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `DATABASE_URL`, `STANDESDB_IMAGES_PATH`, `ARCHIVE_STORE_PATH`, `STANDESDB_CACHE_PATH`, `ARCHIVE_CACHE_PATH`.
-
----
-
-## `migrate_public_gallery.py`
-
-Einmalige Migration der bisherigen "Eindrücke"-Galerie von `www.vindobona2.at`,
-die über einen echten Flickr-Account (via das WordPress-Plugin "Flickr
-Justified Gallery") bespielt wird, nicht über lokale Uploads. Das Script
-durchsucht die übergebene Seite nach Flickr-gehosteten (`static.flickr.com`)
-`<img>`-Tags, lädt jedes eindeutige Bild herunter (dedupliziert nach URL —
-derselbe Photostream, zweimal auf der Seite gerendert, zählt nur einmal) und
-legt es in der neuen `public_gallery_images`-Tabelle ab — der Tabelle, die
-die Eindrücke-Sektion der neuen `vb-www`-Seite versorgt
-(`GET /api/public/gallery`). Bereits vorhandene Bilder (Abgleich über
-`sha256_hash`) werden übersprungen, das Script kann also gefahrlos erneut
-ausgeführt werden. Nach einmaligem Lauf ist die Galerie komplett von Flickr
-entkoppelt — Berechtigte pflegen sie danach über den Menüpunkt
-"www-Administration" → "Galerie" in `vb-intern`.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
-
-# Via podman exec
-podman exec vb-api python scripts/migration_archive/migrate_public_gallery.py [--dry-run] [--source-url URL]
-```
-
-**Parameter:**
-- `--dry-run` — listet nur auf, was migriert würde (Bildunterschrift, Abmessungen, Größe), ohne S3/Datenbank zu verändern.
-- `--source-url` — Seite, die nach Galerie-Bildern durchsucht wird (Standard: `https://www.vindobona2.at/vb/`).
-
-**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_PUBLIC_GALLERY`, `DATABASE_URL`.

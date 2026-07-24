@@ -100,7 +100,7 @@ class TestCategoryCRUD:
             },
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["name"] == "test.cat"
 
     def test_create_duplicate_name_rejected(self, db_session, client):
@@ -147,7 +147,8 @@ class TestCategoryCRUD:
             f"/api/p4x/admin/categories/{cat.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
 
     def test_delete_protected_category_rejected(self, db_session, client):
         _seed(db_session)
