@@ -195,6 +195,10 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
 def get_member_detail(
     db: Session, member_id: int
 ) -> MemberDetailResponse | MemberDismissedResponse:
+    # Intentionally not org-scoped: any authenticated member (vbw or vbn)
+    # can read any other member's directory entry - the two orgs
+    # deliberately share one member directory. Only write access
+    # (create/update/delete) is org-restricted, see _require_standesdb_admin.
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -876,6 +880,8 @@ def search_parent(
 
 
 def get_contact_detail(db: Session, contact_id: int) -> ContactDetailResponse:
+    # Intentionally not org-scoped, same reasoning as get_member_detail:
+    # vbw and vbn deliberately share one contact directory for reads.
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(

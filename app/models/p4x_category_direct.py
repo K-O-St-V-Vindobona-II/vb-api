@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Numeric
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,7 +15,22 @@ if TYPE_CHECKING:
 
 
 class P4xCategoryDirect(Base):
+    """A transaction may only have one active direct assignment per
+    category - the partial unique index below closes a race condition
+    where two concurrent set-category-direct requests for the same
+    transaction/category pair could otherwise both succeed, same pattern
+    as StandesdbImage's owner/hash partial index."""
+
     __tablename__ = "p4x_category_directs"
+    __table_args__ = (
+        Index(
+            "p4x_category_directs_tx_category_active_uniq",
+            "p4x_transaction_id",
+            "p4x_category_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     p4x_transaction_id: Mapped[int] = mapped_column(
