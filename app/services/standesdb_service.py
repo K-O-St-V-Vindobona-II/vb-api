@@ -1168,49 +1168,71 @@ def _changelog_name_map(
     return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
 
 
-def get_member_changelog(db: Session, member_id: int) -> list[ChangeLogEntry]:
-    """Return the change history for a member."""
+def get_member_changelog(
+    db: Session,
+    member_id: int,
+    page: int,
+    page_size: int,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a member, paginated."""
+    query = db.query(MembersLog).filter(MembersLog.member_id == member_id)
+    total = query.count()
     logs = (
-        db.query(MembersLog)
-        .filter(MembersLog.member_id == member_id)
-        .order_by(MembersLog.modified_at.desc())
-        .limit(200)
+        query.order_by(MembersLog.modified_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
     names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return {
+        "items": [
+            ChangeLogEntry(
+                id=e.id,
+                modified_at=e.modified_at,
+                modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+                action=e.action,
+                key=e.key,
+                old=e.old,
+                new=e.new,
+            )
+            for e in logs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
-def get_contact_changelog(db: Session, contact_id: int) -> list[ChangeLogEntry]:
-    """Return the change history for a contact."""
+def get_contact_changelog(
+    db: Session,
+    contact_id: int,
+    page: int,
+    page_size: int,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a contact, paginated."""
+    query = db.query(ContactsLog).filter(ContactsLog.contact_id == contact_id)
+    total = query.count()
     logs = (
-        db.query(ContactsLog)
-        .filter(ContactsLog.contact_id == contact_id)
-        .order_by(ContactsLog.modified_at.desc())
-        .limit(200)
+        query.order_by(ContactsLog.modified_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
     names = _changelog_name_map(db, logs)
-    return [
-        ChangeLogEntry(
-            id=e.id,
-            modified_at=e.modified_at,
-            modified_by_name=names.get(e.modified_by) if e.modified_by else None,
-            action=e.action,
-            key=e.key,
-            old=e.old,
-            new=e.new,
-        )
-        for e in logs
-    ]
+    return {
+        "items": [
+            ChangeLogEntry(
+                id=e.id,
+                modified_at=e.modified_at,
+                modified_by_name=names.get(e.modified_by) if e.modified_by else None,
+                action=e.action,
+                key=e.key,
+                old=e.old,
+                new=e.new,
+            )
+            for e in logs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

@@ -181,15 +181,20 @@ def get_activity_stats(
     return tracking_service.get_activity_stats(db)
 
 
-@tracking_router.get("/activity/sessions")
+@tracking_router.get("/activity/sessions", response_model=dict)
 def get_activity_sessions(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     date_str: str | None = None,
     member_id: int | None = None,
-) -> list[ActivitySessionItem]:
-    """Return user activity grouped into sessions (30-min gap = new session)."""
-    return tracking_service.get_activity_sessions(db, date_str, member_id)
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> dict[str, list[ActivitySessionItem] | int]:
+    """Return user activity grouped into sessions (30-min gap = new session),
+    paginated."""
+    return tracking_service.get_activity_sessions(
+        db, date_str, member_id, page, page_size
+    )
 
 
 @tracking_router.get("/activity/{log_id}")

@@ -252,7 +252,7 @@ class TestChangelog:
             headers=h,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) >= 1
         assert data[0]["modified_by_name"] == "Admin User"
         assert data[0]["key"] == "nachname"
@@ -279,9 +279,50 @@ class TestChangelog:
             headers=h,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) >= 1
         assert data[0]["modified_by_name"] == "Admin User"
+
+    def test_member_changelog_pagination(self, client, db_session):
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        target = Member(
+            email="paginated@vbw.at",
+            vorname="Paginated",
+            nachname="Member",
+            org_id="vbw",
+            state_id="fu",
+        )
+        db_session.add(target)
+        db_session.commit()
+        for i in range(3):
+            db_session.add(
+                MembersLog(
+                    member_id=target.id,
+                    modified_by=admin.id,
+                    modified_at=datetime.now(UTC),
+                    action="update",
+                    key=f"field{i}",
+                    old="old",
+                    new="new",
+                )
+            )
+        db_session.commit()
+
+        page1 = client.get(
+            f"/api/standesdb/members/{target.id}/changelog?page=1&page_size=2",
+            headers=h,
+        ).json()
+        page2 = client.get(
+            f"/api/standesdb/members/{target.id}/changelog?page=2&page_size=2",
+            headers=h,
+        ).json()
+
+        assert page1["total"] == 3
+        assert len(page1["items"]) == 2
+        assert page2["total"] == 3
+        assert len(page2["items"]) == 1
 
     def test_member_changelog_empty(self, client, db_session):
         _seed(db_session)
@@ -301,4 +342,4 @@ class TestChangelog:
             headers=h,
         )
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": [], "total": 0, "page": 1, "page_size": 25}

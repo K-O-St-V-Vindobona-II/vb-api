@@ -16,6 +16,7 @@ from app.services.tracking_service import (
     _group_logs_into_sessions,
     _is_session_boundary,
     _member_name_map,
+    get_activity_sessions,
 )
 
 
@@ -80,6 +81,42 @@ class TestGroupLogsIntoSessions:
         sessions = _group_logs_into_sessions(logs, {1: "User One", 2: "User Two"})
 
         assert [s.member_id for s in sessions] == [1, 2]
+
+
+class TestGetActivitySessionsPagination:
+    """Sessions can't be paginated at the raw-row query level (would split
+    a session across pages) - pagination applies to the grouped session
+    list instead. Regression test for that slicing."""
+
+    def test_paginates_grouped_sessions_not_raw_rows(self, db_session) -> None:
+        now = datetime.now(UTC)
+        for member_id, offset_hours in [(1, 0), (2, 0), (3, 0)]:
+            db_session.add(
+                RequestLog(
+                    client_ip="127.0.0.1",
+                    member_id=member_id,
+                    request_method="GET",
+                    request_path="/api/test",
+                    response_status=200,
+                    memory_usage=0,
+                    created_at=now + timedelta(hours=offset_hours),
+                    updated_at=now,
+                )
+            )
+        db_session.commit()
+
+        page1 = get_activity_sessions(
+            db_session, now.strftime("%Y-%m-%d"), None, page=1, page_size=2
+        )
+        page2 = get_activity_sessions(
+            db_session, now.strftime("%Y-%m-%d"), None, page=2, page_size=2
+        )
+
+        assert page1["total"] == 3
+        assert len(page1["items"]) == 2
+        assert page2["total"] == 3
+        assert len(page2["items"]) == 1
+        assert page1["items"][0].member_id != page2["items"][0].member_id
 
 
 class TestMemberNameMap:

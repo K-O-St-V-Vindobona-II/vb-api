@@ -387,7 +387,7 @@ class TestActivitySessions:
             headers=headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) >= 1
         session = data[0]
         assert session["member_name"]
@@ -746,7 +746,7 @@ class TestActivitySessionsCoverage:
             headers=headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         for session in data:
             assert session["member_id"] == admin.id
 
@@ -758,7 +758,7 @@ class TestActivitySessionsCoverage:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": [], "total": 0, "page": 1, "page_size": 25}
 
 
 # --- Coverage: Activity Detail with user agent ---

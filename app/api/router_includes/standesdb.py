@@ -759,24 +759,28 @@ def delete_contact_image(
 # --- Changelog ---
 
 
-@standesdb_router.get("/members/{member_id}/changelog")
+@standesdb_router.get("/members/{member_id}/changelog", response_model=dict)
 def list_member_changelog(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> list[ChangeLogEntry]:
-    """Return the change history for a member."""
-    return standesdb_service.get_member_changelog(db, member_id)
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a member, paginated."""
+    return standesdb_service.get_member_changelog(db, member_id, page, page_size)
 
 
-@standesdb_router.get("/contacts/{contact_id}/changelog")
+@standesdb_router.get("/contacts/{contact_id}/changelog", response_model=dict)
 def list_contact_changelog(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> list[ChangeLogEntry]:
-    """Return the change history for a contact."""
-    return standesdb_service.get_contact_changelog(db, contact_id)
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> dict[str, list[ChangeLogEntry] | int]:
+    """Return the change history for a contact, paginated."""
+    return standesdb_service.get_contact_changelog(db, contact_id, page, page_size)
 
 
 # --- Helper ---

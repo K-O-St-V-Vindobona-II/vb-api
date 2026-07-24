@@ -346,7 +346,14 @@ def get_activity_sessions(
     db: Session,
     date_str: str | None,
     member_id: int | None,
-) -> list[ActivitySessionItem]:
+    page: int,
+    page_size: int,
+) -> dict[str, list[ActivitySessionItem] | int]:
+    """Group matching RequestLog rows into sessions, then paginate the
+    resulting session list. Pagination can't apply to the raw log query
+    itself - cutting it off mid-page would split a session across pages,
+    since sessions are derived from consecutive rows for the same member.
+    The date/member filters already bound the row count fetched here."""
     query = db.query(RequestLog).filter(RequestLog.member_id.isnot(None))
 
     if date_str:
@@ -370,12 +377,22 @@ def get_activity_sessions(
     logs = query.order_by(RequestLog.created_at).all()
 
     if not logs:
-        return []
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
     all_member_ids = {log.member_id for log in logs if log.member_id}
     names = _member_name_map(db, all_member_ids)
 
-    return _group_logs_into_sessions(logs, names)
+    sessions = _group_logs_into_sessions(logs, names)
+    total = len(sessions)
+    start = (page - 1) * page_size
+    end = start + page_size
+
+    return {
+        "items": sessions[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 def get_activity_detail(db: Session, log_id: int) -> ActivityLogDetail:
