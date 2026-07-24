@@ -100,16 +100,34 @@ def _headers(_client, db, admin):
     return {"Authorization": f"Bearer {token}"}
 
 
+_SCHEMA_FIELDS = {
+    "module",
+    "include_disabled_delivery",
+    "include_dead",
+    "include_common_contacts",
+    "only_without_email",
+}
+
+
 def _base_payload(**overrides):
+    """Build an /api/standesdb/export request body. Keyword overrides that
+    match a top-level ExportRequest field are set directly; anything else
+    (org/state matrix keys like "vbw_fu", "vbw_contacts") is routed into
+    the nested "selections" dict."""
     base = {
         "module": "mailing-liste",
         "include_disabled_delivery": False,
         "include_dead": False,
         "include_common_contacts": False,
         "only_without_email": False,
-        "vbw_fu": True,
     }
-    base.update(overrides)
+    selections = {"vbw_fu": True}
+    for key, value in overrides.items():
+        if key in _SCHEMA_FIELDS:
+            base[key] = value
+        else:
+            selections[key] = value
+    base["selections"] = selections
     return base
 
 
@@ -254,6 +272,49 @@ class TestExportFilter:
         )
         text = resp.content.decode()
         assert "Tot Person" in text
+
+    def test_includes_dead_without_disabled_delivery_flag(self, client, db_session):
+        """Regression guard: death auto-deactivates zustellungen (see the
+        include_disabled_delivery hint text), so include_dead alone must be
+        enough to surface deceased members - requiring the admin to ALSO
+        tick include_disabled_delivery made the checkbox appear to have no
+        effect."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        headers = _headers(client, db_session, admin)
+        _member(
+            db_session,
+            vorname="Tot",
+            nachname="Person",
+            email="t@test.at",
+            verstorben=True,
+            zustellungen="deaktiviert",
+        )
+
+        resp = client.post(
+            "/api/standesdb/export",
+            json=_base_payload(vbw_fu=True, include_dead=True),
+            headers=headers,
+        )
+        text = resp.content.decode()
+        assert "Tot Person" in text
+
+    def test_unknown_top_level_field_is_rejected(self, client, db_session):
+        """ExportRequest is strict (extra="forbid") - a misspelled or
+        renamed flag must fail loudly instead of silently being ignored."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        headers = _headers(client, db_session, admin)
+
+        payload = _base_payload(vbw_fu=True)
+        payload["include_deceased"] = True  # not a real field
+
+        resp = client.post(
+            "/api/standesdb/export",
+            json=payload,
+            headers=headers,
+        )
+        assert resp.status_code == 422
 
     def test_excludes_disabled_delivery_by_default(self, client, db_session):
         _seed(db_session)

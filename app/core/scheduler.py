@@ -14,8 +14,11 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import text
+
+from alembic import command
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
@@ -45,10 +48,12 @@ from app.services.anniversary_service import (
     week_window,
 )
 from app.services.archive_service import get_unsorted_upload_count
-from app.services.backup_service import cleanup_old_backups, run_backup
+from app.services.backup_service import cleanup_old_backups, run_backup, run_restore
+from app.services.downsync_service import build_prod_storage, load_aws_env
 from app.services.p4x_category_service import apply_all_category_filters
 from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
 from app.services.permission_service import get_emails_with_permission
+from app.services.s3_mirror_service import mirror_prefix
 from app.services.storage_integrity_service import (
     check_archive_integrity,
     check_standesdb_integrity,
@@ -56,6 +61,7 @@ from app.services.storage_integrity_service import (
 
 BACKUP_ENABLED: bool = get_settings().backup_enabled
 BACKUP_HOUR: int = get_settings().backup_hour
+DOWNSYNC_HOUR: int = (BACKUP_HOUR + 1) % 24
 
 logger = logging.getLogger(__name__)
 
@@ -620,6 +626,59 @@ async def job_db_backup() -> None:
 
 
 # -------------------------------------------------------------------
+# Downsync (non-production only): mirror prod S3 down, then restore the
+# freshest backup locally — keeps every non-prod stage's data roughly
+# current with production once a day.
+# -------------------------------------------------------------------
+
+
+def job_downsync() -> None:
+    # Belt-and-suspenders: this job is only ever registered in
+    # non-production (see start_scheduler()), but a future registration
+    # bug must never let it run against a real production database.
+    if get_settings().app_environment == "production":
+        logger.error("Downsync job invoked in production — refusing to run.")
+        return
+
+    local_storage = get_storage()
+
+    try:
+        aws_env = load_aws_env()
+        prod_storage = build_prod_storage(aws_env)
+    except RuntimeError:
+        logger.exception("Downsync failed: could not load prod AWS credentials.")
+        return
+
+    try:
+        result = mirror_prefix(prod_storage, local_storage)
+    except Exception:
+        logger.exception("Downsync S3 mirror failed.")
+        return
+
+    if result.has_errors:
+        logger.error(
+            "Downsync S3 mirror had %d error(s), skipping DB restore.",
+            len(result.errors),
+        )
+        return
+    logger.info(
+        "Downsync S3 mirror: %d synced, %d skipped, %d deleted.",
+        len(result.synced),
+        result.skipped,
+        len(result.deleted),
+    )
+
+    try:
+        run_restore(local_storage)
+        command.upgrade(Config("alembic.ini"), "head")
+    except Exception:
+        logger.exception("Downsync DB restore/migration failed.")
+        return
+
+    logger.info("Downsync complete: local DB restored from latest prod backup.")
+
+
+# -------------------------------------------------------------------
 # Register all jobs
 # -------------------------------------------------------------------
 
@@ -681,24 +740,19 @@ JOB_DESCRIPTIONS: dict[str, str] = {
         " Löscht anschließend Backups, die älter als"
         " BACKUP_RETENTION_DAYS (Default 29) sind."
     ),
+    "downsync": (
+        "Nur auf Non-Production-Stages: spiegelt einmal täglich"
+        " (DOWNSYNC_HOUR, Default 04:00 UTC, eine Stunde nach dem"
+        " Prod-Backup) den kompletten Produktions-S3-Bucket auf die"
+        " Storage dieser Stage und restored anschließend das gerade"
+        " gespiegelte, frischeste Backup lokal (inkl."
+        " 'alembic upgrade head'). Sorgt dafür, dass Non-Production"
+        " einmal täglich mit aktuellen Produktivdaten versorgt wird."
+    ),
 }
 
 
-def start_scheduler() -> None:
-    if not _acquire_scheduler_lock():
-        logger.info(
-            "Scheduler lock held by another worker process — skipping"
-            " scheduler startup in this process."
-        )
-        return
-
-    scheduler.add_job(
-        job_cleanup,
-        "cron",
-        minute=0,
-        id="cleanup",
-        replace_existing=True,
-    )
+def _register_production_jobs() -> None:
     scheduler.add_job(
         job_refresh_category_filter_hits,
         "cron",
@@ -763,6 +817,43 @@ def start_scheduler() -> None:
         )
     else:
         logger.info("DB backup job disabled via BACKUP_ENABLED=false.")
+
+
+def _register_non_production_jobs() -> None:
+    scheduler.add_job(
+        job_downsync,
+        "cron",
+        hour=DOWNSYNC_HOUR,
+        minute=0,
+        timezone=UTC,
+        id="downsync",
+        replace_existing=True,
+    )
+
+
+def start_scheduler() -> None:
+    if not _acquire_scheduler_lock():
+        logger.info(
+            "Scheduler lock held by another worker process — skipping"
+            " scheduler startup in this process."
+        )
+        return
+
+    scheduler.add_job(
+        job_cleanup,
+        "cron",
+        minute=0,
+        id="cleanup",
+        replace_existing=True,
+    )
+
+    # Read fresh (not a module-level constant like BACKUP_ENABLED/BACKUP_HOUR
+    # above) so tests can flip APP_ENVIRONMENT per test case and observe
+    # different registration behavior from the same running process.
+    if get_settings().app_environment == "production":
+        _register_production_jobs()
+    else:
+        _register_non_production_jobs()
 
     scheduler.start()
     logger.info(

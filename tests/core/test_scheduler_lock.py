@@ -82,7 +82,8 @@ class TestStartSchedulerLockGating:
         mock_add_job.assert_not_called()
         mock_start.assert_not_called()
 
-    def test_start_scheduler_registers_jobs_when_lock_acquired(self):
+    def test_start_scheduler_registers_all_jobs_in_production(self, monkeypatch):
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
         with (
             patch.object(
                 scheduler_module, "_acquire_scheduler_lock", return_value=True
@@ -93,8 +94,31 @@ class TestStartSchedulerLockGating:
             scheduler_module.start_scheduler()
 
         job_ids = [call.kwargs["id"] for call in mock_add_job.call_args_list]
+        assert "cleanup" in job_ids
+        assert "refresh_category_filter_hits" in job_ids
+        assert "birthday_mails" in job_ids
+        assert "debtor_reminder" in job_ids
+        assert "standesdb_chronicles" in job_ids
         assert "archive_health_check" in job_ids
         assert "standesdb_health_check" in job_ids
+        assert "db_backup" in job_ids
+        assert "downsync" not in job_ids
+        mock_start.assert_called_once()
+
+    def test_start_scheduler_registers_reduced_set_in_non_production(self):
+        # Default test env (APP_ENVIRONMENT=test, see conftest.py) is
+        # already non-production — no monkeypatch needed here.
+        with (
+            patch.object(
+                scheduler_module, "_acquire_scheduler_lock", return_value=True
+            ),
+            patch.object(scheduler_module.scheduler, "add_job") as mock_add_job,
+            patch.object(scheduler_module.scheduler, "start") as mock_start,
+        ):
+            scheduler_module.start_scheduler()
+
+        job_ids = [call.kwargs["id"] for call in mock_add_job.call_args_list]
+        assert job_ids == ["cleanup", "downsync"]
         mock_start.assert_called_once()
 
 

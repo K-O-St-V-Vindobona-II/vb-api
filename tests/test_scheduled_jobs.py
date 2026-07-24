@@ -1,7 +1,7 @@
 """Tests for scheduled jobs — logic verification without email sending."""
 
 from datetime import UTC, date, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,6 +15,7 @@ from app.core.scheduler import (
     job_archive_health_check,
     job_birthday_mails,
     job_db_backup,
+    job_downsync,
     job_refresh_category_filter_hits,
     job_standesdb_chronicles,
     job_standesdb_health_check,
@@ -34,6 +35,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
+from app.services.s3_mirror_service import MirrorResult
 
 
 def _seed_base(db):
@@ -303,6 +305,78 @@ class TestBackupJobRegistration:
 
         assert isinstance(trigger, CronTrigger)
         assert str(trigger) == f"cron[hour='{BACKUP_HOUR}', minute='0']"
+
+
+class TestJobDownsync:
+    def test_happy_path_calls_steps_in_order(self):
+        with (
+            patch(
+                "app.core.scheduler.load_aws_env", return_value={"AWS_BUCKET": "x"}
+            ) as mock_load_env,
+            patch(
+                "app.core.scheduler.build_prod_storage", return_value=MagicMock()
+            ) as mock_build_storage,
+            patch(
+                "app.core.scheduler.mirror_prefix",
+                return_value=MirrorResult(synced=["a"]),
+            ) as mock_mirror,
+            patch("app.core.scheduler.run_restore") as mock_restore,
+            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+        ):
+            job_downsync()
+
+        mock_load_env.assert_called_once()
+        mock_build_storage.assert_called_once()
+        mock_mirror.assert_called_once()
+        mock_restore.assert_called_once()
+        mock_upgrade.assert_called_once()
+
+    def test_mirror_errors_skip_restore_and_migration(self):
+        with (
+            patch("app.core.scheduler.load_aws_env", return_value={}),
+            patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.mirror_prefix",
+                return_value=MirrorResult(errors=["archive/store/x"]),
+            ),
+            patch("app.core.scheduler.run_restore") as mock_restore,
+            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+        ):
+            job_downsync()
+
+        mock_restore.assert_not_called()
+        mock_upgrade.assert_not_called()
+
+    def test_missing_credentials_is_caught_and_logged(self):
+        with (
+            patch(
+                "app.core.scheduler.load_aws_env",
+                side_effect=RuntimeError("no creds"),
+            ),
+            patch("app.core.scheduler.mirror_prefix") as mock_mirror,
+        ):
+            job_downsync()  # must not raise
+
+        mock_mirror.assert_not_called()
+
+    def test_restore_exception_is_caught_and_logged(self):
+        with (
+            patch("app.core.scheduler.load_aws_env", return_value={}),
+            patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
+            patch("app.core.scheduler.mirror_prefix", return_value=MirrorResult()),
+            patch("app.core.scheduler.run_restore", side_effect=RuntimeError("boom")),
+            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+        ):
+            job_downsync()  # must not raise
+
+        mock_upgrade.assert_not_called()
+
+    def test_production_guard_refuses_to_run(self, monkeypatch):
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        with patch("app.core.scheduler.load_aws_env") as mock_load_env:
+            job_downsync()
+
+        mock_load_env.assert_not_called()
 
 
 class TestSchedulerTimezone:

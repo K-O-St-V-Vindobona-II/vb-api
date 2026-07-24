@@ -73,6 +73,34 @@ def _admin(db, org="vbw"):
     return m
 
 
+def _system_admin_only(db, org="vbw"):
+    """A member with systemAdmin but deliberately WITHOUT any standesdb
+    admin role - used to prove the changelog endpoints no longer accept
+    systemAdmin as a substitute for standesdb-specific admin permissions."""
+    hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+    m = Member(
+        email=f"systemadmin@{org}.at",
+        auth_password=hashed,
+        auth_locked=False,
+        vorname="System",
+        nachname="Admin",
+        org_id=org,
+        state_id="bi",
+    )
+    db.add(m)
+    db.commit()
+    db.add(
+        MemberRole(
+            member_id=m.id,
+            role_id="internetreferent",
+            startdate=date(2000, 1, 1),
+            enddate=None,
+        )
+    )
+    db.commit()
+    return m
+
+
 def _headers(db, member):
     token, _, _ = create_user_session(db, member)
     return {"Authorization": f"Bearer {token}"}
@@ -343,3 +371,70 @@ class TestChangelog:
         )
         assert resp.status_code == 200
         assert resp.json() == {"items": [], "total": 0, "page": 1, "page_size": 25}
+
+    def test_member_changelog_404_for_unknown_member(self, client, db_session):
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        resp = client.get("/api/standesdb/members/99999/changelog", headers=h)
+        assert resp.status_code == 404
+
+    def test_member_changelog_rejects_system_admin_without_standesdb_role(
+        self, client, db_session
+    ):
+        """systemAdmin alone must no longer grant changelog access - only
+        the org-matching standesdb admin permission does."""
+        _seed(db_session)
+        system_admin = _system_admin_only(db_session)
+        h = _headers(db_session, system_admin)
+        target = Member(
+            email="target2@vbw.at",
+            vorname="Target",
+            nachname="Two",
+            org_id="vbw",
+            state_id="fu",
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/changelog",
+            headers=h,
+        )
+        assert resp.status_code == 403
+
+    def test_member_changelog_rejects_admin_of_other_org(self, client, db_session):
+        """A standesdbVbwAdmin must not see the changelog of a VBN member."""
+        _seed(db_session)
+        vbw_admin = _admin(db_session, org="vbw")
+        h = _headers(db_session, vbw_admin)
+        vbn_member = Member(
+            email="vbnmember@vbn.at",
+            vorname="Vbn",
+            nachname="Member",
+            org_id="vbn",
+            state_id="fu",
+        )
+        db_session.add(vbn_member)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{vbn_member.id}/changelog",
+            headers=h,
+        )
+        assert resp.status_code == 403
+
+    def test_contact_changelog_rejects_system_admin_without_standesdb_role(
+        self, client, db_session
+    ):
+        """systemAdmin alone must no longer grant contact-changelog access."""
+        _seed(db_session)
+        system_admin = _system_admin_only(db_session)
+        h = _headers(db_session, system_admin)
+        contact = _make_contact(db_session, name="Guarded Contact")
+
+        resp = client.get(
+            f"/api/standesdb/contacts/{contact.id}/changelog",
+            headers=h,
+        )
+        assert resp.status_code == 403

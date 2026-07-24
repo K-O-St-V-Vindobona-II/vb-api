@@ -13,13 +13,16 @@ logger = logging.getLogger(__name__)
 _settings = get_settings()
 _app_environment = _settings.app_environment
 _raw_dev_superuser_id: int = _settings.dev_superuser_id
-if _raw_dev_superuser_id and _app_environment == "production":
+if _raw_dev_superuser_id and _app_environment != "development":
     logger.warning(
-        "DEV_SUPERUSER_ID is set but will be IGNORED in production. "
-        "Remove it from the production env file."
+        "DEV_SUPERUSER_ID is set but will be IGNORED outside development "
+        "(current APP_ENVIRONMENT=%s). Remove it from this stage's env file.",
+        _app_environment,
     )
-# Forced to 0 in production — existing check already short-circuits for 0.
-DEV_SUPERUSER_ID: int = _raw_dev_superuser_id if _app_environment != "production" else 0
+# Only active in development — existing check already short-circuits for 0.
+DEV_SUPERUSER_ID: int = (
+    _raw_dev_superuser_id if _app_environment == "development" else 0
+)
 
 
 @dataclass(frozen=True)
