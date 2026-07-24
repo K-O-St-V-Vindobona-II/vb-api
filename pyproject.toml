@@ -24,6 +24,7 @@ select = [
     "PIE",    # Various code simplifications
     "FURB",   # Modernization suggestions (Refurb)
     "ISC",    # Prevents accidental string concatenation
+    "TID",    # Ban specific APIs (e.g. SessionLocal outside Depends(get_db))
 ]
 ignore = [
     "E402",    # logging setup before imports (practical exception)
@@ -47,6 +48,9 @@ extend-immutable-calls = [
 fixture-parentheses = false
 mark-parentheses = false
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"app.db.database.SessionLocal".msg = "Direct SessionLocal instantiation is banned — inject the DB session via FastAPI Depends(get_db)! (Exception: background jobs without a request context, see per-file-ignores.)"
+
 [tool.ruff.lint.mccabe]
 # 8 is the sweet spot: prevents monster functions, but allows
 # linear FastAPI endpoints without enforcing "helper spaghetti".
@@ -64,6 +68,15 @@ max-complexity = 8
 # `TYPE_CHECKING` breaks that resolution with a runtime `NameError` —
 # verified empirically, not just theoretically, before adding this ignore.
 "app/models/**" = ["TC003"]
+# SessionLocal is legitimately instantiated directly here: no FastAPI
+# request context exists (definition site, middleware logging, cron jobs,
+# background email sending/logging, standalone CLI scripts).
+"app/db/database.py" = ["TID251"]
+"app/core/activity_logger.py" = ["TID251"]
+"app/core/scheduler.py" = ["TID251"]
+"app/core/mailer.py" = ["TID251"]
+"scripts/check_s3_integrity.py" = ["TID251"]
+"scripts/trigger_chronicles.py" = ["TID251"]
 
 [tool.ruff.format]
 quote-style = "double"
