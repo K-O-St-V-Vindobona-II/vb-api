@@ -96,9 +96,13 @@ pyasn1-modules==0.4.2
 pycparser==3.0
     # via cffi
 pydantic==2.13.4
-    # via fastapi
+    # via
+    #   fastapi
+    #   pydantic-settings
 pydantic-core==2.46.4
     # via pydantic
+pydantic-settings==2.14.2
+    # via -r requirements.txt
 pydyf==0.12.1
     # via weasyprint
 pyjwt==2.13.0
@@ -108,7 +112,9 @@ pyphen==0.17.2
 python-dateutil==2.9.0.post0
     # via botocore
 python-dotenv==1.2.2
-    # via uvicorn
+    # via
+    #   pydantic-settings
+    #   uvicorn
 python-multipart==0.0.32
     # via -r requirements.txt
 pyyaml==6.0.3
@@ -148,6 +154,7 @@ typing-inspection==0.4.2
     # via
     #   fastapi
     #   pydantic
+    #   pydantic-settings
 tzlocal==5.4.4
     # via apscheduler
 urllib3==2.7.0

@@ -5,15 +5,16 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy.engine import make_url
 
-from app.core.config import APP_ENVIRONMENT
+from app.core.config import get_settings
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 
 logger = logging.getLogger(__name__)
 
-BACKUP_RETENTION_DAYS: int = int(os.environ.get("BACKUP_RETENTION_DAYS", "29"))
+BACKUP_RETENTION_DAYS: int = get_settings().backup_retention_days
 
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 _TIMESTAMP_LENGTH = len("2026-07-15_03-00-00")  # fixed-width strftime() output
@@ -95,14 +96,14 @@ def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
     Returns the backup filename (without path prefix).
     Raises RuntimeError on pg_dump failure or S3 upload error.
     """
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url = cast("str", get_settings().database_url)
     _require_postgres(database_url)
 
     host, user, password, port, dbname = _parse_db_url(database_url)
 
     timestamp = datetime.now(UTC).strftime(_TIMESTAMP_FORMAT)
     suffix = "-manual" if manual else ""
-    backup_name = f"{APP_ENVIRONMENT}-{timestamp}{suffix}.dump"
+    backup_name = f"{get_settings().app_environment}-{timestamp}{suffix}.dump"
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
 
     logger.info("Starting DB backup: %s", backup_name)
@@ -171,10 +172,10 @@ def run_restore(
     If backup_name is None, restores the latest available backup.
     Requires force=True when APP_ENVIRONMENT == 'production'.
     """
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url = cast("str", get_settings().database_url)
     _require_postgres(database_url)
 
-    if APP_ENVIRONMENT == "production" and not force:
+    if get_settings().app_environment == "production" and not force:
         msg = (
             "Restore in production requires explicit force=True. "
             "This operation is destructive."

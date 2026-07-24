@@ -16,11 +16,9 @@ from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_fee import P4xFee
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
-from app.services.p4x_service import (
-    calculate_fee_balance,
-    get_account_balance,
-    set_category_direct,
-)
+from app.services.p4x_account_service import get_account_balance
+from app.services.p4x_category_service import set_category_direct
+from app.services.p4x_fee_balance_service import calculate_fee_balance
 
 
 def _now() -> datetime:
@@ -191,7 +189,7 @@ class TestCalculateFeeBalancePrecision:
         )
         db_session.commit()
 
-        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_service.py.
+        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
         category = P4xCategory(
             id=1,
             name="eingang.mitgliedsbeitrag",

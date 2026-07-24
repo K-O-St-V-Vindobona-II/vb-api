@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from app.models.p4x_fee import P4xFee
-from app.services.p4x_service import (
+from app.services.p4x_fee_balance_service import (
     create_fee,
     delete_fee,
     fee_for_month,

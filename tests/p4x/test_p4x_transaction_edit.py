@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_transaction import P4xTransaction
-from app.services.p4x_service import update_transaction_meta
+from app.services.p4x_partner_service import update_transaction_meta
 
 
 def _now() -> datetime:

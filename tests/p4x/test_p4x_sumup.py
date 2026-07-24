@@ -4,7 +4,7 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_transaction import P4xTransaction
-from app.services.p4x_service import get_sumup_balance
+from app.services.p4x_summary_service import get_sumup_balance
 
 
 def _now() -> datetime:

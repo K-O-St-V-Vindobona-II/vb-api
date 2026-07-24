@@ -1,4 +1,3 @@
-import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
@@ -10,6 +9,7 @@ from google.oauth2 import id_token
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.mailer import send_reset_email
 from app.core.security import (
     ALGORITHM,
@@ -245,7 +245,7 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     Verifies a Google token and returns the bound Member.
     Throws AccountNotLinkedError if the token is valid but not bound.
     """
-    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_id = get_settings().google_client_id
     if not client_id:
         msg = "Google Login ist auf dem Server nicht konfiguriert."
         raise ValueError(msg)
@@ -306,7 +306,7 @@ def link_google_account(
         raise ValueError(msg)
 
     # 2. Verify Google Token again
-    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_id = get_settings().google_client_id
     try:
         id_info = id_token.verify_oauth2_token(
             credential_token,

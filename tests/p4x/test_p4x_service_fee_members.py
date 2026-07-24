@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from app.models.member import Member
 from app.models.org import Org
 from app.models.state import State
-from app.services.p4x_service import (
+from app.services.p4x_fee_balance_service import (
     get_fee_members,
     search_fee_members,
     update_fee_member,

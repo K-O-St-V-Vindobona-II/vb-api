@@ -1,5 +1,5 @@
 """Regression tests for Slice 5 of the backend remediation plan: several
-p4x_service flows used to commit multiple times mid-flow instead of once
+p4x service flows used to commit multiple times mid-flow instead of once
 at the end. Each test forces a failure in the second half of the flow and
 verifies that a subsequent rollback() discards ALL of it - proving the
 flow is now a single atomic transaction instead of partially persisting
@@ -20,8 +20,8 @@ from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.schemas.p4x import CategoryFilterSaveRequest
-from app.services import p4x_service
-from app.services.p4x_service import parse_george_json
+from app.services import p4x_category_service, p4x_import_service
+from app.services.p4x_import_service import parse_george_json
 
 
 def _now() -> datetime:
@@ -65,12 +65,12 @@ class TestImportAndApplyFiltersAtomicity:
 
         with (
             patch(
-                "app.services.p4x_service._apply_all_category_filters_core",
+                "app.services.p4x_category_service.apply_all_category_filters_core",
                 side_effect=RuntimeError("boom"),
             ),
             pytest.raises(RuntimeError),
         ):
-            p4x_service.import_and_apply_filters(
+            p4x_import_service.import_and_apply_filters(
                 db_session, account, parsed.entries, [entry]
             )
 
@@ -150,12 +150,12 @@ class TestFilterToDirectAtomicity:
 
         with (
             patch(
-                "app.services.p4x_service._set_category_direct_core",
+                "app.services.p4x_category_service._set_category_direct_core",
                 side_effect=[None, RuntimeError("boom")],
             ),
             pytest.raises(RuntimeError),
         ):
-            p4x_service.filter_to_direct(db_session, category_filter)
+            p4x_category_service.filter_to_direct(db_session, category_filter)
 
         db_session.rollback()
         assert db_session.query(P4xCategoryDirect).count() == 0
@@ -199,12 +199,12 @@ class TestCategoryFilterCrudAtomicity:
 
         with (
             patch(
-                "app.services.p4x_service._apply_all_category_filters_core",
+                "app.services.p4x_category_service.apply_all_category_filters_core",
                 side_effect=RuntimeError("boom"),
             ),
             pytest.raises(RuntimeError),
         ):
-            p4x_service.create_category_filter(db_session, data)
+            p4x_category_service.create_category_filter(db_session, data)
 
         db_session.rollback()
         assert db_session.query(P4xCategoryFilter).count() == 0
@@ -237,12 +237,14 @@ class TestCategoryFilterCrudAtomicity:
 
         with (
             patch(
-                "app.services.p4x_service._apply_all_category_filters_core",
+                "app.services.p4x_category_service.apply_all_category_filters_core",
                 side_effect=RuntimeError("boom"),
             ),
             pytest.raises(RuntimeError),
         ):
-            p4x_service.update_category_filter(db_session, category_filter, data)
+            p4x_category_service.update_category_filter(
+                db_session, category_filter, data
+            )
 
         db_session.rollback()
         db_session.refresh(category_filter)
@@ -289,12 +291,12 @@ class TestUnsetCategoryDirectAtomicity:
 
         with (
             patch(
-                "app.services.p4x_service._apply_all_category_filters_core",
+                "app.services.p4x_category_service.apply_all_category_filters_core",
                 side_effect=RuntimeError("boom"),
             ),
             pytest.raises(RuntimeError),
         ):
-            p4x_service.unset_category_direct(db_session, tx)
+            p4x_category_service.unset_category_direct(db_session, tx)
 
         db_session.rollback()
         still_active = (

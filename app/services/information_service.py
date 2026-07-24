@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.models.p4x_account import P4xAccount
-from app.services.p4x_service import fee_for_month
+from app.services.p4x_fee_balance_service import fee_for_month
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

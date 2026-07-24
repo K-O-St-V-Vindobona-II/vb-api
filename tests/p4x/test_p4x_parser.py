@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from app.services.p4x_service import (
+from app.services.p4x_import_service import (
     _date_to_carbon_json,
     _php_json_encode,
     compute_transaction_hash,

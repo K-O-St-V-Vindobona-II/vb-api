@@ -144,6 +144,36 @@ def test_reset_password_user_deleted(client, db_session):
     assert "nicht gefunden" in resp.json()["detail"].lower()
 
 
+def test_reset_password_too_short_is_rejected(client, db_session):  # noqa: ARG001
+    """Passwords shorter than PASSWORD_MIN_LENGTH (default 8) are rejected."""
+    resp = client.post(
+        "/api/auth/reset-password",
+        json={
+            "email": "test@vindobona.at",
+            "token": "bad",
+            "password": "short1",
+        },
+    )
+    assert resp.status_code == 422
+    assert "mindestens 8 zeichen" in str(resp.json()).lower()
+
+
+def test_reset_password_min_length_is_configurable(client, db_session, monkeypatch):  # noqa: ARG001
+    """PASSWORD_MIN_LENGTH is read live from settings, not hardcoded."""
+    monkeypatch.setenv("PASSWORD_MIN_LENGTH", "12")
+
+    resp = client.post(
+        "/api/auth/reset-password",
+        json={
+            "email": "test@vindobona.at",
+            "token": "bad",
+            "password": "ten_chars!",
+        },
+    )
+    assert resp.status_code == 422
+    assert "mindestens 12 zeichen" in str(resp.json()).lower()
+
+
 def test_logout_with_garbage_token(db_session):
     """Ensure invalid tokens in logout attempt don't crash the server."""
     logout_user(db_session, "garbage_token_string")

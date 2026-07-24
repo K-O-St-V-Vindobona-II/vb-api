@@ -8,7 +8,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
-from app.services.p4x_service import (
+from app.services.p4x_category_service import (
     apply_single_filter,
     delete_category_filter,
     filter_to_direct,

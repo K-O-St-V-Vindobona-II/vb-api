@@ -13,7 +13,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
-from app.services.p4x_service import get_category_usage
+from app.services.p4x_category_service import get_category_usage
 
 
 def _now() -> datetime:

@@ -4,6 +4,7 @@ from datetime import date
 from email.mime.multipart import MIMEMultipart
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.mailer import (
@@ -331,10 +332,20 @@ class TestSendMessage:
         assert mock_server.ehlo.call_count == 1
         mock_server.login.assert_not_called()
 
+    def test_missing_smtp_host_raises_runtime_error(self, monkeypatch):
+        monkeypatch.delenv("SMTP_HOST", raising=False)
+        monkeypatch.setenv("SMTP_PORT", "465")
+        monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
+        msg = MIMEMultipart()
+
+        with pytest.raises(RuntimeError, match="SMTP_HOST is not set"):
+            _send_message(msg, ["a@b.at"])
+
 
 class TestLogSentEmailDbError:
     @patch("app.core.mailer.SessionLocal")
-    def test_db_error_is_swallowed(self, mock_session_local, db_session):
+    def test_db_error_is_swallowed(self, mock_session_local, db_session, monkeypatch):
+        monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
         mock_session_local.return_value = db_session
 
         with patch.object(db_session, "commit", side_effect=SQLAlchemyError("boom")):

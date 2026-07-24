@@ -151,10 +151,7 @@ class TestDevSuperuserGuard:
         db_session.add(member)
         db_session.commit()
 
-        with (
-            patch("app.services.permission_service.DEV_SUPERUSER_ID", 999),
-            patch("app.services.permission_service.APP_ENVIRONMENT", "development"),
-        ):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 999):
             perms = calculate_permissions(member)
 
         assert sorted(perms) == sorted(ALL_PERMISSIONS)
@@ -175,10 +172,7 @@ class TestDevSuperuserGuard:
         db_session.add(member)
         db_session.commit()
 
-        with (
-            patch("app.services.permission_service.DEV_SUPERUSER_ID", 0),
-            patch("app.services.permission_service.APP_ENVIRONMENT", "production"),
-        ):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 0):
             perms = calculate_permissions(member)
 
         # No roles → no permissions

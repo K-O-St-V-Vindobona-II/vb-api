@@ -15,7 +15,7 @@ from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
-from app.services.p4x_service import generate_summary_xlsx
+from app.services.p4x_summary_service import generate_summary_xlsx
 
 
 def _now() -> datetime:
