@@ -237,14 +237,12 @@ async def import_transactions(
         )
 
     original_structs = json.loads(raw_json)
-    summary = p4x_service.import_transactions(
+    summary = p4x_service.import_and_apply_filters(
         db,
         account,
         parse_result.entries,
         original_structs,
     )
-
-    p4x_service.apply_all_category_filters(db)
 
     db.refresh(account)
     account_data = p4x_response_builders.build_account_response(db, account)

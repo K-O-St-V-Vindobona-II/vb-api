@@ -273,9 +273,12 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     )
 
     if binding:
-        # Known account -> Update timestamp and return member
+        # Known account -> Update timestamp and return member. Not
+        # committed here: the caller always follows up with
+        # create_user_session(), whose commit covers this too - one
+        # atomic "log the user in" operation instead of two commits.
         binding.lastuse_at = datetime.now(UTC)
-        db.commit()
+        db.flush()
         member = db.query(Member).filter(Member.id == binding.member_id).first()
 
         if not member or member.auth_locked:
@@ -334,13 +337,16 @@ def link_google_account(
             existing_binding.member_id == member.id
             and existing_binding.remote_id == google_id
         ):
+            # Not committed here: the caller always follows up with
+            # create_user_session(), whose commit covers this too.
             existing_binding.lastuse_at = datetime.now(UTC)
-            db.commit()
+            db.flush()
             return member
         msg = "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
         raise ValueError(msg)
 
-    # 4. Create the binding in the database
+    # 4. Create the binding in the database. Not committed here either -
+    # same reasoning, create_user_session()'s commit covers this too.
     new_binding = MembersOauth2Binding(
         member_id=member.id,
         provider="google",
@@ -350,7 +356,7 @@ def link_google_account(
         lastuse_at=datetime.now(UTC),
     )
     db.add(new_binding)
-    db.commit()
+    db.flush()
 
     return member
 

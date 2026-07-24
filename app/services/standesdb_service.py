@@ -423,9 +423,6 @@ def apply_member_input(  # noqa: C901
     validate_roles_history(db, roles_entries, member.org_id or "", member.id)
     _sync_roles(db, member, roles_entries, diff)
 
-    db.commit()
-    db.refresh(member)
-
     if diff:
         _persist_change_log(
             db,
@@ -437,7 +434,9 @@ def apply_member_input(  # noqa: C901
             current_user.id,
             now,
         )
-        db.commit()
+
+    db.commit()
+    db.refresh(member)
 
     return diff
 
@@ -935,8 +934,7 @@ def apply_contact_input(
     contact.modified_by = current_user.id
 
     db.add(contact)
-    db.commit()
-    db.refresh(contact)
+    db.flush()
 
     if diff:
         _persist_change_log(
@@ -949,7 +947,9 @@ def apply_contact_input(
             current_user.id,
             now,
         )
-        db.commit()
+
+    db.commit()
+    db.refresh(contact)
 
     return diff
 

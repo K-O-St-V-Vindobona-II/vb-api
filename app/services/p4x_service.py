@@ -323,7 +323,6 @@ def import_transactions(
             db.query(P4xTransaction).filter(
                 P4xTransaction.sha256_hash == sha256_hash,
             ).update({"deleted_at": datetime.now(UTC)})
-            db.commit()
             summary["before_init_date"] = summary.get("before_init_date", 0) + 1
             continue
 
@@ -365,6 +364,21 @@ def import_transactions(
 
         summary[status] = summary.get(status, 0) + 1
 
+    db.flush()
+    return summary
+
+
+def import_and_apply_filters(
+    db: Session,
+    account: P4xAccount,
+    parsed_entries: list[ParsedTransactionEntry],
+    original_structs: list[dict[str, object]],
+) -> dict[str, int]:
+    """Import transactions and re-apply category filters as one atomic
+    transaction - financial data, so a failure applying filters must not
+    leave the import itself half-committed."""
+    summary = import_transactions(db, account, parsed_entries, original_structs)
+    _apply_all_category_filters_core(db)
     db.commit()
     return summary
 
@@ -841,14 +855,15 @@ def _apply_filter_with_cache(
         )
 
 
-def apply_all_category_filters(
+def _apply_all_category_filters_core(
     db: Session,
     *,
     truncate_first: bool = False,
 ) -> None:
+    """Same as apply_all_category_filters but without committing - callers
+    own the transaction boundary (e.g. import_and_apply_filters)."""
     if truncate_first:
         db.query(P4xCategoryFilterHit).delete()
-        db.commit()
 
     tx_with_directs = {
         r[0]
@@ -863,6 +878,13 @@ def apply_all_category_filters(
     for f in db.query(P4xCategoryFilter).all():
         _apply_filter_with_cache(db, f, tx_with_directs)
 
+
+def apply_all_category_filters(
+    db: Session,
+    *,
+    truncate_first: bool = False,
+) -> None:
+    _apply_all_category_filters_core(db, truncate_first=truncate_first)
     db.commit()
 
 
@@ -1147,9 +1169,10 @@ def create_category_filter(
         updated_at=now,
     )
     db.add(category_filter)
+    db.flush()
+    _apply_all_category_filters_core(db)
     db.commit()
     db.refresh(category_filter)
-    apply_all_category_filters(db)
     return category_filter
 
 
@@ -1181,9 +1204,10 @@ def update_category_filter(
     category_filter.subject = data.subject
     category_filter.subject_mode = data.subject_mode
     category_filter.p4x_category_id = data.p4x_category_id
+    db.flush()
+    _apply_all_category_filters_core(db)
     db.commit()
     db.refresh(category_filter)
-    apply_all_category_filters(db)
     return category_filter
 
 
@@ -1204,7 +1228,7 @@ def filter_to_direct(db: Session, category_filter: P4xCategoryFilter) -> str | N
 
     hits = get_filter_hits(db, category_filter)
     for tx in hits:
-        set_category_direct(
+        _set_category_direct_core(
             db,
             tx,
             [
@@ -1227,12 +1251,14 @@ def filter_to_direct(db: Session, category_filter: P4xCategoryFilter) -> str | N
 # ---------------------------------------------------------------------------
 
 
-def set_category_direct(
+def _set_category_direct_core(
     db: Session,
     transaction: P4xTransaction,
     slots: list[dict[str, object]],
 ) -> str | None:
-    """Set direct category assignments. Returns error message or None."""
+    """Same as set_category_direct but without committing - callers own the
+    transaction boundary (e.g. filter_to_direct's batch loop, which must
+    not commit once per transaction)."""
     valid_slots = [s for s in slots if s.get("p4x_category_id") and s.get("amount")]
 
     if valid_slots:
@@ -1256,6 +1282,18 @@ def set_category_direct(
             )
         )
 
+    return None
+
+
+def set_category_direct(
+    db: Session,
+    transaction: P4xTransaction,
+    slots: list[dict[str, object]],
+) -> str | None:
+    """Set direct category assignments. Returns error message or None."""
+    error = _set_category_direct_core(db, transaction, slots)
+    if error:
+        return error
     db.commit()
     return None
 
@@ -1266,8 +1304,8 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
         P4xCategoryDirect.p4x_transaction_id == transaction.id,
         P4xCategoryDirect.deleted_at.is_(None),
     ).update({"deleted_at": now})
+    _apply_all_category_filters_core(db)
     db.commit()
-    apply_all_category_filters(db)
 
 
 # ---------------------------------------------------------------------------
