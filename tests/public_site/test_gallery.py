@@ -105,8 +105,8 @@ class TestPublicGalleryList:
             files={"file": ("b.jpg", _make_jpeg(90, 90), "image/jpeg")},
             data={"caption": "Zweites Bild"},
         )
-        assert r1.status_code == 200
-        assert r2.status_code == 200
+        assert r1.status_code == 201
+        assert r2.status_code == 201
 
         resp = client.get("/api/public/gallery")
         assert resp.status_code == 200
@@ -173,7 +173,7 @@ class TestAdminUpload:
             files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
             data={"caption": "Testbild"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         data = resp.json()
         assert data["caption"] == "Testbild"
         assert data["is_published"] is True
@@ -356,7 +356,8 @@ class TestAdminDelete:
             f"/api/public-gallery-admin/images/{img_id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         assert db_session.get(PublicGalleryImage, uuid.UUID(img_id)) is None
 
     def test_reupload_after_delete_succeeds(self, client, db_session, mock_s3):
@@ -384,7 +385,7 @@ class TestAdminDelete:
             headers=headers,
             files={"file": ("b.jpg", io.BytesIO(same_content), "image/jpeg")},
         )
-        assert r2.status_code == 200
+        assert r2.status_code == 201
 
 
 class TestAdminDuplicateUpload:
@@ -401,7 +402,7 @@ class TestAdminDuplicateUpload:
             headers=headers,
             files={"file": ("a.jpg", io.BytesIO(same_content), "image/jpeg")},
         )
-        assert r1.status_code == 200
+        assert r1.status_code == 201
 
         r2 = client.post(
             "/api/public-gallery-admin/images",

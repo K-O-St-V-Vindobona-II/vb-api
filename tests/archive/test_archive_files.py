@@ -191,7 +191,7 @@ class TestUpload:
             data={"description": "Test upload file"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "ok"
         assert data["file"]["extension"] == "jpg"
@@ -214,7 +214,7 @@ class TestUpload:
             data={"description": "First upload here"},
             headers=headers,
         )
-        assert resp1.status_code == 200
+        assert resp1.status_code == 201
         # Second upload with identical content
         resp2 = client.post(
             "/api/archive/upload",
@@ -328,7 +328,7 @@ class TestUpload:
             data={"description": "File from user A"},
             headers=headers_a,
         )
-        assert resp_a.status_code == 200
+        assert resp_a.status_code == 201
         # User B uploads a file
         content_b = _valid_file_content(4)
         resp_b = client.post(
@@ -339,7 +339,7 @@ class TestUpload:
             data={"description": "File from user B"},
             headers=headers_b,
         )
-        assert resp_b.status_code == 200
+        assert resp_b.status_code == 201
         # User A sees only their own unfiled upload
         resp = client.get(
             "/api/archive/upload/unfiled",
@@ -410,7 +410,7 @@ class TestComments:
             json={"content": "Tolle Datei!"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         data = resp.json()
         assert data["comment"]["content"] == "Tolle Datei!"
 

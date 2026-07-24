@@ -302,7 +302,7 @@ class TestDirEndpoints:
             },
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["id"] > 0
 
     def test_delete_empty_dir_force(
@@ -318,7 +318,8 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{dir_id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.expire_all()
         assert db_session.get(ArchiveDir, dir_id) is None
 
@@ -335,7 +336,8 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{d.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.expire_all()
         refreshed = db_session.get(ArchiveDir, d.id)
         assert refreshed is not None
@@ -454,7 +456,8 @@ class TestFileEndpoints:
             f"/api/archive/files/{f.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.refresh(f)
         assert f.deleted_at is not None
 
@@ -482,7 +485,7 @@ class TestComments:
             json={"content": "Tolle Datei!"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["comment"]["content"] == "Tolle Datei!"
 
     def test_create_comment_too_short(
@@ -545,7 +548,8 @@ class TestComments:
             f"/api/archive/files/{f.id}/comments/{c.id}",
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b""
         db_session.refresh(c)
         assert c.deleted_at is not None
 

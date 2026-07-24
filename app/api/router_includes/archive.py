@@ -7,6 +7,7 @@ from fastapi import (
     Form,
     Query,
     UploadFile,
+    status,
 )
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -62,7 +63,7 @@ def get_dir(
     return archive_service.get_dir_detail(db, dir_id, user)
 
 
-@archive_router.post("/dirs")
+@archive_router.post("/dirs", status_code=status.HTTP_201_CREATED)
 def create_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -85,15 +86,14 @@ def update_dir(
     return {"status": "ok"}
 
 
-@archive_router.delete("/dirs/{dir_id}")
+@archive_router.delete("/dirs/{dir_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dir(
     dir_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> None:
     """Soft-delete a directory (moves to trash)."""
     archive_service.delete_dir(db, dir_id, user)
-    return {"status": "ok"}
 
 
 @archive_router.patch("/dirs/{dir_id}/restore")
@@ -155,15 +155,14 @@ def update_file(
     return {"status": "ok"}
 
 
-@archive_router.delete("/files/{file_id}")
+@archive_router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(
     file_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> None:
     """Soft-delete a file (moves to trash)."""
     archive_service.delete_file(db, file_id, user)
-    return {"status": "ok"}
 
 
 @archive_router.patch("/files/{file_id}/restore")
@@ -256,7 +255,7 @@ def file_thumb_url(
 # --- Comments ---
 
 
-@archive_router.post("/files/{file_id}/comments")
+@archive_router.post("/files/{file_id}/comments", status_code=status.HTTP_201_CREATED)
 def create_comment(
     file_id: int,
     data: CommentCreateRequest,
@@ -268,16 +267,18 @@ def create_comment(
     return {"status": "ok", "comment": comment}
 
 
-@archive_router.delete("/files/{file_id}/comments/{comment_id}")
+@archive_router.delete(
+    "/files/{file_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_comment(
     file_id: int,
     comment_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> None:
     """Delete a comment from a file."""
     archive_service.delete_comment(db, file_id, comment_id, user)
-    return {"status": "ok"}
 
 
 # --- Upload ---
@@ -300,7 +301,7 @@ def get_unfiled(
     return {"files": archive_service.get_unfiled_uploads(db, user.id)}
 
 
-@archive_router.post("/upload")
+@archive_router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload(
     file: Annotated[UploadFile, File()],
     description: Annotated[str, Form()],

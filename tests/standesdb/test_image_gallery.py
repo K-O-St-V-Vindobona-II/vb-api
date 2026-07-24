@@ -111,7 +111,7 @@ class TestUpload:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
             data={"description": "Testbild"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert "id" in resp.json()
 
         img = (
@@ -136,7 +136,7 @@ class TestUpload:
             headers=headers,
             files={"file": ("test.png", _make_png(), "image/png")},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
     def test_upload_gif_rejected(self, client, db_session):
         _seed(db_session)
@@ -276,7 +276,8 @@ class TestDelete:
             f"/api/standesdb/members/{target.id}/images/{img_id}",
             headers=headers,
         )
-        assert resp2.status_code == 200
+        assert resp2.status_code == 204
+        assert resp2.content == b""
         db_session.expire_all()
         img = db_session.get(StandesdbImage, img_id)
         assert img.deleted_at is not None

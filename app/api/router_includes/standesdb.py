@@ -264,7 +264,7 @@ def get_member_auth_activity(
     )
 
 
-@standesdb_router.post("/members")
+@standesdb_router.post("/members", status_code=status.HTTP_201_CREATED)
 def create_member(
     data: MemberSaveRequest,
     background_tasks: BackgroundTasks,
@@ -379,7 +379,7 @@ def get_contact(
     return standesdb_service.get_contact_detail(db, contact_id)
 
 
-@standesdb_router.post("/contacts")
+@standesdb_router.post("/contacts", status_code=status.HTTP_201_CREATED)
 def create_contact(
     data: ContactSaveRequest,
     background_tasks: BackgroundTasks,
@@ -448,14 +448,16 @@ def update_contact(
     return {"status": "ok", "id": contact.id}
 
 
-@standesdb_router.delete("/contacts/{contact_id}")
+@standesdb_router.delete(
+    "/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_contact(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
-) -> dict[str, str]:
+) -> None:
     """Soft-delete a contact record."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
@@ -464,7 +466,6 @@ def delete_contact(
             detail="Kontakt nicht gefunden.",
         )
     standesdb_service.soft_delete_contact(db, contact, current_user)
-    return {"status": "ok"}
 
 
 # --- Member Images ---
@@ -542,7 +543,9 @@ def member_image_url(
     return {"url": url}
 
 
-@standesdb_router.post("/members/{member_id}/images")
+@standesdb_router.post(
+    "/members/{member_id}/images", status_code=status.HTTP_201_CREATED
+)
 def upload_member_image(
     member_id: int,
     file: Annotated[UploadFile, File()],
@@ -592,13 +595,15 @@ def update_member_image(
     return {"status": "ok"}
 
 
-@standesdb_router.delete("/members/{member_id}/images/{image_id}")
+@standesdb_router.delete(
+    "/members/{member_id}/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_member_image(
     member_id: int,
     image_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> None:
     """Delete a member's profile image from storage."""
     member = db.get(Member, member_id)
     if not member:
@@ -609,7 +614,6 @@ def delete_member_image(
     _require_standesdb_admin(current_user, member.org_id)
     img = image_service.get_image_record(db, "member", member_id, image_id)
     image_service.delete_image(db, img)
-    return {"status": "ok"}
 
 
 # --- Contact Images ---
@@ -687,7 +691,9 @@ def contact_image_url(
     return {"url": url}
 
 
-@standesdb_router.post("/contacts/{contact_id}/images")
+@standesdb_router.post(
+    "/contacts/{contact_id}/images", status_code=status.HTTP_201_CREATED
+)
 def upload_contact_image(
     contact_id: int,
     file: Annotated[UploadFile, File()],
@@ -733,7 +739,10 @@ def update_contact_image(
     return {"status": "ok"}
 
 
-@standesdb_router.delete("/contacts/{contact_id}/images/{image_id}")
+@standesdb_router.delete(
+    "/contacts/{contact_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_contact_image(
     contact_id: int,
     image_id: int,
@@ -741,11 +750,10 @@ def delete_contact_image(
     _current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
-) -> dict[str, str]:
+) -> None:
     """Delete a contact's profile image from storage."""
     img = image_service.get_image_record(db, "contact", contact_id, image_id)
     image_service.delete_image(db, img)
-    return {"status": "ok"}
 
 
 # --- Changelog ---

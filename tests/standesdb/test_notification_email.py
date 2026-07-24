@@ -158,7 +158,7 @@ class TestMemberCreateNotification:
             json=_member_payload(),
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
         mock_send.assert_called_once()
         args = mock_send.call_args
@@ -292,7 +292,7 @@ class TestContactNotification:
             },
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
         mock_send.assert_called_once()
         args = mock_send.call_args

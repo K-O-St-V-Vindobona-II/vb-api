@@ -171,7 +171,7 @@ def get_warnings_category_list(
 # ---------------------------------------------------------------------------
 
 
-@p4x_router.post("/admin/accounts")
+@p4x_router.post("/admin/accounts", status_code=status.HTTP_201_CREATED)
 def create_account(
     data: AccountSaveRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -195,12 +195,14 @@ def update_account(
     return p4x_response_builders.build_account_response(db, account)
 
 
-@p4x_router.delete("/admin/accounts/{account_id}")
+@p4x_router.delete(
+    "/admin/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_account(
     account_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> dict[str, str]:
+) -> None:
     """Delete a bank account."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
 
@@ -220,7 +222,6 @@ def delete_account(
 
     account.deleted_at = datetime.now(UTC)
     db.commit()
-    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +567,7 @@ def list_categories(
     return [p4x_response_builders.build_category_response(db, c) for c in cats]
 
 
-@p4x_router.post("/admin/categories")
+@p4x_router.post("/admin/categories", status_code=status.HTTP_201_CREATED)
 def create_category(
     data: CategorySaveRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -636,12 +637,14 @@ def update_category(
     return p4x_response_builders.build_category_response(db, cat)
 
 
-@p4x_router.delete("/admin/categories/{category_id}")
+@p4x_router.delete(
+    "/admin/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_category_endpoint(
     category_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> dict[str, str]:
+) -> None:
     """Delete a transaction category."""
     cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
     if not cat:
@@ -653,7 +656,6 @@ def delete_category_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail=error,
         )
-    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +673,7 @@ def list_category_filters(
     return [p4x_response_builders.build_filter_response(db, f) for f in filters]
 
 
-@p4x_router.post("/admin/category-filters")
+@p4x_router.post("/admin/category-filters", status_code=status.HTTP_201_CREATED)
 def create_category_filter(
     data: CategoryFilterSaveRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -793,16 +795,17 @@ def update_category_filter(
     return p4x_response_builders.build_filter_response(db, f)
 
 
-@p4x_router.delete("/admin/category-filters/{filter_id}")
+@p4x_router.delete(
+    "/admin/category-filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_category_filter_endpoint(
     filter_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> dict[str, str]:
+) -> None:
     """Delete a category filter rule."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
     p4x_service.delete_category_filter(db, f)
-    return {"status": "ok"}
 
 
 @p4x_router.get("/admin/category-filters/{filter_id}/filter2direct")
@@ -983,7 +986,7 @@ def list_fee_config(
     return [_build_fee_response(f) for f in fees]
 
 
-@p4x_router.post("/admin/fee-config")
+@p4x_router.post("/admin/fee-config", status_code=status.HTTP_201_CREATED)
 def create_fee(
     data: FeeCreateRequest,
     db: Annotated[Session, Depends(get_db)],

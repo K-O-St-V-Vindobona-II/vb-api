@@ -256,7 +256,7 @@ def test_create_member_success(client, db_session):
             "zustellungen": "deaktiviert",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert resp.json()["status"] == "ok"
 
 
@@ -415,7 +415,7 @@ def test_create_contact_success(client, db_session):
             "name": "Neue Firma",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert resp.json()["status"] == "ok"
 
 
@@ -436,8 +436,8 @@ def test_delete_contact_success(client, db_session):
         f"/api/standesdb/contacts/{contact.id}",
         headers=headers,
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    assert resp.status_code == 204
+    assert resp.content == b""
 
     db_session.refresh(contact)
     assert contact.deleted_at is not None
@@ -597,7 +597,7 @@ def test_delete_contact_idempotent(client, db_session):
         f"/api/standesdb/contacts/{contact.id}",
         headers=headers,
     )
-    assert resp1.status_code == 200
+    assert resp1.status_code == 204
 
     resp2 = client.delete(
         f"/api/standesdb/contacts/{contact.id}",
@@ -672,7 +672,7 @@ def test_create_member_writes_log(client, db_session):
             "zustellungen": "deaktiviert",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     member_id = resp.json()["id"]
 
     logs = (
@@ -751,7 +751,7 @@ def test_create_contact_writes_log(client, db_session):
         headers=headers,
         json={"kontakttyp": "person", "name": "Log Kontakt"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     contact_id = resp.json()["id"]
 
     logs = (

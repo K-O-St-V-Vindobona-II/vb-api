@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
@@ -54,7 +54,7 @@ def list_images(
     return [_to_admin_response(img, storage) for img in images]
 
 
-@public_gallery_admin_router.post("/images")
+@public_gallery_admin_router.post("/images", status_code=status.HTTP_201_CREATED)
 def upload_image(
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
@@ -96,14 +96,15 @@ def move_image(
     return {"status": "ok"}
 
 
-@public_gallery_admin_router.delete("/images/{image_id}")
+@public_gallery_admin_router.delete(
+    "/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_image(
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> None:
     """Delete a gallery image."""
     img = public_gallery_service.get_image_or_404(db, image_id)
     public_gallery_service.delete_image(db, img, storage)
-    return {"status": "ok"}
