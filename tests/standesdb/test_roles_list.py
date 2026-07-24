@@ -295,3 +295,43 @@ class TestRolesListEndpoint:
         )
         philx = next(r for r in resp.json()["roles"] if r["label"] == "Philistersenior")
         assert philx["vbw"]["cn"] == "Test User"
+
+    def test_query_count_does_not_scale_with_assignment_count(
+        self, client, db_session, count_queries
+    ):
+        """Regression test for the N+1 fix in get_roles_list(): looping over
+        roles and lazily loading a.member per assignment must not issue one
+        query per role/assignment."""
+        _seed(db_session)
+        headers, _ = _login(db_session, client)
+
+        role_ids = ["x", "xx", "phil-x", "archivar", "vg_vors"]
+
+        def _add_member_with_role(i: int) -> None:
+            hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+            m = Member(
+                email=f"member{i}@vbw.at",
+                auth_password=hashed,
+                auth_locked=False,
+                vorname=f"Member{i}",
+                nachname=f"Test{i}",
+                org_id="vbw",
+            )
+            db_session.add(m)
+            db_session.commit()
+            _add_role_assignment(
+                db_session, m.id, role_ids[i % len(role_ids)], date(2000, 1, 1)
+            )
+
+        with count_queries() as small:
+            resp_small = client.get("/api/standesdb/roles", headers=headers)
+
+        for i in range(6):
+            _add_member_with_role(i)
+
+        with count_queries() as large:
+            resp_large = client.get("/api/standesdb/roles", headers=headers)
+
+        assert resp_small.status_code == 200
+        assert resp_large.status_code == 200
+        assert large.count == small.count

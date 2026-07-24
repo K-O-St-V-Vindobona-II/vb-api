@@ -9,6 +9,8 @@ ORM session) that is always rolled back afterward for isolation.
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 os.environ["APP_ENVIRONMENT"] = "test"
@@ -45,7 +47,8 @@ import pytest
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from moto import mock_aws
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
@@ -174,3 +177,39 @@ def mock_s3(_moto_env):
 def client():
     with TestClient(app, base_url="https://testserver") as c:
         yield c
+
+
+class QueryCounter:
+    """Counts SQL statements executed on the test engine while active."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+
+@pytest.fixture
+def count_queries():
+    """Yield a factory for a context manager that counts executed SQL
+    statements, e.g. `with count_queries() as counter: ...; assert
+    counter.count <= N` — used to assert N+1 query patterns don't regress."""
+
+    @contextmanager
+    def _count_queries() -> Iterator[QueryCounter]:
+        counter = QueryCounter()
+
+        def _on_execute(
+            _conn: Connection,
+            _cursor: object,
+            _statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            counter.count += 1
+
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            yield counter
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+
+    return _count_queries

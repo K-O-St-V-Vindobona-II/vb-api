@@ -20,6 +20,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy import ColumnElement, extract, func
 from sqlalchemy import true as sa_true
+from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -456,6 +457,16 @@ def get_account_balance(
     return account.init_balance + total
 
 
+# Eager-load the two lazy="select" relationships that
+# p4x_response_builders.build_transaction_response() reads for every
+# transaction it renders - without this, listing endpoints issue one extra
+# query per relationship per row (N+1).
+_TRANSACTION_RESPONSE_OPTIONS = (
+    selectinload(P4xTransaction.category_directs),
+    selectinload(P4xTransaction.category_filter_hits),
+)
+
+
 def get_transactions_by_month(
     db: Session,
     account: P4xAccount,
@@ -471,6 +482,7 @@ def get_transactions_by_month(
             extract("year", P4xTransaction.booking) == year,
             extract("month", P4xTransaction.booking) == month,
         )
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
     )
     total = query.count()
@@ -534,6 +546,7 @@ def get_transactions_by_partner(
             (P4xTransaction.iban.in_(partner_ibans) & _no_delegation_filter())
             | (delegating_column == partner_id)
         )
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
     )
     total = query.count()
@@ -599,6 +612,7 @@ def get_transactions_by_category(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(all_tx_ids),
         )
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
     )
     total = query.count()
@@ -641,6 +655,7 @@ def get_transactions_by_filter(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(tx_ids),
         )
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
     )
     total = query.count()
@@ -672,6 +687,7 @@ def get_warnings_partner(
             P4xTransaction.deleted_at.is_(None),
             ~P4xTransaction.iban.in_(partner_ibans) if partner_ibans else sa_true(),
         )
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
     )
     total = query.count()
@@ -693,7 +709,12 @@ def get_warnings_category(
         .all()
     }
 
-    all_tx = db.query(P4xTransaction).filter(P4xTransaction.deleted_at.is_(None)).all()
+    all_tx = (
+        db.query(P4xTransaction)
+        .filter(P4xTransaction.deleted_at.is_(None))
+        .options(*_TRANSACTION_RESPONSE_OPTIONS)
+        .all()
+    )
 
     warnings: list[P4xTransaction] = []
     for tx in all_tx:

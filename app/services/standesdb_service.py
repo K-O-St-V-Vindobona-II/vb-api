@@ -6,7 +6,7 @@ from itertools import combinations
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.badge import Badge
 from app.models.contact import Contact
@@ -1018,22 +1018,30 @@ def get_roles_list(
         end = None
 
     roles = db.query(Role).order_by(Role.order).all()
+    role_ids = [role.id for role in roles]
+
+    query = (
+        db.query(MemberRole)
+        .filter(MemberRole.role_id.in_(role_ids))
+        .options(selectinload(MemberRole.member))
+    )
+    if start and end:
+        query = query.filter(
+            MemberRole.startdate < end,
+            (MemberRole.enddate > start) | (MemberRole.enddate.is_(None)),
+        )
+    else:
+        query = query.filter(
+            MemberRole.startdate < now,
+            (MemberRole.enddate > now) | (MemberRole.enddate.is_(None)),
+        )
+    assignments_by_role: dict[str, list[MemberRole]] = {}
+    for a in query.order_by(MemberRole.startdate).all():
+        assignments_by_role.setdefault(a.role_id, []).append(a)
 
     result = []
     for role in roles:
-        query = db.query(MemberRole).join(Member).filter(MemberRole.role_id == role.id)
-        if start and end:
-            query = query.filter(
-                MemberRole.startdate < end,
-                (MemberRole.enddate > start) | (MemberRole.enddate.is_(None)),
-            )
-        else:
-            query = query.filter(
-                MemberRole.startdate < now,
-                (MemberRole.enddate > now) | (MemberRole.enddate.is_(None)),
-            )
-        assignments = query.order_by(MemberRole.startdate).all()
-
+        role_assignments = assignments_by_role.get(role.id, [])
         vbw = next(
             (
                 {
@@ -1042,7 +1050,7 @@ def get_roles_list(
                     "startdate": a.startdate,
                     "enddate": a.enddate,
                 }
-                for a in assignments
+                for a in role_assignments
                 if a.member.org_id == "vbw"
             ),
             None,
@@ -1055,7 +1063,7 @@ def get_roles_list(
                     "startdate": a.startdate,
                     "enddate": a.enddate,
                 }
-                for a in assignments
+                for a in role_assignments
                 if a.member.org_id == "vbn"
             ),
             None,
@@ -1096,6 +1104,7 @@ def _build_keys_data(
     members = (
         db.query(Member)
         .filter(Member.member_keys.any())
+        .options(selectinload(Member.member_keys))
         .order_by(Member.nachname)
         .all()
     )

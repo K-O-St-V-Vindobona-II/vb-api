@@ -8,6 +8,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
+from app.services.p4x_response_builders import build_transaction_response
 from app.services.p4x_service import (
     get_account_balance,
     get_account_categories,
@@ -468,3 +469,58 @@ class TestGetWarningsWithLimit:
         items, total = get_warnings_category(db_session, limit=2)
         assert total == 3
         assert len(items) == 2
+
+
+class TestBuildTransactionResponseQueryCount:
+    """Regression test for the N+1 fix: build_transaction_response() reads
+    tx.category_directs and tx.category_filter_hits (both lazy="select")
+    for every transaction it renders - the listing queries must eager-load
+    both so the query count doesn't scale with the number of transactions.
+    """
+
+    def test_query_count_does_not_scale_with_transaction_count(
+        self, db_session, count_queries
+    ):
+        account = _create_account(db_session)
+        category = P4xCategory(
+            name="test.cat",
+            label="Test",
+            background_color="#000000",
+            text_color="#ffffff",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(category)
+        db_session.commit()
+
+        def _add_tx_with_direct(hash_suffix: str) -> None:
+            tx = _add_tx(
+                db_session, account, date(2026, 3, 10), 10.0, hash_suffix=hash_suffix
+            )
+            db_session.add(
+                P4xCategoryDirect(
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=category.id,
+                    amount=10.0,
+                )
+            )
+            db_session.commit()
+
+        _add_tx_with_direct("small-a")
+        _add_tx_with_direct("small-b")
+
+        with count_queries() as small:
+            items, _ = get_transactions_by_month(db_session, account, 2026, 3, 1)
+            for item in items:
+                build_transaction_response(item, db_session)
+
+        for i in range(5):
+            _add_tx_with_direct(f"large-{i}")
+
+        with count_queries() as large:
+            items, _ = get_transactions_by_month(db_session, account, 2026, 3, 1)
+            assert len(items) == 7
+            for item in items:
+                build_transaction_response(item, db_session)
+
+        assert large.count == small.count

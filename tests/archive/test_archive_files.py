@@ -24,6 +24,7 @@ from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
+from app.services import archive_service
 from app.services.auth_service import (
     create_user_session,
 )
@@ -349,6 +350,57 @@ class TestUpload:
         files = resp.json()["files"]
         assert len(files) == 1
         assert files[0]["description"] == "File from user A"
+
+    def test_query_count_does_not_scale_with_upload_count(
+        self, db_session, count_queries
+    ):
+        """Regression test for the N+1 fix in get_unfiled_uploads(): reading
+        fv.archive_file per version must not issue one query per upload."""
+        _seed(db_session)
+        _headers_a, user_a = _login_user(db_session, None)
+
+        def _make_unfiled_upload(hash_suffix: str) -> None:
+            now = _now()
+            item = ArchiveStoreItem(
+                name="testfile",
+                original_name="testfile",
+                extension="jpg",
+                mime_type="image/jpeg",
+                size=5000,
+                sha256_hash=f"unfiled_{hash_suffix}",
+                created_by=user_a.id,
+                created_at=now,
+                updated_at=now,
+            )
+            db_session.add(item)
+            db_session.flush()
+            f = ArchiveFile(archive_dir_id=0, description="unfiled")
+            db_session.add(f)
+            db_session.flush()
+            db_session.add(
+                ArchiveFileVersion(
+                    archive_file_id=f.id,
+                    archive_store_item_id=item.id,
+                    active=True,
+                )
+            )
+            db_session.commit()
+
+        _make_unfiled_upload("small-a")
+        _make_unfiled_upload("small-b")
+
+        with count_queries() as small:
+            small_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
+
+        for i in range(5):
+            _make_unfiled_upload(f"large-{i}")
+
+        with count_queries() as large:
+            large_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
+
+        assert len(small_result) == 2
+        assert len(large_result) == 7
+        assert large.count == small.count
 
 
 class TestFileDetail:
