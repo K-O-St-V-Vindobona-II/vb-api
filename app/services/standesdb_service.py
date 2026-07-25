@@ -333,6 +333,32 @@ def _serialize_log_value(val: object) -> str | None:
     return str(val)
 
 
+# Technical/audit bookkeeping columns must never surface in the
+# Änderungshistorie — they aren't part of any edit form and aren't
+# meaningful change history for a user. Filtered both at write time
+# (defense in depth, in case a future diff includes one) and at read time
+# (to also suppress legacy rows already sitting in the DB, e.g.
+# auth_lastsignal rows from a since-changed write path that bulk-updated
+# the column directly, bypassing this diff mechanism entirely).
+#
+# created_at/deleted_at are deliberately excluded from this set:
+# created_at is redundant with the action="create" rows already logged
+# for the initial field values, but deleted_at is the sole record of a
+# contact's deletion (soft_delete_contact touches no other field) and
+# must stay visible.
+_CHANGELOG_EXCLUDED_KEYS = frozenset(
+    {
+        "auth_lastlogin",
+        "auth_lastlogin_provider",
+        "auth_lastsignal",
+        "auth_lastlogout",
+        "modified_at",
+        "modified_by",
+        "updated_at",
+    }
+)
+
+
 def _persist_change_log(
     db: Session,
     log_model: type,
@@ -344,6 +370,8 @@ def _persist_change_log(
     modified_at: datetime,
 ) -> None:
     for key, change in diff.items():
+        if key in _CHANGELOG_EXCLUDED_KEYS:
+            continue
         db.add(
             log_model(
                 **{fk_field: entity_id},
@@ -1181,7 +1209,10 @@ def get_member_changelog(
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:
     """Return the change history for a member, paginated."""
-    query = db.query(MembersLog).filter(MembersLog.member_id == member_id)
+    query = db.query(MembersLog).filter(
+        MembersLog.member_id == member_id,
+        MembersLog.key.notin_(_CHANGELOG_EXCLUDED_KEYS),
+    )
     total = query.count()
     logs = (
         query.order_by(MembersLog.modified_at.desc())
@@ -1216,7 +1247,10 @@ def get_contact_changelog(
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:
     """Return the change history for a contact, paginated."""
-    query = db.query(ContactsLog).filter(ContactsLog.contact_id == contact_id)
+    query = db.query(ContactsLog).filter(
+        ContactsLog.contact_id == contact_id,
+        ContactsLog.key.notin_(_CHANGELOG_EXCLUDED_KEYS),
+    )
     total = query.count()
     logs = (
         query.order_by(ContactsLog.modified_at.desc())

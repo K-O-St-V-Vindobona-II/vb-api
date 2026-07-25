@@ -438,3 +438,100 @@ class TestChangelog:
             headers=h,
         )
         assert resp.status_code == 403
+
+    def test_member_changelog_excludes_technical_fields(self, client, db_session):
+        """Technical/audit bookkeeping keys (e.g. auth_lastsignal, bumped on
+        every request via a raw bulk UPDATE that bypasses the diff
+        mechanism) must never show up in the Änderungshistorie, even if
+        legacy rows for them already exist in the DB."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        target = Member(
+            email="technical@vbw.at",
+            vorname="Technical",
+            nachname="Member",
+            org_id="vbw",
+            state_id="fu",
+        )
+        db_session.add(target)
+        db_session.commit()
+        for key in ("auth_lastsignal", "updated_at", "vorname"):
+            db_session.add(
+                MembersLog(
+                    member_id=target.id,
+                    modified_by=admin.id,
+                    modified_at=datetime.now(UTC),
+                    action="update",
+                    key=key,
+                    old="old",
+                    new="new",
+                )
+            )
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/changelog",
+            headers=h,
+        )
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["key"] == "vorname"
+
+    def test_contact_changelog_excludes_technical_fields(self, client, db_session):
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        contact = _make_contact(db_session, name="Technical Contact")
+        for key in ("modified_at", "email"):
+            db_session.add(
+                ContactsLog(
+                    contact_id=contact.id,
+                    modified_by=admin.id,
+                    modified_at=datetime.now(UTC),
+                    action="update",
+                    key=key,
+                    old="old",
+                    new="new",
+                )
+            )
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/contacts/{contact.id}/changelog",
+            headers=h,
+        )
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["key"] == "email"
+
+    def test_contact_changelog_keeps_delete_entries(self, client, db_session):
+        """deleted_at is the sole record of a contact's deletion and must
+        stay visible, unlike other bookkeeping timestamp columns."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        contact = _make_contact(db_session, name="Deleted Contact")
+        db_session.add(
+            ContactsLog(
+                contact_id=contact.id,
+                modified_by=admin.id,
+                modified_at=datetime.now(UTC),
+                action="delete",
+                key="deleted_at",
+                old=None,
+                new=str(datetime.now(UTC)),
+            )
+        )
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/contacts/{contact.id}/changelog",
+            headers=h,
+        )
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["key"] == "deleted_at"
+        assert data["items"][0]["action"] == "delete"
