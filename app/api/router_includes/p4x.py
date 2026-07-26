@@ -1,8 +1,9 @@
 import base64
 import io
 import json
+import re
 import zipfile
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -853,6 +854,7 @@ def _build_fee_member_response(
                     type=str(p["type"]),
                     booking=str(p["booking"]),
                     amount=Decimal(str(p["amount"])),
+                    balance=Decimal(str(p["balance"])),
                 )
                 for p in balance_data["progress"]
             ],
@@ -867,7 +869,7 @@ def _build_fee_member_response(
         id=member.id,
         cn=member.cn,
         p4x_init_date=init_date_str,
-        p4x_init_balance=member.p4x_init_balance or Decimal(0),
+        p4x_init_balance=member.p4x_init_balance,
         p4x_freed=bool(member.p4x_freed),
         p4x_comment=member.p4x_comment,
         balance=balance,
@@ -900,6 +902,28 @@ def get_fee_member(
     if not p4x_fee_balance_service.is_fee_member(member):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
     return _build_fee_member_response(db, member)
+
+
+@p4x_router.get("/fee-members/{member_id}/export")
+def export_fee_member(
+    member_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+) -> Response:
+    """Export a single fee member's account statement as XLSX."""
+    member = p4x_response_builders.get_member_or_404(db, member_id)
+    response = _build_fee_member_response(db, member)
+    if response.balance is None:
+        raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
+    xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(response)
+
+    safe_name = re.sub(r'[\\/:*?"<>|]', "_", member.cn)
+    filename = f"Beitragskonto_{safe_name}_{datetime.now(UTC).date()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @p4x_router.post("/admin/fee-members/{member_id}")

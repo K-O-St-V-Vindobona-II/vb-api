@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
     from sqlalchemy.orm import Session
 
 from app.models.p4x_account import P4xAccount
@@ -21,7 +22,7 @@ from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_transaction import P4xTransaction
-from app.schemas.p4x import SumUpBalanceResponse
+from app.schemas.p4x import FeeBalanceResponse, FeeMemberResponse, SumUpBalanceResponse
 from app.services import (
     p4x_account_service,
     p4x_fee_balance_service,
@@ -403,6 +404,124 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue(), attachments
+
+
+# ---------------------------------------------------------------------------
+# Fee Member Statement XLSX generation
+# ---------------------------------------------------------------------------
+
+_AMOUNT_FORMAT = "#,##0.00 €"
+_DATE_FORMAT = "DD.MM.YYYY"
+
+
+def _amount_font(value: Decimal) -> Font:
+    return Font(color="008000" if value >= 0 else "FF0000")
+
+
+def _write_fee_member_summary_sheet(
+    ws: Worksheet, cn: str, balance: FeeBalanceResponse
+) -> None:
+    """Write the "Zusammenfassung" sheet."""
+    summary_rows: list[tuple[str, str | Decimal | date]] = [
+        ("Mitglied", cn),
+        ("Initialdatum", date.fromisoformat(balance.start_date)),
+        ("Initialstand", balance.start_balance),
+        (f"{balance.count.fees} verrechnete Beiträge", balance.sum.fees),
+        (f"{balance.count.payments} geleistete Zahlungen", balance.sum.payments),
+        ("Enddatum", date.fromisoformat(balance.end_date)),
+    ]
+    for row_idx, (label, value) in enumerate(summary_rows, 1):
+        ws.cell(row=row_idx, column=1, value=label).font = Font(bold=True)
+        cell = ws.cell(row=row_idx, column=2, value=value)
+        if isinstance(value, Decimal):
+            cell.number_format = _AMOUNT_FORMAT
+            cell.alignment = Alignment(horizontal="right")
+            cell.font = _amount_font(value)
+        elif isinstance(value, date):
+            cell.number_format = _DATE_FORMAT
+            cell.alignment = Alignment(horizontal="right")
+
+    end_row = len(summary_rows) + 1
+    ws.cell(row=end_row, column=1, value="Endstand").font = Font(bold=True)
+    end_cell = ws.cell(row=end_row, column=2, value=balance.end_balance)
+    end_cell.number_format = _AMOUNT_FORMAT
+    end_cell.alignment = Alignment(horizontal="right")
+    end_cell.font = _amount_font(balance.end_balance)
+
+
+def _write_fee_member_progress_sheet(
+    ws: Worksheet, balance: FeeBalanceResponse
+) -> None:
+    """Write the "Verlauf" sheet with a running-balance value per row."""
+    ws.freeze_panes = "A2"
+    headers = ["Datum", "Transaktionsart", "Betrag", "Saldo"]
+    for col_idx, header in enumerate(headers, 1):
+        ws.cell(row=1, column=col_idx, value=header).font = Font(bold=True)
+
+    for row_idx, entry in enumerate(balance.progress, 2):
+        booking_date = date.fromisoformat(entry.booking)
+        date_cell = ws.cell(row=row_idx, column=1, value=booking_date)
+        date_cell.number_format = _DATE_FORMAT
+        date_cell.alignment = Alignment(horizontal="left")
+
+        type_cell = ws.cell(
+            row=row_idx,
+            column=2,
+            value="Fälligkeit" if entry.type == "fee" else "Zahlung",
+        )
+        type_cell.alignment = Alignment(horizontal="left")
+
+        amount_cell = ws.cell(row=row_idx, column=3, value=entry.amount)
+        amount_cell.number_format = _AMOUNT_FORMAT
+        amount_cell.alignment = Alignment(horizontal="right")
+        amount_cell.font = _amount_font(entry.amount)
+
+        saldo_cell = ws.cell(row=row_idx, column=4, value=entry.balance)
+        saldo_cell.number_format = _AMOUNT_FORMAT
+        saldo_cell.alignment = Alignment(horizontal="right")
+        saldo_cell.font = _amount_font(entry.balance)
+
+
+def _autosize_columns(wb: Workbook) -> None:
+    for ws_auto in wb.worksheets:
+        for col_idx in range(1, ws_auto.max_column + 1):
+            max_len = 0
+            for row in ws_auto.iter_rows(min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value is not None:
+                        max_len = max(max_len, len(str(cell.value)))
+            letter = get_column_letter(col_idx)
+            ws_auto.column_dimensions[letter].width = max_len + 3
+
+
+def generate_fee_member_xlsx(response: FeeMemberResponse) -> bytes:
+    """Generate a two-sheet XLSX statement for one fee member.
+
+    Sheet "Zusammenfassung" mirrors the on-screen summary; sheet "Verlauf"
+    lists every booking with a running balance ("Saldo") per row.
+    """
+    balance = response.balance
+    if balance is None:
+        msg = "Fee member has no balance data to export."
+        raise ValueError(msg)
+
+    wb = Workbook()
+
+    ws_summary = wb.active
+    if ws_summary is None:
+        ws_summary = wb.create_sheet("Zusammenfassung")
+    ws_summary.title = "Zusammenfassung"
+    _write_fee_member_summary_sheet(ws_summary, response.cn, balance)
+
+    ws_progress = wb.create_sheet("Verlauf")
+    _write_fee_member_progress_sheet(ws_progress, balance)
+
+    wb.active = 0
+    _autosize_columns(wb)
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
 
 
 def _format_partner_for_xlsx(db: Session, tx: P4xTransaction) -> str:

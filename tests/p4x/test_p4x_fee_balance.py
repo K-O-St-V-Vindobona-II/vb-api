@@ -323,6 +323,32 @@ class TestFeeBalanceWithPayments:
         bookings = [e["booking"] for e in balance["progress"]]
         assert bookings == sorted(bookings)
 
+    def test_progress_running_balance(self, db_session):
+        """Each progress entry carries a running balance ending at end_balance."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2017, 1, 1),
+        )
+
+        _add_fee_payment(db_session, member, date(2017, 2, 14), 15.0)
+
+        balance = calculate_fee_balance(
+            db_session,
+            member,
+            "2017-01-01",
+            "2017-03-31",
+        )
+        assert balance is not None
+
+        running = balance["start_balance"]
+        for entry in balance["progress"]:
+            running += entry["amount"]
+            assert entry["balance"] == running
+
+        assert balance["progress"][-1]["balance"] == balance["end_balance"]
+
     def test_fee_rate_change(self, db_session):
         """Fees change from 10€ to 15€ in June 2024."""
         _seed_base(db_session)
