@@ -155,3 +155,45 @@ class TestGetMemberOr404:
         )
 
         assert resp.status_code == 404
+
+
+class TestUpdateFeeMemberEndpoint:
+    def test_persists_all_fields_via_http(self, db_session, client):
+        """Regression test: FastAPI passes p4x_init_date as a date object
+        (not a string) through model_dump() — the service layer must accept
+        both, or the date silently gets dropped on every real save.
+        """
+        _seed(db_session)
+        admin = _create_admin(db_session)
+        headers = _login(db_session, admin)
+
+        target = Member(
+            vorname="Debug",
+            nachname="Target",
+            email="update-fee-member-target@test.at",
+            auth_password="x",
+            org_id="vbw",
+            state_id="up",
+            auth_locked=False,
+        )
+        db_session.add(target)
+        db_session.commit()
+        db_session.refresh(target)
+
+        resp = client.post(
+            f"/api/p4x/admin/fee-members/{target.id}",
+            json={
+                "p4x_init_date": "2020-06-15",
+                "p4x_init_balance": "50.00",
+                "p4x_freed": True,
+                "p4x_comment": "Sondergenehmigung",
+            },
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        db_session.refresh(target)
+        assert target.p4x_init_date == date(2020, 6, 15)
+        assert target.p4x_init_balance == 50
+        assert target.p4x_freed is True
+        assert target.p4x_comment == "Sondergenehmigung"

@@ -313,6 +313,7 @@ class FeeProgressEntry(BaseModel):
     type: str
     booking: str
     amount: MoneyOut
+    balance: MoneyOut
 
 
 class FeeBalanceResponse(BaseModel):

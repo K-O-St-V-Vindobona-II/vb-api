@@ -156,10 +156,12 @@ def search_fee_members(db: Session, term: str) -> list[FeeMemberSearchResult]:
 def update_fee_member(
     db: Session,
     member: Member,
-    data: dict[str, str | Decimal | bool | None],
+    data: dict[str, str | date | Decimal | bool | None],
 ) -> None:
     init_date_raw = data["p4x_init_date"]
-    if isinstance(init_date_raw, str):
+    if isinstance(init_date_raw, date):
+        member.p4x_init_date = init_date_raw
+    elif isinstance(init_date_raw, str):
         member.p4x_init_date = date.fromisoformat(init_date_raw[:10])
     else:
         member.p4x_init_date = None
@@ -503,6 +505,11 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     )
 
     progress.sort(key=lambda e: str(e["booking"]))
+
+    running_balance = start_balance
+    for entry in progress:
+        running_balance += Decimal(str(entry["amount"]))
+        entry["balance"] = running_balance
 
     fee_entries = [e for e in progress if e["type"] == "fee"]
     payment_entries = [e for e in progress if e["type"] == "payment"]
