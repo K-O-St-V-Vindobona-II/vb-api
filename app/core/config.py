@@ -44,8 +44,10 @@ class Settings(BaseSettings):
     password_min_length: int = Field(default=8, validation_alias="PASSWORD_MIN_LENGTH")
 
     # Tier 2 (feature-required — checked at first use via require_setting(),
-    # not at boot: a deployment that never sends email or offers Google
-    # Login must not be forced to configure these).
+    # not at boot: a process that never sends email, offers Google Login,
+    # or touches S3 storage (e.g. a bare migration run) must not be forced
+    # to configure these; a real empty-string default for the S3 keys would
+    # instead fail silently deep inside boto3 on first actual use).
     smtp_host: str | None = Field(default=None, validation_alias="SMTP_HOST")
     smtp_port: int | None = Field(default=None, validation_alias="SMTP_PORT")
     smtp_from_email: str | None = Field(
@@ -57,6 +59,8 @@ class Settings(BaseSettings):
     google_client_id: str | None = Field(
         default=None, validation_alias="GOOGLE_CLIENT_ID"
     )
+    s3_access_key: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY")
+    s3_secret_key: str | None = Field(default=None, validation_alias="S3_SECRET_KEY")
 
     # Tier 3 (SMTP) — optional with defaults, no boot-time validation.
     # "null" (not "") mirrors the historical env convention: an explicit
@@ -85,12 +89,15 @@ class Settings(BaseSettings):
         default="public/gallery", validation_alias="S3_PATH_PUBLIC_GALLERY"
     )
 
-    # Tier 3 (S3 connection) — optional with defaults, no boot-time validation.
+    # Tier 3 (S3 connection) — optional with defaults, no boot-time
+    # validation. s3_endpoint_url/s3_public_endpoint_url genuinely mean
+    # something when unset (None = real AWS S3's default endpoint, or "no
+    # separate public endpoint" — see StorageClient.__init__'s
+    # public_endpoint_url fallback), unlike the credentials above, which
+    # have no meaningful empty value.
     s3_endpoint_url: str | None = Field(
         default=None, validation_alias="S3_ENDPOINT_URL"
     )
-    s3_access_key: str = Field(default="", validation_alias="S3_ACCESS_KEY")
-    s3_secret_key: str = Field(default="", validation_alias="S3_SECRET_KEY")
     s3_bucket: str = Field(default="vindobona2-at", validation_alias="S3_BUCKET")
     s3_public_endpoint_url: str | None = Field(
         default=None, validation_alias="S3_PUBLIC_ENDPOINT_URL"
