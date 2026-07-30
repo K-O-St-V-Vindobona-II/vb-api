@@ -156,3 +156,17 @@ class TestBackupEnabledParsing:
     def test_arbitrary_string_is_treated_as_enabled(self, monkeypatch) -> None:
         monkeypatch.setenv("BACKUP_ENABLED", "yes-please")
         assert get_settings().backup_enabled is True
+
+
+class TestAppTimezone:
+    """Tier 3 (timezone) — optional with a sane default, no boot-time
+    validation (an invalid IANA zone name only surfaces where it's
+    actually resolved via zoneinfo.ZoneInfo, e.g. app/core/scheduler.py)."""
+
+    def test_defaults_to_europe_vienna_when_unset(self, monkeypatch) -> None:
+        monkeypatch.delenv("APP_TIMEZONE", raising=False)
+        assert get_settings().app_timezone == "Europe/Vienna"
+
+    def test_env_var_overrides_default(self, monkeypatch) -> None:
+        monkeypatch.setenv("APP_TIMEZONE", "America/New_York")
+        assert get_settings().app_timezone == "America/New_York"

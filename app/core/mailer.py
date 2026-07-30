@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.exc import SQLAlchemyError
@@ -254,7 +255,7 @@ def send_entry_changed_email(
     if not to_emails or not diff:
         return
 
-    now = datetime.now(UTC)
+    now = datetime.now(ZoneInfo(get_settings().app_timezone))
     subject = (
         f"Bearbeitung in der Verbindungsdatenbank ({now.strftime('%Y-%m-%d %H:%M')})"
     )

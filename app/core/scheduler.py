@@ -81,12 +81,13 @@ MONTHS_DE = [
     "Dezember",
 ]
 
-VIENNA_TZ = ZoneInfo("Europe/Vienna")
+APP_TZ = ZoneInfo(get_settings().app_timezone)
 
-# All cron trigger hour/minute values below are Vienna wall-clock time
-# (human-facing mails), not UTC — the machine-facing db_backup job further
+# All cron trigger hour/minute values below are wall-clock time in the
+# configured app timezone (Settings.app_timezone, default Europe/Vienna;
+# human-facing mails), not UTC — the machine-facing db_backup job further
 # below stays UTC-based and is documented as such.
-scheduler = AsyncIOScheduler(timezone=VIENNA_TZ)
+scheduler = AsyncIOScheduler(timezone=APP_TZ)
 
 # Arbitrary fixed key identifying "the vb-api scheduler" for
 # pg_try_advisory_lock. Any int64 works as long as it stays constant.

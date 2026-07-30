@@ -112,6 +112,12 @@ class Settings(BaseSettings):
     )
     dev_superuser_id: int = Field(default=0, validation_alias="DEV_SUPERUSER_ID")
 
+    # Tier 3 (timezone) — optional with default, no boot-time validation.
+    # Wall-clock timezone for human-facing output (cron schedule, email
+    # timestamps) — not used for DB storage, which stays UTC (TIMESTAMPTZ)
+    # regardless of this setting.
+    app_timezone: str = Field(default="Europe/Vienna", validation_alias="APP_TIMEZONE")
+
     @field_validator("backup_enabled", mode="before")
     @classmethod
     def _parse_backup_enabled(cls, value: object) -> object:

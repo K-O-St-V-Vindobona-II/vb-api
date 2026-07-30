@@ -2,12 +2,12 @@
 
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
-from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.scheduler import (
+    APP_TZ,
     BACKUP_HOUR,
     _parse_month_day,
     _parse_year,
@@ -380,11 +380,14 @@ class TestJobDownsync:
 
 
 class TestSchedulerTimezone:
-    def test_scheduler_uses_vienna_timezone(self):
+    def test_scheduler_uses_configured_app_timezone(self):
         # Regression guard: without an explicit timezone, APScheduler falls
         # back to the container's local zone (UTC, since no TZ env var was
         # set), causing every human-facing cron job to fire 1-2h too late.
-        assert scheduler.timezone == ZoneInfo("Europe/Vienna")
+        # Compares against the module constant (like BACKUP_HOUR above) —
+        # APP_TZ is read from Settings.app_timezone once at import time, not
+        # re-read dynamically per job.
+        assert scheduler.timezone == APP_TZ
 
 
 class TestStandesdbChronicles:

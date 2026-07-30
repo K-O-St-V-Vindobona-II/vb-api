@@ -1,8 +1,9 @@
 """Tests for mailer helper functions and edge cases."""
 
-from datetime import date
+from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
@@ -133,6 +134,31 @@ class TestSendEntryChangedEmail:
         )
         text = mock_send.call_args[0][3]
         assert "geburtsdatum_accuracy" not in text
+
+    @patch("app.core.mailer._send_to_multiple")
+    def test_subject_timestamp_uses_configured_app_timezone(
+        self, mock_send, monkeypatch
+    ):
+        # Regression: previously hardcoded datetime.now(UTC), showing
+        # recipients a subject timestamp off by 1-2h from local wall-clock
+        # time — the same bug class fixed for the scheduler (see
+        # tests/test_scheduled_jobs.py::TestSchedulerTimezone). UTC+14 is
+        # never equal to UTC, so this reliably fails if the code reverts to
+        # datetime.now(UTC).
+        monkeypatch.setenv("APP_TIMEZONE", "Pacific/Kiritimati")
+
+        send_entry_changed_email(
+            ["a@b.at"],
+            "member",
+            "Test",
+            {"vorname": {"old": "Alt", "new": "Neu"}},
+            "update",
+            "Admin",
+        )
+
+        subject = mock_send.call_args[0][1]
+        expected = datetime.now(ZoneInfo("Pacific/Kiritimati"))
+        assert expected.strftime("%Y-%m-%d %H:%M") in subject
 
 
 class TestSendToRecipients:
