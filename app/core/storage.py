@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 from PIL import Image as PILImage
 from PIL import ImageOps
 
-from app.core.config import get_settings
+from app.core.config import get_settings, require_setting
 
 PILImage.MAX_IMAGE_PIXELS = 100_000_000
 
@@ -224,8 +224,8 @@ def _get_storage_singleton() -> StorageClient:
         settings = get_settings()
         _storage = StorageClient(
             endpoint_url=settings.s3_endpoint_url,
-            access_key=settings.s3_access_key,
-            secret_key=settings.s3_secret_key,
+            access_key=require_setting(settings.s3_access_key, "S3_ACCESS_KEY"),
+            secret_key=require_setting(settings.s3_secret_key, "S3_SECRET_KEY"),
             bucket=settings.s3_bucket,
             public_endpoint_url=settings.s3_public_endpoint_url,
             region=settings.s3_region,

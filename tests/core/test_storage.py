@@ -219,3 +219,27 @@ class TestGetStorageSingleton:
                 )
         finally:
             storage_module._storage = old_singleton
+
+    def test_raises_clear_error_when_access_key_missing(self, monkeypatch):
+        # Regression: s3_access_key/s3_secret_key are Tier 2 (checked via
+        # require_setting() at first use), not Tier 3 with an empty-string
+        # default — an empty string would silently reach boto3 and only
+        # fail deep inside botocore on the first real S3 call.
+        monkeypatch.delenv("S3_ACCESS_KEY", raising=False)
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with pytest.raises(RuntimeError, match="S3_ACCESS_KEY is not set"):
+                storage_module._get_storage_singleton()
+        finally:
+            storage_module._storage = old_singleton
+
+    def test_raises_clear_error_when_secret_key_missing(self, monkeypatch):
+        monkeypatch.delenv("S3_SECRET_KEY", raising=False)
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with pytest.raises(RuntimeError, match="S3_SECRET_KEY is not set"):
+                storage_module._get_storage_singleton()
+        finally:
+            storage_module._storage = old_singleton
