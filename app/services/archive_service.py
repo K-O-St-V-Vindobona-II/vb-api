@@ -6,7 +6,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm import Session
 
 from app.core.storage import (
     S3_PATH_ARCHIVE_CACHE,
@@ -19,9 +19,6 @@ from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import (
     ArchiveFileComment,
-)
-from app.models.archive_file_version import (
-    ArchiveFileVersion,
 )
 from app.models.archive_permission import (
     ArchivePermission,
@@ -172,32 +169,20 @@ def _require_insight_or_admin(
 # --- File helpers ---
 
 
-def _active_store_item(
-    file_obj: ArchiveFile,
-) -> ArchiveStoreItem | None:
-    for fv in file_obj.file_versions:
-        if fv.active and fv.store_item:
-            return fv.store_item
-    # Fall back to first version if active flag is missing (legacy data)
-    if file_obj.file_versions:
-        return file_obj.file_versions[0].store_item
-    return None
-
-
 def _file_short(
     file_obj: ArchiveFile,
 ) -> dict[str, object]:
-    item = _active_store_item(file_obj)
+    item = file_obj.store_item
     return {
         "type": "file",
         "id": file_obj.id,
-        "name": item.name if item else None,
-        "extension": item.extension if item else None,
+        "name": item.name,
+        "extension": item.extension,
         "description": file_obj.description,
-        "size": item.size if item else 0,
-        "is_image": item.is_image if item else False,
-        "mime_type": item.mime_type if item else None,
-        "created_at": _ts(item.created_at if item else None),
+        "size": item.size,
+        "is_image": item.is_image,
+        "mime_type": item.mime_type,
+        "created_at": _ts(item.created_at),
         "deleted_at": _ts(file_obj.deleted_at),
     }
 
@@ -670,7 +655,7 @@ def get_file_detail(
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
     admin = is_archive_admin(user)
-    item = _active_store_item(file_obj)
+    item = file_obj.store_item
     path = []
     if file_obj.archive_dir_id:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
@@ -694,17 +679,17 @@ def get_file_detail(
         "type": "file",
         "id": file_obj.id,
         "archive_dir_id": file_obj.archive_dir_id or 0,
-        "name": item.name if item else None,
-        "extension": item.extension if item else None,
+        "name": item.name,
+        "extension": item.extension,
         "description": file_obj.description,
-        "size": item.size if item else 0,
-        "is_image": item.is_image if item else False,
-        "mime_type": item.mime_type if item else None,
+        "size": item.size,
+        "is_image": item.is_image,
+        "mime_type": item.mime_type,
         "path": path,
-        "active_version": (_store_item_response(item) if item else None),
+        "active_version": _store_item_response(item),
         "comments": [_comment_response(c) for c in comments],
         "trashed_comments": [_comment_response(c) for c in trashed_comments],
-        "created_at": _ts(item.created_at if item else None),
+        "created_at": _ts(item.created_at),
         "deleted_at": _ts(file_obj.deleted_at),
     }
 
@@ -791,13 +776,7 @@ def serve_download(
         if dir_obj:
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
-    item = _active_store_item(file_obj)
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Keine Version gefunden.",
-        )
-
+    item = file_obj.store_item
     sha256_hash, is_image = item.sha256_hash, item.is_image
     name, extension, mime_type = item.name, item.extension, item.mime_type
     # Everything from here on only talks to S3 (cache check, download,
@@ -854,13 +833,7 @@ def get_presigned_url(
         if dir_obj:
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
-    item = _active_store_item(file_obj)
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Keine Version gefunden.",
-        )
-
+    item = file_obj.store_item
     sha256_hash, is_image = item.sha256_hash, item.is_image
     name, extension, mime_type = item.name, item.extension, item.mime_type
     # See serve_download() above for why the DB connection is released
@@ -932,26 +905,18 @@ def get_unfiled_uploads(
     db: Session,
     user_id: int,
 ) -> list[dict[str, object]]:
-    versions = (
-        db.query(ArchiveFileVersion)
-        .join(ArchiveFile)
+    files = (
+        db.query(ArchiveFile)
         .join(
-            ArchiveStoreItem,
-            ArchiveFileVersion.archive_store_item_id == ArchiveStoreItem.id,
-        )
-        .options(
-            contains_eager(ArchiveFileVersion.archive_file).selectinload(
-                ArchiveFile.file_versions
-            )
+            ArchiveStoreItem, ArchiveFile.archive_store_item_id == ArchiveStoreItem.id
         )
         .filter(
             ArchiveFile.archive_dir_id == 0,
-            ArchiveFileVersion.active == True,  # noqa: E712
             ArchiveStoreItem.created_by == user_id,
         )
         .all()
     )
-    return [_file_short(fv.archive_file) for fv in versions if fv.archive_file]
+    return [_file_short(f) for f in files]
 
 
 def get_unsorted_upload_count(db: Session) -> int:
@@ -1049,16 +1014,11 @@ def upload_file(
     archive_file = ArchiveFile(
         archive_dir_id=0,
         description=description,
+        archive_store_item_id=store_item.id,
+        created_at=now,
+        updated_at=now,
     )
     db.add(archive_file)
-    db.flush()
-
-    version = ArchiveFileVersion(
-        archive_file_id=archive_file.id,
-        archive_store_item_id=store_item.id,
-        active=True,
-    )
-    db.add(version)
     db.commit()
 
     return _file_short(archive_file)
@@ -1162,13 +1122,7 @@ def search_archive(
     file_hits = (
         db.query(ArchiveFile)
         .join(
-            ArchiveFileVersion,
-            (ArchiveFileVersion.archive_file_id == ArchiveFile.id)
-            & (ArchiveFileVersion.active == True),  # noqa: E712
-        )
-        .join(
-            ArchiveStoreItem,
-            ArchiveStoreItem.id == ArchiveFileVersion.archive_store_item_id,
+            ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),
@@ -1195,16 +1149,16 @@ def search_archive(
             )
         ):
             continue
-        item = _active_store_item(f)
+        item = f.store_item
         path = dir_path_string(db, parent) if parent else "Archiv"
         results.append(
             {
                 "type": "file",
                 "id": f.id,
-                "name": item.name if item else None,
+                "name": item.name,
                 "description": f.description,
-                "extension": (item.extension if item else None),
-                "is_image": (item.is_image if item else False),
+                "extension": item.extension,
+                "is_image": item.is_image,
                 "path": path,
             }
         )

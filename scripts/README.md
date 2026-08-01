@@ -164,9 +164,9 @@ confirmation prompt so the operator can judge for themselves whether
 anything looks too recent to touch.
 
 For each file, the database row is hard-deleted first (cascading its
-versions and comments) and committed — only *after* that commit succeeds
-does the script attempt to delete the underlying S3 object(s), and only if
-no other file version anywhere still references the same content hash
+comments) and committed — only *after* that commit succeeds does the
+script attempt to delete the underlying S3 object(s), and only if no other
+file anywhere still references the same content hash
 (`ArchiveStoreItem.sha256_hash`). Cached thumbnail variants are cleaned up
 via a prefix listing, not hardcoded sizes, so a future thumbnail-cache
 version bump can't leave orphans behind. This DB-first ordering is
@@ -377,10 +377,10 @@ Bestätigungsabfrage angezeigt, damit der Operator selbst beurteilen kann,
 ob etwas zu frisch aussieht, um es anzufassen.
 
 Pro Datei wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
-Versionen und Kommentare) und committet — **erst danach** versucht das
-Script, das zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine
-andere Datei-Version im System noch denselben Content-Hash
-(`ArchiveStoreItem.sha256_hash`) referenziert. Gecachte Thumbnail-Varianten
+Kommentare) und committet — **erst danach** versucht das Script, das
+zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
+im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)
+referenziert. Gecachte Thumbnail-Varianten
 werden über eine Prefix-Auflistung bereinigt, nicht über hartkodierte
 Größen — ein künftiges Thumbnail-Cache-Versions-Update kann so keine
 Leichen hinterlassen. Diese DB-zuerst-Reihenfolge ist bewusst: Ein

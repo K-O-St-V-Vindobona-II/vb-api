@@ -5,7 +5,6 @@ from app.db.database import Base  # noqa: F401
 from app.models.archive_dir import ArchiveDir  # noqa: F401
 from app.models.archive_file import ArchiveFile  # noqa: F401
 from app.models.archive_file_comment import ArchiveFileComment  # noqa: F401
-from app.models.archive_file_version import ArchiveFileVersion  # noqa: F401
 from app.models.archive_permission import ArchivePermission  # noqa: F401
 from app.models.archive_store_item import ArchiveStoreItem  # noqa: F401
 from app.models.badge import Badge  # noqa: F401

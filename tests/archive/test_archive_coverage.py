@@ -18,7 +18,6 @@ from app.core.storage import THUMBNAIL_CACHE_VERSION
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
-from app.models.archive_file_version import ArchiveFileVersion
 from app.models.archive_permission import ArchivePermission
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.member import Member
@@ -33,8 +32,6 @@ from app.schemas.archive import (
     FileUpdateRequest,
 )
 from app.services.archive_service import (
-    _active_store_item,
-    _file_short,
     _get_or_create_thumbnail,
     _is_descendant,
     _serve_thumbnail,
@@ -179,65 +176,9 @@ def _make_file(
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-    )
-    db.add(f)
-    db.flush()
-    db.add(
-        ArchiveFileVersion(
-            archive_file_id=f.id,
-            archive_store_item_id=item.id,
-            active=True,
-        )
-    )
-    db.commit()
-    return f
-
-
-def _make_file_no_active_version(
-    db,
-    dir_id: int = 0,
-    desc: str = "no-active",
-) -> ArchiveFile:
-    """Create a file with a version where active=False (legacy fallback)."""
-    now = _now()
-    item = ArchiveStoreItem(
-        name="legacyfile",
-        original_name="legacyfile",
-        extension="jpg",
-        mime_type="image/jpeg",
-        size=3000,
-        sha256_hash=f"legacy_{now.timestamp()}_{dir_id}",
+        archive_store_item_id=item.id,
         created_at=now,
         updated_at=now,
-    )
-    db.add(item)
-    db.flush()
-    f = ArchiveFile(
-        archive_dir_id=dir_id,
-        description=desc,
-    )
-    db.add(f)
-    db.flush()
-    db.add(
-        ArchiveFileVersion(
-            archive_file_id=f.id,
-            archive_store_item_id=item.id,
-            active=False,
-        )
-    )
-    db.commit()
-    return f
-
-
-def _make_file_no_version(
-    db,
-    dir_id: int = 0,
-    desc: str = "no-version",
-) -> ArchiveFile:
-    """Create a file with no file versions at all."""
-    f = ArchiveFile(
-        archive_dir_id=dir_id,
-        description=desc,
     )
     db.add(f)
     db.commit()
@@ -254,48 +195,6 @@ def _make_jpeg_bytes(width: int = 100, height: int = 100) -> bytes:
 
 def _valid_file_content(size_kb: int = 3) -> bytes:
     return os.urandom(size_kb * 1024)
-
-
-# ------------------------------------------------------------------ #
-# _active_store_item fallback and empty paths (lines 160-162)
-# ------------------------------------------------------------------ #
-
-
-class TestActiveStoreItemFallback:
-    def test_fallback_to_first_version_when_no_active_flag(
-        self,
-        db_session,
-    ):
-        """When no version has active=True, fall back to the first version."""
-        _seed(db_session)
-        f = _make_file_no_active_version(db_session)
-        item = _active_store_item(f)
-        assert item is not None
-        assert item.name == "legacyfile"
-
-    def test_returns_none_when_no_versions_exist(
-        self,
-        db_session,
-    ):
-        """File with zero file_versions returns None."""
-        _seed(db_session)
-        f = _make_file_no_version(db_session)
-        item = _active_store_item(f)
-        assert item is None
-
-    def test_file_short_with_no_store_item(
-        self,
-        db_session,
-    ):
-        """_file_short handles a file with no store item gracefully."""
-        _seed(db_session)
-        f = _make_file_no_version(db_session)
-        result = _file_short(f)
-        assert result["name"] is None
-        assert result["extension"] is None
-        assert result["size"] == 0
-        assert result["is_image"] is False
-        assert result["mime_type"] is None
 
 
 # ------------------------------------------------------------------ #
@@ -771,45 +670,6 @@ class TestMoveReceiveEdgeCases:
 
 
 # ------------------------------------------------------------------ #
-# Download with no version (line 750)
-# ------------------------------------------------------------------ #
-
-
-class TestDownloadNoVersion:
-    def test_download_file_without_version_returns_404(
-        self,
-        client,
-        db_session,
-    ):
-        """Downloading a file with no store item returns 404."""
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        f = _make_file_no_version(db_session)
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download",
-            headers=headers,
-        )
-        assert resp.status_code == 404
-        assert "Keine Version" in resp.json()["detail"]
-
-    def test_presigned_url_file_without_version_returns_404(
-        self,
-        client,
-        db_session,
-    ):
-        """Presigned URL for a file with no store item returns 404."""
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        f = _make_file_no_version(db_session)
-        resp = client.get(
-            f"/api/archive/files/{f.id}/url",
-            headers=headers,
-        )
-        assert resp.status_code == 404
-        assert "Keine Version" in resp.json()["detail"]
-
-
-# ------------------------------------------------------------------ #
 # Thumbnail download and caching (lines 762-765, 778-780, 852, 858-867)
 # ------------------------------------------------------------------ #
 
@@ -825,7 +685,7 @@ class TestThumbnailDownload:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         f = _make_file(db_session, dir_id=0, desc="img-thumb")
-        item = _active_store_item(f)
+        item = f.store_item
         # Upload real JPEG data to S3 for the store item
         jpeg_data = _make_jpeg_bytes(200, 200)
         key = f"archive/store/{item.sha256_hash}"
@@ -853,7 +713,7 @@ class TestThumbnailDownload:
             desc="cached-thumb",
             hash_suffix="cache",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         # Pre-populate the cache (versioned key: bumping THUMBNAIL_CACHE_VERSION
         # invalidates stale entries, e.g. after the EXIF-orientation fix)
         cache_key = (
@@ -886,7 +746,7 @@ class TestThumbnailDownload:
             desc="stale-cache",
             hash_suffix="stalecache",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         # Old, unversioned cache key from before THUMBNAIL_CACHE_VERSION existed
         stale_key = f"archive/cache/{item.sha256_hash}.thumb_sm"
         mock_s3.upload(stale_key, _make_jpeg_bytes(50, 50), "image/jpeg")
@@ -917,7 +777,7 @@ class TestThumbnailDownload:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         f = _make_file(db_session, dir_id=0, desc="close-then-reuse")
-        item = _active_store_item(f)
+        item = f.store_item
         jpeg_data = _make_jpeg_bytes(200, 200)
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, jpeg_data, "image/jpeg")
@@ -942,7 +802,7 @@ class TestThumbnailDownload:
             desc="no-source",
             hash_suffix="nosource",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
 
@@ -959,7 +819,7 @@ class TestThumbnailDownload:
             desc="corrupt",
             hash_suffix="corrupt",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         # Upload garbage bytes that are not a valid image
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, b"not-an-image-at-all", "image/jpeg")
@@ -980,7 +840,7 @@ class TestThumbnailDownload:
             desc="no-thumb",
             hash_suffix="nothumb",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         # No source in S3 -> thumbnail creation returns None
         result = _serve_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
@@ -1004,7 +864,7 @@ class TestThumbnailDownload:
             mime_type="application/pdf",
             hash_suffix="pdf",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         pdf_content = _valid_file_content(3)
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, pdf_content, "application/pdf")
@@ -1306,7 +1166,7 @@ class TestPresignedUrlThumbnail:
             desc="url-thumb",
             hash_suffix="url-thumb",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         jpeg_data = _make_jpeg_bytes(200, 200)
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, jpeg_data, "image/jpeg")
@@ -1336,7 +1196,7 @@ class TestPresignedUrlThumbnail:
             desc="url-close-then-reuse",
             hash_suffix="url-reuse",
         )
-        item = _active_store_item(f)
+        item = f.store_item
         jpeg_data = _make_jpeg_bytes(200, 200)
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, jpeg_data, "image/jpeg")
