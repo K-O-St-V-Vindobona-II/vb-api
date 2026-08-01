@@ -162,10 +162,14 @@ class StorageClient:
         )
 
     def delete(self, key: str) -> None:
-        # Reserved for explicit, deliberate operations only (e.g. backup retention
-        # cleanup in backup_service.py). Application code must NEVER call this to
-        # remove archive/standesdb objects — see archive_service.py and
-        # image_service.py for the intentional S3 retention policy.
+        # Reserved for explicit, deliberate operations only: backup retention
+        # cleanup (backup_service.py) and the CLI-only hard-delete of
+        # soft-deleted archive files (archive_purge_service.py, invoked
+        # exclusively via scripts/purge_deleted_archive_files.py — never
+        # reachable from the API layer). All other application code must
+        # NEVER call this to remove archive/standesdb objects — see
+        # archive_service.py and image_service.py for the intentional S3
+        # retention policy.
         self._client.delete_object(
             Bucket=self._bucket,
             Key=key,

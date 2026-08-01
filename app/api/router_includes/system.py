@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
+from app.api.deps import get_current_user
 from app.core.scheduler import get_scheduled_jobs
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
@@ -13,15 +14,26 @@ from app.models.member import Member
 from app.services import system_service
 from app.services.backup_service import run_backup
 from app.services.permission_service import (
+    get_dev_superuser_cn,
     get_permission_rules_display,
 )
 
 system_router = APIRouter()
 
 
+class EnvironmentResponse(BaseModel):
+    environment: str
+
+
 class PermissionRuleResponse(BaseModel):
     permission: str
     description: str
+    cns: list[str]
+
+
+class PermissionRulesResponse(BaseModel):
+    rules: list[PermissionRuleResponse]
+    dev_superuser_cn: str | None
 
 
 class ScheduledJobResponse(BaseModel):
@@ -37,12 +49,34 @@ class BackupTriggerResponse(BaseModel):
     triggered_at: str
 
 
+@system_router.get("/environment")
+def get_environment(
+    _user: Annotated[Member, Depends(get_current_user)],
+) -> EnvironmentResponse:
+    """Current backend deployment stage (development/test/qa/production).
+
+    Any authenticated member may read this — shown next to the frontend's
+    own stage on the profile page so a mismatch between the two is visible
+    at a glance. Requires only authentication, not systemAdmin.
+    """
+    return EnvironmentResponse(environment=system_service.get_app_environment())
+
+
 @system_router.get("/permission-rules")
 def list_permission_rules(
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> list[PermissionRuleResponse]:
-    """List all permission rules with their descriptions. Requires systemAdmin."""
-    return [PermissionRuleResponse(**r) for r in get_permission_rules_display()]
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[Member, Depends(get_current_user)],
+) -> PermissionRulesResponse:
+    """List all permission rules with their descriptions and current holders,
+    plus the DEV_SUPERUSER_ID member's CN if that dev-only bypass is active.
+
+    Any authenticated member may read this — it's a transparency page, not
+    an admin tool, so it requires only authentication, not systemAdmin.
+    """
+    return PermissionRulesResponse(
+        rules=[PermissionRuleResponse(**r) for r in get_permission_rules_display(db)],
+        dev_superuser_cn=get_dev_superuser_cn(db),
+    )
 
 
 @system_router.post("/backups/trigger", status_code=status.HTTP_201_CREATED)

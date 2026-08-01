@@ -905,6 +905,30 @@ class TestThumbnailDownload:
         )
         assert mock_s3.exists(versioned_key)
 
+    def test_db_session_still_usable_after_download(
+        self,
+        client,
+        db_session,
+        mock_s3,
+    ):
+        """serve_download() closes the request-scoped DB session before the
+        S3 round-trip (regression test for the pool-exhaustion incident
+        2026-08-01). The session must still be safely reusable afterwards."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        f = _make_file(db_session, dir_id=0, desc="close-then-reuse")
+        item = _active_store_item(f)
+        jpeg_data = _make_jpeg_bytes(200, 200)
+        key = f"archive/store/{item.sha256_hash}"
+        mock_s3.upload(key, jpeg_data, "image/jpeg")
+
+        resp = client.get(
+            f"/api/archive/files/{f.id}/download/sm",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert db_session.get(ArchiveFile, f.id) is not None
+
     def test_thumbnail_returns_none_when_source_missing(
         self,
         db_session,
@@ -919,7 +943,7 @@ class TestThumbnailDownload:
             hash_suffix="nosource",
         )
         item = _active_store_item(f)
-        result = _get_or_create_thumbnail(item, "sm", mock_s3)
+        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
 
     def test_thumbnail_returns_none_on_corrupt_image(
@@ -940,7 +964,7 @@ class TestThumbnailDownload:
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, b"not-an-image-at-all", "image/jpeg")
 
-        result = _get_or_create_thumbnail(item, "sm", mock_s3)
+        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
 
     def test_serve_thumbnail_returns_none_when_no_thumb_data(
@@ -958,7 +982,7 @@ class TestThumbnailDownload:
         )
         item = _active_store_item(f)
         # No source in S3 -> thumbnail creation returns None
-        result = _serve_thumbnail(item, "sm", mock_s3)
+        result = _serve_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
 
     def test_download_falls_through_when_thumbnail_fails(
@@ -1295,6 +1319,34 @@ class TestPresignedUrlThumbnail:
         url = resp.json()["url"]
         # Thumbnail cache key should appear in URL
         assert "thumb_sm" in url
+
+    def test_db_session_still_usable_after_presigned_url(
+        self,
+        client,
+        db_session,
+        mock_s3,
+    ):
+        """get_presigned_url() closes the DB session before the S3 call too -
+        regression test analogous to the download-endpoint case above."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        f = _make_file(
+            db_session,
+            dir_id=0,
+            desc="url-close-then-reuse",
+            hash_suffix="url-reuse",
+        )
+        item = _active_store_item(f)
+        jpeg_data = _make_jpeg_bytes(200, 200)
+        key = f"archive/store/{item.sha256_hash}"
+        mock_s3.upload(key, jpeg_data, "image/jpeg")
+
+        resp = client.get(
+            f"/api/archive/files/{f.id}/url/sm",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert db_session.get(ArchiveFile, f.id) is not None
 
 
 # ------------------------------------------------------------------ #

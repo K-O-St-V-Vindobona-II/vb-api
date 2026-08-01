@@ -30,6 +30,7 @@ def _seed(db):
             Role(id="phil-senior", group="philchc", label="Phil-Senior", order=4),
             Role(id="phil-xxxx", group="philchc", label="Phil-x", order=5),
             Role(id="fuchsmajor", group="chc", label="Fuchsmajor", order=6),
+            Role(id="archivar2", group="funktion", label="Archivar 2", order=7),
         ]
     )
     db.commit()
@@ -85,6 +86,20 @@ class TestCalculatePermissions:
         _seed(db_session)
         m = _member(db_session, "vbn")
         _assign(db_session, m.id, "internetreferent")
+        perms = calculate_permissions(m)
+        assert "archiveAdmin" not in perms
+
+    def test_archivar2_vbw(self, db_session):
+        _seed(db_session)
+        m = _member(db_session, "vbw")
+        _assign(db_session, m.id, "archivar2")
+        perms = calculate_permissions(m)
+        assert "archiveAdmin" in perms
+
+    def test_archivar2_vbn_no_archive(self, db_session):
+        _seed(db_session)
+        m = _member(db_session, "vbn")
+        _assign(db_session, m.id, "archivar2")
         perms = calculate_permissions(m)
         assert "archiveAdmin" not in perms
 

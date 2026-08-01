@@ -2,6 +2,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,12 @@ DEV_SUPERUSER_ID: int = (
 )
 
 
+class PermissionRuleDisplay(TypedDict):
+    permission: str
+    description: str
+    cns: list[str]
+
+
 @dataclass(frozen=True)
 class PermissionRule:
     permission: str
@@ -38,9 +45,9 @@ class PermissionRule:
 PERMISSION_RULES: list[PermissionRule] = [
     PermissionRule(
         permission="archiveAdmin",
-        description=("Rolle 'Internetreferent' + Organisation VBW"),
+        description=("Rolle 'Internetreferent' oder 'Archivar 2' + Organisation VBW"),
         condition=lambda rids, _rgrps, org, _email: (
-            "internetreferent" in rids and org == "vbw"
+            org == "vbw" and bool({"internetreferent", "archivar2"}.intersection(rids))
         ),
     ),
     PermissionRule(
@@ -96,7 +103,7 @@ PERMISSION_RULES: list[PermissionRule] = [
     ),
     PermissionRule(
         permission="p4xAdmin",
-        description=("Rolle 'Phil-x' + Organisation VBW"),
+        description=("Rolle 'Philisterkassier' + Organisation VBW"),
         condition=lambda rids, _rgrps, org, _email: (
             "phil-xxxx" in rids and org == "vbw"
         ),
@@ -113,16 +120,9 @@ PERMISSION_RULES: list[PermissionRule] = [
 ALL_PERMISSIONS: list[str] = sorted({rule.permission for rule in PERMISSION_RULES})
 
 
-def calculate_permissions(
-    member: Member,
-) -> list[str]:
-    """
-    Derives a member's active permissions
-    from their roles and organization.
-    """
-    if DEV_SUPERUSER_ID and member.id == DEV_SUPERUSER_ID:
-        return list(ALL_PERMISSIONS)
-
+def _active_roles(member: Member) -> tuple[set[str], set[str]]:
+    """Currently active role IDs and role groups for a member (today between
+    startdate and enddate)."""
     today = datetime.now(UTC).date()
     active_role_ids: set[str] = set()
     active_role_groups: set[str] = set()
@@ -135,6 +135,22 @@ def calculate_permissions(
             if mr.role and mr.role.group:
                 active_role_groups.add(mr.role.group)
 
+    return active_role_ids, active_role_groups
+
+
+def calculate_permissions(
+    member: Member,
+) -> list[str]:
+    """
+    Derives a member's effective, active permissions from their roles and
+    organization. DEV_SUPERUSER_ID grants every permission regardless of
+    roles — a development-only convenience, never active outside
+    APP_ENVIRONMENT=development (see module-level derivation above).
+    """
+    if DEV_SUPERUSER_ID and member.id == DEV_SUPERUSER_ID:
+        return list(ALL_PERMISSIONS)
+
+    active_role_ids, active_role_groups = _active_roles(member)
     return [
         rule.permission
         for rule in PERMISSION_RULES
@@ -147,14 +163,48 @@ def calculate_permissions(
     ]
 
 
-def get_permission_rules_display() -> list[dict[str, str]]:
+def _group_members_by_rule_condition(db: Session) -> dict[str, list[Member]]:
+    """Loads every member once and, per member, evaluates each rule's
+    condition directly (not via calculate_permissions()) — deliberately
+    bypasses the DEV_SUPERUSER_ID blanket-access shortcut, since this backs
+    the permission-setup display of who actually satisfies each rule's
+    condition, not who has effective access.
+    """
+    members = db.query(Member).all()
+    holders: dict[str, list[Member]] = {
+        permission: [] for permission in ALL_PERMISSIONS
+    }
+    for member in members:
+        active_role_ids, active_role_groups = _active_roles(member)
+        for rule in PERMISSION_RULES:
+            if rule.condition(
+                active_role_ids, active_role_groups, member.org_id, member.email
+            ):
+                holders[rule.permission].append(member)
+    return holders
+
+
+def get_permission_rules_display(db: Session) -> list[PermissionRuleDisplay]:
+    holders = _group_members_by_rule_condition(db)
     return [
         {
             "permission": rule.permission,
             "description": rule.description,
+            "cns": sorted(member.cn for member in holders[rule.permission]),
         }
         for rule in PERMISSION_RULES
     ]
+
+
+def get_dev_superuser_cn(db: Session) -> str | None:
+    """CN of the DEV_SUPERUSER_ID member, if the bypass is active — used to
+    surface a one-time notice on the permission-setup page that this member
+    has blanket access in the dev environment, independent of any rule's
+    condition."""
+    if not DEV_SUPERUSER_ID:
+        return None
+    dev_superuser = db.get(Member, DEV_SUPERUSER_ID)
+    return dev_superuser.cn if dev_superuser else None
 
 
 def get_emails_with_permission(db: Session, permission: str) -> list[str]:

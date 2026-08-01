@@ -213,7 +213,7 @@ def _dir_short(d: ArchiveDir) -> dict[str, object]:
     }
 
 
-def _build_path(
+def build_path(
     db: Session,
     dir_obj: ArchiveDir,
 ) -> list[dict[str, object]]:
@@ -386,7 +386,7 @@ def get_dir_detail(
         "id": dir_obj.id,
         "name": dir_obj.name,
         "description": dir_obj.description,
-        "path": _build_path(db, dir_obj),
+        "path": build_path(db, dir_obj),
         "permissions": {
             "effective": effective,
             "own": own if admin else [],
@@ -464,6 +464,21 @@ def update_dir(
     return dir_obj
 
 
+def _dir_has_content(db: Session, dir_id: int) -> bool:
+    """True if dir_id has any child dir or file row, regardless of their own
+    deleted_at status — archive_dir_id has no real FK, so purging a
+    directory that still has (even soft-deleted) children would leave those
+    children pointing at a non-existent parent forever.
+    """
+    has_children = (
+        db.query(ArchiveDir).filter(ArchiveDir.archive_dir_id == dir_id).count() > 0
+    )
+    has_files = (
+        db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == dir_id).count() > 0
+    )
+    return has_children or has_files
+
+
 def delete_dir(
     db: Session,
     dir_id: int,
@@ -477,19 +492,46 @@ def delete_dir(
             detail="Verzeichnis nicht gefunden.",
         )
 
-    has_children = (
-        db.query(ArchiveDir).filter(ArchiveDir.archive_dir_id == dir_obj.id).count() > 0
-    )
-    has_files = (
-        db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == dir_obj.id).count()
-        > 0
-    )
-    if not has_children and not has_files:
-        db.delete(dir_obj)
-    else:
+    if _dir_has_content(db, dir_obj.id):
         # Intentional: only the DB row is soft-deleted. The S3 object is never
         # removed — files in the content-addressed store are kept indefinitely.
         dir_obj.deleted_at = _now()
+    else:
+        db.delete(dir_obj)
+    db.commit()
+
+
+def purge_dir(
+    db: Session,
+    dir_id: int,
+    user: Member,
+) -> None:
+    """Permanently deletes an empty, soft-deleted directory. Unlike
+    delete_dir() (which silently hard-deletes any already-empty directory,
+    trashed or not), this requires the directory to currently be in the
+    trash and errors explicitly (409) instead of silently no-op'ing again
+    as a soft-delete when the emptiness check fails.
+    """
+    _require_admin(user)
+    dir_obj = db.get(ArchiveDir, dir_id)
+    if not dir_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Verzeichnis nicht gefunden.",
+        )
+    if dir_obj.deleted_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Verzeichnis befindet sich nicht im Papierkorb.",
+        )
+    if _dir_has_content(db, dir_obj.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Verzeichnis ist nicht leer und kann nicht endgültig gelöscht werden."
+            ),
+        )
+    db.delete(dir_obj)
     db.commit()
 
 
@@ -633,7 +675,7 @@ def get_file_detail(
     if file_obj.archive_dir_id:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
-            path = _build_path(db, dir_obj)
+            path = build_path(db, dir_obj)
 
     comments = (
         file_obj.comments.filter(ArchiveFileComment.deleted_at.is_(None))
@@ -720,11 +762,11 @@ def restore_file(
 
 
 def _serve_thumbnail(
-    item: ArchiveStoreItem,
+    sha256_hash: str,
     size: str,
     storage: StorageClient,
 ) -> Response | None:
-    thumb_data = _get_or_create_thumbnail(item, size, storage)
+    thumb_data = _get_or_create_thumbnail(sha256_hash, size, storage)
     if thumb_data is None:
         return None
     return Response(content=thumb_data, media_type="image/jpeg")
@@ -756,12 +798,24 @@ def serve_download(
             detail="Keine Version gefunden.",
         )
 
-    if size and size in THUMB_SIZES and item.is_image:
-        thumb_response = _serve_thumbnail(item, size, storage)
+    sha256_hash, is_image = item.sha256_hash, item.is_image
+    name, extension, mime_type = item.name, item.extension, item.mime_type
+    # Everything from here on only talks to S3 (cache check, download,
+    # possibly resize+reupload on a cache miss) — release the pooled DB
+    # connection first instead of holding it for that whole, potentially
+    # slow round-trip. Under a burst of concurrent requests (e.g. opening a
+    # directory listing with hundreds of trashed files, each triggering a
+    # thumbnail load), holding the connection open for the S3 duration
+    # instead of just the few ms of DB access is what exhausts the pool —
+    # see incident 2026-08-01.
+    db.close()
+
+    if size and size in THUMB_SIZES and is_image:
+        thumb_response = _serve_thumbnail(sha256_hash, size, storage)
         if thumb_response is not None:
             return thumb_response
 
-    key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
+    key = f"{S3_PATH_ARCHIVE_STORE}/{sha256_hash}"
     try:
         data = storage.download(key)
     except ClientError:
@@ -770,11 +824,11 @@ def serve_download(
             detail="Datei nicht im Speicher gefunden.",
         ) from None
 
-    filename = f"{item.name}.{item.extension}"
+    filename = f"{name}.{extension}"
     safe = quote(filename, safe=".-_")
     return Response(
         content=data,
-        media_type=item.mime_type,
+        media_type=mime_type,
         headers={
             "Content-Disposition": (f"attachment; filename*=UTF-8''{safe}"),
         },
@@ -807,39 +861,44 @@ def get_presigned_url(
             detail="Keine Version gefunden.",
         )
 
-    if size and size in THUMB_SIZES and item.is_image:
-        _get_or_create_thumbnail(item, size, storage)
+    sha256_hash, is_image = item.sha256_hash, item.is_image
+    name, extension, mime_type = item.name, item.extension, item.mime_type
+    # See serve_download() above for why the DB connection is released
+    # before the S3 work starts.
+    db.close()
+
+    if size and size in THUMB_SIZES and is_image:
+        _get_or_create_thumbnail(sha256_hash, size, storage)
         return storage.generate_presigned_url(
-            _thumbnail_cache_key(item, size),
+            _thumbnail_cache_key(sha256_hash, size),
             content_type="image/jpeg",
         )
 
-    key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
-    filename = f"{item.name}.{item.extension}"
+    key = f"{S3_PATH_ARCHIVE_STORE}/{sha256_hash}"
+    filename = f"{name}.{extension}"
     return storage.generate_presigned_url(
         key,
         filename=filename,
-        content_type=item.mime_type,
+        content_type=mime_type,
     )
 
 
-def _thumbnail_cache_key(item: ArchiveStoreItem, size: str) -> str:
+def _thumbnail_cache_key(sha256_hash: str, size: str) -> str:
     return (
-        f"{S3_PATH_ARCHIVE_CACHE}/{item.sha256_hash}."
-        f"{THUMBNAIL_CACHE_VERSION}.thumb_{size}"
+        f"{S3_PATH_ARCHIVE_CACHE}/{sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_{size}"
     )
 
 
 def _get_or_create_thumbnail(
-    item: ArchiveStoreItem,
+    sha256_hash: str,
     size: str,
     storage: StorageClient,
 ) -> bytes | None:
-    cache_key = _thumbnail_cache_key(item, size)
+    cache_key = _thumbnail_cache_key(sha256_hash, size)
     if storage.exists(cache_key):
         return storage.download(cache_key)
 
-    source_key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
+    source_key = f"{S3_PATH_ARCHIVE_STORE}/{sha256_hash}"
     if not storage.exists(source_key):
         return None
 
@@ -1055,11 +1114,11 @@ def delete_comment(
 SEARCH_LIMIT = 50
 
 
-def _dir_path_string(
+def dir_path_string(
     db: Session,
     dir_obj: ArchiveDir,
 ) -> str:
-    parts = [str(p["name"]) for p in _build_path(db, dir_obj)]
+    parts = [str(p["name"]) for p in build_path(db, dir_obj)]
     return " / ".join(parts) if parts else ""
 
 
@@ -1092,7 +1151,7 @@ def search_archive(
                 "id": d.id,
                 "name": d.name,
                 "description": d.description,
-                "path": _dir_path_string(db, d),
+                "path": dir_path_string(db, d),
             }
         )
 
@@ -1137,7 +1196,7 @@ def search_archive(
         ):
             continue
         item = _active_store_item(f)
-        path = _dir_path_string(db, parent) if parent else "Archiv"
+        path = dir_path_string(db, parent) if parent else "Archiv"
         results.append(
             {
                 "type": "file",

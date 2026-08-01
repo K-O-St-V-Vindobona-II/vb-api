@@ -417,6 +417,30 @@ class TestPresignedUrl:
         assert dl_resp.status_code == 200
         assert dl_resp.headers["content-type"] == "image/jpeg"
 
+    def test_db_session_still_usable_after_download(self, client, db_session):
+        """get_image_for_serving() closes the request-scoped DB session
+        before the S3 round-trip (same pattern/incident as
+        archive_service.serve_download()). The session must still be safely
+        reusable afterwards."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        target = _target_member(db_session)
+        headers = _headers(client, db_session, admin)
+
+        resp = client.post(
+            f"/api/standesdb/members/{target.id}/images",
+            headers=headers,
+            files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
+        )
+        img_id = resp.json()["id"]
+
+        dl_resp = client.get(
+            f"/api/standesdb/members/{target.id}/images/{img_id}/download",
+            headers=headers,
+        )
+        assert dl_resp.status_code == 200
+        assert db_session.get(StandesdbImage, img_id) is not None
+
     def test_presigned_url_png_thumb(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
@@ -436,6 +460,7 @@ class TestPresignedUrl:
         )
         assert url_resp.status_code == 200
         assert "url" in url_resp.json()
+        assert db_session.get(StandesdbImage, img_id) is not None
 
     def test_presigned_url_unauthenticated(self, client, db_session):
         resp = client.get(

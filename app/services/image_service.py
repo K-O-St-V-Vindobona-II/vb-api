@@ -59,6 +59,22 @@ def get_image_record(
     return img
 
 
+def get_image_for_serving(
+    db: Session,
+    owner_type: str,
+    owner_id: int,
+    image_id: int,
+) -> StandesdbImage:
+    """Like get_image_record(), but also releases the DB session right after
+    the fetch - for callers that only need the record to serve S3 content
+    afterward (download/presigned-url), not for further DB writes. Avoids
+    holding a pooled connection open for the S3 round-trip; see the
+    identical pattern/incident writeup in archive_service.serve_download()."""
+    img = get_image_record(db, owner_type, owner_id, image_id)
+    db.close()
+    return img
+
+
 def serve_download(
     img: StandesdbImage,
     storage: StorageClient,
