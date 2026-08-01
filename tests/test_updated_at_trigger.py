@@ -6,8 +6,8 @@ actually fires on UPDATE without any application code setting the column."""
 from datetime import UTC, datetime
 
 from app.models.archive_dir import ArchiveDir
+from app.models.auth_session import AuthSession
 from app.models.member import Member
-from app.models.personal_access_token import PersonalAccessToken
 
 
 class TestUpdatedAtTrigger:
@@ -43,7 +43,7 @@ class TestUpdatedAtTrigger:
 
         assert member.updated_at is not None
 
-    def test_personal_access_token_update_sets_updated_at_via_trigger(self, db_session):
+    def test_session_update_sets_updated_at_via_trigger(self, db_session):
         """This is the one table that previously had a Python onupdate=
         instead of relying on manual assignment — the DB trigger now
         replaces that Python-side mechanism entirely."""
@@ -51,17 +51,16 @@ class TestUpdatedAtTrigger:
         db_session.add(member)
         db_session.commit()
 
-        token = PersonalAccessToken(
+        session = AuthSession(
             member_id=member.id,
-            name="test-session",
-            token="jti-trigger-test",
+            jti="jti-trigger-test",
         )
-        db_session.add(token)
+        db_session.add(session)
         db_session.commit()
-        assert token.updated_at is None
+        assert session.updated_at is None
 
-        token.name = "renamed-session"
+        session.last_used_at = datetime.now(UTC)
         db_session.commit()
-        db_session.refresh(token)
+        db_session.refresh(session)
 
-        assert token.updated_at is not None
+        assert session.updated_at is not None

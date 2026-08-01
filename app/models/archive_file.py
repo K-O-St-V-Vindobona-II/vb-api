@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -11,7 +11,7 @@ from app.db.database import Base
 if TYPE_CHECKING:
     from app.models.archive_dir import ArchiveDir
     from app.models.archive_file_comment import ArchiveFileComment
-    from app.models.archive_file_version import ArchiveFileVersion
+    from app.models.archive_store_item import ArchiveStoreItem
 
 
 class ArchiveFile(Base):
@@ -26,6 +26,11 @@ class ArchiveFile(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)
     description: Mapped[str | None]
+    archive_store_item_id: Mapped[int] = mapped_column(
+        ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE")
+    )
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     archive_dir: Mapped[ArchiveDir | None] = relationship(
@@ -35,10 +40,7 @@ class ArchiveFile(Base):
         lazy="joined",
         viewonly=True,
     )
-    file_versions: Mapped[list[ArchiveFileVersion]] = relationship(
-        back_populates="archive_file",
-        lazy="joined",
-    )
+    store_item: Mapped[ArchiveStoreItem] = relationship(lazy="joined")
     comments: DynamicMapped[ArchiveFileComment] = relationship(
         back_populates="archive_file",
         lazy="dynamic",

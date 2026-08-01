@@ -33,12 +33,12 @@ from app.core.security import (
 from app.core.storage import get_storage
 from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import SessionLocal, engine
+from app.models.auth_session import AuthSession
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.p4x_transaction import P4xTransaction
 from app.models.password_reset import PasswordResetToken
-from app.models.personal_access_token import PersonalAccessToken
 from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
 from app.services.anniversary_service import (
@@ -142,15 +142,15 @@ def job_cleanup() -> None:
         max_lifetime = now - timedelta(
             days=REFRESH_TOKEN_LIFETIME_DAYS,
         )
-        db.query(PersonalAccessToken).filter(
-            PersonalAccessToken.created_at < max_lifetime,
+        db.query(AuthSession).filter(
+            AuthSession.created_at < max_lifetime,
         ).delete()
 
         idle = now - timedelta(
             minutes=SESSION_IDLE_TIMEOUT_MINUTES,
         )
-        db.query(PersonalAccessToken).filter(
-            PersonalAccessToken.last_used_at < idle,
+        db.query(AuthSession).filter(
+            AuthSession.last_used_at < idle,
         ).delete()
 
         reset_expiry = now - timedelta(minutes=20)

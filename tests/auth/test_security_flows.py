@@ -7,9 +7,9 @@ import pytest
 
 from app.core.rate_limit import limiter
 from app.core.security import ALGORITHM, SECRET_KEY, SESSION_IDLE_TIMEOUT_MINUTES
+from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.password_reset import PasswordResetToken
-from app.models.personal_access_token import PersonalAccessToken
 from app.services.auth_service import create_user_session
 
 
@@ -184,9 +184,7 @@ def test_inactivity_timeout_kicks_user(client, db_session, auth_headers):
     )
     token_id = payload.get("jti")
 
-    session_record = (
-        db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
-    )
+    session_record = db_session.query(AuthSession).filter_by(jti=token_id).first()
 
     # Move last_used_at back in time to simulate inactivity (Timeout + 5 mins)
     past_time = datetime.now(UTC) - timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES + 5)
@@ -214,9 +212,7 @@ def test_lastsignal_updates_on_authenticated_request_after_debounce_window(
     )
     token_id = payload.get("jti")
 
-    session_record = (
-        db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
-    )
+    session_record = db_session.query(AuthSession).filter_by(jti=token_id).first()
     member = db_session.query(Member).filter_by(id=session_record.member_id).first()
     assert member.auth_lastsignal is None
 
@@ -249,9 +245,7 @@ def test_lastsignal_not_bumped_within_debounce_window(client, db_session, auth_h
         options={"verify_exp": False},
     )
     token_id = payload.get("jti")
-    session_record = (
-        db_session.query(PersonalAccessToken).filter_by(token=token_id).first()
-    )
+    session_record = db_session.query(AuthSession).filter_by(jti=token_id).first()
     member = db_session.query(Member).filter_by(id=session_record.member_id).first()
 
     # Right after login, last_used_at is fresh, so no request so far has

@@ -10,8 +10,8 @@ from app.core.security import (
     generate_refresh_secret,
     hash_refresh_secret,
 )
+from app.models.auth_session import AuthSession
 from app.models.member import Member
-from app.models.personal_access_token import PersonalAccessToken
 
 PASSWORD = "testpass123"
 HASHED = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt()).decode()
@@ -129,8 +129,8 @@ class TestRefreshReuseDetection:
         _set_refresh_cookie(client, old_cookie)
         client.post("/api/auth/refresh")
         sessions = (
-            db_session.query(PersonalAccessToken)
-            .filter(PersonalAccessToken.member_id == member.id)
+            db_session.query(AuthSession)
+            .filter(AuthSession.member_id == member.id)
             .count()
         )
         assert sessions == 0
@@ -149,16 +149,15 @@ class TestRefreshFailures:
 
     def test_expired_session_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
-        pat = PersonalAccessToken(
+        session = AuthSession(
             member_id=member.id,
-            name="session",
-            token="expired-session",
+            jti="expired-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime.now(UTC),
             created_at=datetime.now(UTC) - timedelta(days=8),
             updated_at=datetime.now(UTC),
         )
-        db_session.add(pat)
+        db_session.add(session)
         db_session.commit()
         cookie = build_refresh_cookie_value("expired-session", secret)
         _set_refresh_cookie(client, cookie)
@@ -167,16 +166,15 @@ class TestRefreshFailures:
 
     def test_idle_timeout_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
-        pat = PersonalAccessToken(
+        session = AuthSession(
             member_id=member.id,
-            name="session",
-            token="idle-session",
+            jti="idle-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime(2020, 1, 1, tzinfo=UTC),
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
-        db_session.add(pat)
+        db_session.add(session)
         db_session.commit()
         cookie = build_refresh_cookie_value("idle-session", secret)
         _set_refresh_cookie(client, cookie)

@@ -12,12 +12,10 @@ from datetime import datetime
 from typing import cast
 
 from botocore.exceptions import ClientError
-from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.storage import S3_PATH_ARCHIVE_CACHE, S3_PATH_ARCHIVE_STORE, StorageClient
 from app.models.archive_file import ArchiveFile
-from app.models.archive_file_version import ArchiveFileVersion
 from app.models.archive_store_item import ArchiveStoreItem
 from app.services.archive_service import dir_path_string
 
@@ -29,7 +27,7 @@ class PurgeCandidate:
     description: str | None
     deleted_at: datetime
     size: int
-    sha256_hash: str | None
+    sha256_hash: str
     created_by: str | None
 
 
@@ -46,23 +44,8 @@ class PurgeError(RuntimeError):
     currently soft-deleted)."""
 
 
-def _active_store_item(file_obj: ArchiveFile) -> ArchiveStoreItem | None:
-    """Mirrors archive_service._active_store_item()'s selection logic
-    (prefer the active version, fall back to the first for legacy data
-    missing the active flag). Duplicated rather than imported to avoid a
-    cross-module private-member access (SLF001) — kept in sync manually,
-    it is a small, stable selection rule.
-    """
-    for fv in file_obj.file_versions:
-        if fv.active and fv.store_item:
-            return fv.store_item
-    if file_obj.file_versions:
-        return file_obj.file_versions[0].store_item
-    return None
-
-
 def _to_candidate(db: Session, file_obj: ArchiveFile) -> PurgeCandidate:
-    item = _active_store_item(file_obj)
+    item = file_obj.store_item
     path = (
         dir_path_string(db, file_obj.archive_dir)
         if file_obj.archive_dir is not None
@@ -73,9 +56,9 @@ def _to_candidate(db: Session, file_obj: ArchiveFile) -> PurgeCandidate:
         path=path,
         description=file_obj.description,
         deleted_at=cast("datetime", file_obj.deleted_at),
-        size=item.size if item else 0,
-        sha256_hash=item.sha256_hash if item else None,
-        created_by=item.member.cn if item and item.member else None,
+        size=item.size,
+        sha256_hash=item.sha256_hash,
+        created_by=item.member.cn if item.member else None,
     )
 
 
@@ -103,15 +86,15 @@ def _validate_purge_target(file_obj: ArchiveFile | None, file_id: int) -> Archiv
 def _delete_orphaned_store_items(
     db: Session, store_item_ids: set[int]
 ) -> list[ArchiveStoreItem]:
-    """Deletes ArchiveStoreItem rows no longer referenced by any
-    ArchiveFileVersion. Must only be called after the owning ArchiveFile
-    row(s) have already been removed AND committed.
+    """Deletes ArchiveStoreItem rows no longer referenced by any ArchiveFile.
+    Must only be called after the owning ArchiveFile row(s) have already been
+    removed AND committed.
     """
     orphaned: list[ArchiveStoreItem] = []
     for store_item_id in store_item_ids:
         still_referenced = (
-            db.query(ArchiveFileVersion)
-            .filter(ArchiveFileVersion.archive_store_item_id == store_item_id)
+            db.query(ArchiveFile)
+            .filter(ArchiveFile.archive_store_item_id == store_item_id)
             .first()
             is not None
         )
@@ -145,7 +128,7 @@ def _purge_s3_object(
     errors: list[str],
 ) -> None:
     """Removes the main store object and every cached thumbnail variant for
-    a hash that is no longer referenced by any ArchiveFileVersion. Uses a
+    a hash that is no longer referenced by any ArchiveFile. Uses a
     prefix listing for the cache instead of hardcoded sizes/versions, so a
     future THUMBNAIL_CACHE_VERSION bump or new thumbnail size can never
     leave orphaned cache entries behind.
@@ -164,8 +147,8 @@ def _purge_s3_object(
 
 def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult:
     """Permanently deletes a soft-deleted archive file: hard-deletes the DB
-    row (cascading its versions/comments), then removes the underlying S3
-    object(s) if no other file still references the same content hash.
+    row (cascading its comments), then removes the underlying S3 object(s)
+    if no other file still references the same content hash.
 
     DB changes are committed BEFORE any S3 deletion is attempted: if the S3
     step later fails, the worst case is an orphaned S3 object — a benign,
@@ -176,20 +159,13 @@ def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult
     """
     file_obj = _validate_purge_target(db.get(ArchiveFile, file_id), file_id)
 
-    # Snapshot every version's store item before deleting — including
-    # inactive ones. ArchiveFileVersion.archive_store_item_id has no unique
-    # constraint and could (by schema design, even if not by today's upload
-    # flow) be shared across files/versions, so the reference count must
+    # Snapshot the store item before deleting. archive_store_item_id has no
+    # unique constraint on ArchiveFile and can be shared across files (real
+    # content dedup from the legacy migration), so the reference count must
     # not rely on "1 hash = 1 file".
-    store_item_ids = {fv.archive_store_item_id for fv in file_obj.file_versions}
+    store_item_ids = {file_obj.archive_store_item_id}
 
-    # Core-level DELETE, not session.delete(file_obj): ArchiveFile.file_versions
-    # has no delete-orphan cascade and no passive_deletes, so an ORM-level
-    # delete would try to null out archive_file_versions.archive_file_id
-    # (NOT NULL) before removing the parent row. A bare SQL DELETE lets the
-    # real DB-level ON DELETE CASCADE (already defined on both
-    # archive_file_versions and archive_file_comments) handle the children.
-    db.execute(delete(ArchiveFile).where(ArchiveFile.id == file_id))
+    db.delete(file_obj)
     db.commit()
 
     orphaned_items = _delete_orphaned_store_items(db, store_item_ids)

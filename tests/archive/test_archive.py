@@ -9,9 +9,6 @@ from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import (
     ArchiveFileComment,
 )
-from app.models.archive_file_version import (
-    ArchiveFileVersion,
-)
 from app.models.archive_permission import (
     ArchivePermission,
 )
@@ -143,7 +140,6 @@ def _make_file(db, dir_id=0, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension="jpg",
         mime_type="image/jpeg",
         size=5000,
@@ -156,16 +152,11 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
+        archive_store_item_id=item.id,
+        created_at=now,
+        updated_at=now,
     )
     db.add(f)
-    db.flush()
-    db.add(
-        ArchiveFileVersion(
-            archive_file_id=f.id,
-            archive_store_item_id=item.id,
-            active=True,
-        )
-    )
     db.commit()
     return f
 

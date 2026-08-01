@@ -19,8 +19,6 @@ class ArchiveStoreItem(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    original_name: Mapped[str | None]
-    original_description: Mapped[str | None]
     name: Mapped[str]
     description: Mapped[str | None]
     extension: Mapped[str]
@@ -30,7 +28,6 @@ class ArchiveStoreItem(Base):
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
-    backedup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

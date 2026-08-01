@@ -9,7 +9,6 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -184,40 +183,6 @@ def restore_file(
     """Restore a soft-deleted file from trash."""
     archive_service.restore_file(db, file_id, user)
     return {"status": "ok"}
-
-
-@archive_router.get("/files/{file_id}/download")
-def download_file(
-    file_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
-    storage: Annotated[StorageClient, Depends(get_storage)],
-) -> Response:
-    """Download the original file from S3 storage."""
-    return archive_service.serve_download(
-        db,
-        file_id,
-        user,
-        storage,
-    )
-
-
-@archive_router.get("/files/{file_id}/download/{size}")
-def download_file_thumb(
-    file_id: int,
-    size: str,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
-    storage: Annotated[StorageClient, Depends(get_storage)],
-) -> Response:
-    """Download a resized thumbnail of an image file."""
-    return archive_service.serve_download(
-        db,
-        file_id,
-        user,
-        storage,
-        size,
-    )
 
 
 @archive_router.get(

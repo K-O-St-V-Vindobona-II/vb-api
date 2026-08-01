@@ -23,10 +23,10 @@ from app.core.security import (
     verify_password,
     verify_refresh_secret,
 )
+from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
-from app.models.personal_access_token import PersonalAccessToken
 
 
 class AccountNotLinkedError(Exception):
@@ -128,8 +128,8 @@ def execute_password_reset(
     member.auth_password = get_password_hash(new_password)
     member.email_verified_at = datetime.now(UTC)
 
-    db.query(PersonalAccessToken).filter(
-        PersonalAccessToken.member_id == member.id,
+    db.query(AuthSession).filter(
+        AuthSession.member_id == member.id,
     ).delete()
 
     db.delete(reset_entry)
@@ -144,10 +144,9 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     refresh_secret = generate_refresh_secret()
     now = datetime.now(UTC)
 
-    db_token = PersonalAccessToken(
+    db_token = AuthSession(
         member_id=member.id,
-        name="session",
-        token=session_id,
+        jti=session_id,
         refresh_token_hash=hash_refresh_secret(refresh_secret),
         last_used_at=now,
         created_at=now,
@@ -168,9 +167,7 @@ def _ensure_tz_aware(dt: datetime | None) -> datetime | None:
     return dt
 
 
-def _invalidate_session(
-    db: Session, session: PersonalAccessToken, reason: str
-) -> NoReturn:
+def _invalidate_session(db: Session, session: AuthSession, reason: str) -> NoReturn:
     db.delete(session)
     db.commit()
     raise ValueError(reason)
@@ -178,7 +175,7 @@ def _invalidate_session(
 
 def _validate_refresh_token(
     db: Session,
-    session: PersonalAccessToken,
+    session: AuthSession,
     refresh_secret: str,
 ) -> None:
     if not session.refresh_token_hash or not verify_refresh_secret(
@@ -189,7 +186,7 @@ def _validate_refresh_token(
 
 def _validate_session_expiry(
     db: Session,
-    session: PersonalAccessToken,
+    session: AuthSession,
     now: datetime,
 ) -> None:
     last_used = _ensure_tz_aware(session.last_used_at)
@@ -208,11 +205,7 @@ def refresh_session(
     session_id: str,
     refresh_secret: str,
 ) -> tuple[str, str]:
-    session = (
-        db.query(PersonalAccessToken)
-        .filter(PersonalAccessToken.token == session_id)
-        .first()
-    )
+    session = db.query(AuthSession).filter(AuthSession.jti == session_id).first()
     if not session:
         msg = "Invalid session"
         raise ValueError(msg)
@@ -373,11 +366,7 @@ def logout_user(db: Session, token: str) -> None:
         if not token_id:
             return
 
-        session = (
-            db.query(PersonalAccessToken)
-            .filter(PersonalAccessToken.token == token_id)
-            .first()
-        )
+        session = db.query(AuthSession).filter(AuthSession.jti == token_id).first()
         if not session:
             return
 

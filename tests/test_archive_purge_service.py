@@ -13,7 +13,6 @@ from app.core.storage import S3_PATH_ARCHIVE_CACHE, S3_PATH_ARCHIVE_STORE
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
-from app.models.archive_file_version import ArchiveFileVersion
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.member import Member
 from app.services.archive_purge_service import (
@@ -46,7 +45,6 @@ def _make_store_item(db, hash_suffix="", size=5000, created_by=None):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension="jpg",
         mime_type="image/jpeg",
         size=size,
@@ -66,7 +64,6 @@ def _make_file(
     dir_id=0,
     desc="test",
     item=None,
-    active=True,
     deleted=True,
 ):
     now = _now()
@@ -75,15 +72,12 @@ def _make_file(
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
+        archive_store_item_id=item.id,
+        created_at=now,
+        updated_at=now,
         deleted_at=now if deleted else None,
     )
     db.add(f)
-    db.flush()
-    db.add(
-        ArchiveFileVersion(
-            archive_file_id=f.id, archive_store_item_id=item.id, active=active
-        )
-    )
     db.commit()
     return f
 
@@ -134,7 +128,7 @@ class TestPurgeFileValidation:
 
 
 class TestPurgeFileCascade:
-    def test_deletes_file_version_and_comment_rows(self, db_session, mock_s3):
+    def test_deletes_comment_rows(self, db_session, mock_s3):
         f = _make_file(db_session)
         db_session.add(ArchiveFileComment(archive_file_id=f.id, content="hi"))
         db_session.commit()
@@ -142,12 +136,6 @@ class TestPurgeFileCascade:
         purge_file(db_session, mock_s3, f.id)
 
         assert db_session.get(ArchiveFile, f.id) is None
-        assert (
-            db_session.query(ArchiveFileVersion)
-            .filter(ArchiveFileVersion.archive_file_id == f.id)
-            .count()
-            == 0
-        )
         assert (
             db_session.query(ArchiveFileComment)
             .filter(ArchiveFileComment.archive_file_id == f.id)
@@ -185,14 +173,14 @@ class TestPurgeFileS3Cleanup:
 
         assert mock_s3.list_keys(cache_prefix) == []
 
-    def test_keeps_store_item_still_referenced_by_another_files_active_version(
+    def test_keeps_store_item_still_referenced_by_another_file(
         self, db_session, mock_s3
     ):
         item = _make_store_item(db_session)
         main_key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
         mock_s3.upload(main_key, b"content", "image/jpeg")
-        f1 = _make_file(db_session, item=item, active=True)
-        _make_file(db_session, item=item, active=True, deleted=False)
+        f1 = _make_file(db_session, item=item)
+        _make_file(db_session, item=item, deleted=False)
 
         result = purge_file(db_session, mock_s3, f1.id)
 
@@ -200,27 +188,6 @@ class TestPurgeFileS3Cleanup:
         assert mock_s3.exists(main_key) is True
         assert result.store_item_deleted is False
         assert result.s3_keys_deleted == []
-
-    def test_keeps_store_item_referenced_by_inactive_version_of_another_file(
-        self, db_session, mock_s3
-    ):
-        item = _make_store_item(db_session)
-        main_key = f"{S3_PATH_ARCHIVE_STORE}/{item.sha256_hash}"
-        mock_s3.upload(main_key, b"content", "image/jpeg")
-        f1 = _make_file(db_session, item=item, active=True)
-        other_item = _make_store_item(db_session, hash_suffix="other")
-        f2 = _make_file(db_session, item=other_item, active=True, deleted=False)
-        db_session.add(
-            ArchiveFileVersion(
-                archive_file_id=f2.id, archive_store_item_id=item.id, active=False
-            )
-        )
-        db_session.commit()
-
-        purge_file(db_session, mock_s3, f1.id)
-
-        assert db_session.get(ArchiveStoreItem, item.id) is not None
-        assert mock_s3.exists(main_key) is True
 
 
 class TestPurgeFileOrdering:

@@ -193,7 +193,16 @@ class TestStringLengthRange:
         db_session.commit()
 
     def test_empty_archive_file_comment_content_is_rejected(self, db_session):
-        archive_file = ArchiveFile()
+        item = ArchiveStoreItem(
+            name="f",
+            extension="txt",
+            mime_type="text/plain",
+            size=1,
+            sha256_hash="b" * 64,
+        )
+        db_session.add(item)
+        db_session.flush()
+        archive_file = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(archive_file)
         db_session.commit()
 
@@ -203,7 +212,16 @@ class TestStringLengthRange:
         db_session.rollback()
 
     def test_null_archive_file_comment_content_is_allowed(self, db_session):
-        archive_file = ArchiveFile()
+        item = ArchiveStoreItem(
+            name="f",
+            extension="txt",
+            mime_type="text/plain",
+            size=1,
+            sha256_hash="c" * 64,
+        )
+        db_session.add(item)
+        db_session.flush()
+        archive_file = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(archive_file)
         db_session.commit()
 
