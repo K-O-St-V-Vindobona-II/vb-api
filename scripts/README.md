@@ -159,7 +159,7 @@ that as an explicit rule, not just a convention).
 Called without a subcommand, prints a short usage text — nothing is read
 from the database and nothing is deleted. `list` shows every currently
 soft-deleted archive file (id, deletion timestamp, size, content hash,
-path, description, uploader). No retention/grace period — every currently
+path, file name, description, uploader). No retention/grace period — every currently
 soft-deleted file appears in that list, so the operator can judge for
 themselves whether anything looks too recent to touch.
 
@@ -371,7 +371,7 @@ festhält, nicht nur als Konvention).
 Ohne Subcommand aufgerufen, gibt es nur einen kurzen Hilfetext aus — es wird
 weder die Datenbank angefragt noch irgendetwas gelöscht. `list` zeigt jede
 aktuell soft-gelöschte Archiv-Datei (ID, Löschzeitpunkt, Größe, Content-Hash,
-Pfad, Beschreibung, Hochlader). Keine Karenzzeit — jede aktuell
+Pfad, Dateiname, Beschreibung, Hochlader). Keine Karenzzeit — jede aktuell
 soft-gelöschte Datei erscheint in dieser Liste, damit der Operator selbst
 beurteilen kann, ob etwas zu frisch aussieht, um es anzufassen.
 

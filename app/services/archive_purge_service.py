@@ -24,6 +24,7 @@ from app.services.archive_service import dir_path_string
 class PurgeCandidate:
     file_id: int
     path: str
+    filename: str
     description: str | None
     deleted_at: datetime
     size: int
@@ -54,6 +55,7 @@ def _to_candidate(db: Session, file_obj: ArchiveFile) -> PurgeCandidate:
     return PurgeCandidate(
         file_id=file_obj.id,
         path=path,
+        filename=f"{item.name}.{item.extension}",
         description=file_obj.description,
         deleted_at=cast("datetime", file_obj.deleted_at),
         size=item.size,

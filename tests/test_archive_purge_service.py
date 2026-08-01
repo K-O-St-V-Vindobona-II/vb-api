@@ -98,6 +98,7 @@ class TestListDeletedFiles:
         c = candidates[0]
         assert c.file_id == f.id
         assert c.path == "Sommerfest"
+        assert c.filename == "testfile.jpg"
         assert c.description == "Gruppenfoto"
         assert c.deleted_at is not None
         assert c.size == item.size
