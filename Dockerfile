@@ -46,6 +46,8 @@ RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --no-create-home app
 COPY --from=builder /install /usr/local
 COPY --chown=app:app . .
 
+RUN chmod +x docker-entrypoint.sh
+
 USER app
 
 EXPOSE 8000
@@ -53,6 +55,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["gunicorn", "main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--bind", "0.0.0.0:8000", \
