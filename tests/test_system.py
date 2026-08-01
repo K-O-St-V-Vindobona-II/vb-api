@@ -90,6 +90,22 @@ def test_responses_are_never_cacheable(client):
     assert response.headers["Expires"] == "0"
 
 
+class TestEnvironment:
+    def test_requires_authentication(self, client):
+        resp = client.get("/api/system/environment")
+        assert resp.status_code == 401
+
+    def test_returns_environment_for_any_authenticated_member(self, client, db_session):
+        """No systemAdmin required — every member sees their own profile's
+        stage footer, so any authenticated member must be able to read
+        this."""
+        _seed(db_session)
+        headers = _login_unprivileged(db_session)
+        resp = client.get("/api/system/environment", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json() == {"environment": "test"}
+
+
 class TestScheduledJobs:
     def test_list_scheduled_jobs(self, client, db_session):
         _seed(db_session)
