@@ -156,25 +156,27 @@ functionality must never be exposed via the API or frontend (see
 `app/services/archive_purge_service.py`'s module docstring, which enforces
 that as an explicit rule, not just a convention).
 
-Lists every currently soft-deleted archive file (id, deletion timestamp,
-size, content hash, path, description, uploader) before doing anything.
-No retention/grace period — every currently soft-deleted file is a
-candidate; the listing (with each file's `deleted_at`) is shown before the
-confirmation prompt so the operator can judge for themselves whether
-anything looks too recent to touch.
+Called without a subcommand, prints a short usage text — nothing is read
+from the database and nothing is deleted. `list` shows every currently
+soft-deleted archive file (id, deletion timestamp, size, content hash,
+path, description, uploader). No retention/grace period — every currently
+soft-deleted file appears in that list, so the operator can judge for
+themselves whether anything looks too recent to touch.
 
-For each file, the database row is hard-deleted first (cascading its
-comments) and committed — only *after* that commit succeeds does the
-script attempt to delete the underlying S3 object(s), and only if no other
-file anywhere still references the same content hash
-(`ArchiveStoreItem.sha256_hash`). Cached thumbnail variants are cleaned up
-via a prefix listing, not hardcoded sizes, so a future thumbnail-cache
-version bump can't leave orphans behind. This DB-first ordering is
-deliberate: a failed S3 delete after a committed DB delete leaves at worst
-a harmless, self-diagnosable orphan (the kind `check_s3_integrity.py`
-already detects) — the reverse order risks silent data loss for other
-files that still share the same content. A single file's failure never
-aborts the rest of the batch.
+`purge <id>` first re-checks that the given id is still present in the
+`list` output (i.e. actually purgeable) — anything else is rejected before
+any prompt is shown, and nothing is deleted. Only after that check passes
+does it ask for interactive confirmation; there is no flag to skip it. The
+database row is then hard-deleted first (cascading its comments) and
+committed — only *after* that commit succeeds does the script attempt to
+delete the underlying S3 object(s), and only if no other file anywhere
+still references the same content hash (`ArchiveStoreItem.sha256_hash`).
+Cached thumbnail variants are cleaned up via a prefix listing, not
+hardcoded sizes, so a future thumbnail-cache version bump can't leave
+orphans behind. This DB-first ordering is deliberate: a failed S3 delete
+after a committed DB delete leaves at worst a harmless, self-diagnosable
+orphan (the kind `check_s3_integrity.py` already detects) — the reverse
+order risks silent data loss for other files still sharing that content.
 
 Runs in **every** environment, including production — unlike
 `downsync_prod.py`, this is not dev-only tooling but the actual production
@@ -184,22 +186,19 @@ environment guard.
 **Usage:**
 ```bash
 # Inside the container
-python scripts/purge_deleted_archive_files.py --list
-python scripts/purge_deleted_archive_files.py --dry-run
 python scripts/purge_deleted_archive_files.py
-python scripts/purge_deleted_archive_files.py --yes
-python scripts/purge_deleted_archive_files.py --file-id 12 --file-id 34
+python scripts/purge_deleted_archive_files.py list
+python scripts/purge_deleted_archive_files.py purge 42
 
 # Via podman exec
-podman exec vb-api python scripts/purge_deleted_archive_files.py --list
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py
+podman exec vb-api python scripts/purge_deleted_archive_files.py list
+podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
 ```
 
-**Parameters:**
-- `--list` — only print the listing, do not prompt or delete anything.
-- `--file-id ID` — restrict the operation to specific file ID(s) instead of every soft-deleted file (repeatable). IDs that are no longer soft-deleted at run time (typo, or restored since the last listing) are skipped with a warning and cause a non-zero exit code.
-- `--yes` — skip the interactive confirmation prompt.
-- `--dry-run` — print the listing plus what would be purged, without deleting anything.
+**Subcommands:**
+- *(none)* — prints a short usage text, no DB/S3 access.
+- `list` — prints every currently soft-deleted (purgeable) archive file.
+- `purge <id>` — permanently deletes exactly one file from DB and S3, after verifying it appears in `list` and after an interactive `yes` confirmation. Not purgeable (not currently soft-deleted) → error message, exit code 1, nothing is touched.
 
 **Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`.
 
@@ -369,18 +368,22 @@ angeboten werden (siehe der Modul-Docstring von
 `app/services/archive_purge_service.py`, der das als explizite Regel
 festhält, nicht nur als Konvention).
 
-Listet zunächst jede aktuell soft-gelöschte Archiv-Datei auf (ID,
-Löschzeitpunkt, Größe, Content-Hash, Pfad, Beschreibung, Hochlader), bevor
-irgendetwas passiert. Keine Karenzzeit — jede aktuell soft-gelöschte Datei
-ist ein Kandidat; die Liste (inkl. `deleted_at` je Datei) wird vor der
-Bestätigungsabfrage angezeigt, damit der Operator selbst beurteilen kann,
-ob etwas zu frisch aussieht, um es anzufassen.
+Ohne Subcommand aufgerufen, gibt es nur einen kurzen Hilfetext aus — es wird
+weder die Datenbank angefragt noch irgendetwas gelöscht. `list` zeigt jede
+aktuell soft-gelöschte Archiv-Datei (ID, Löschzeitpunkt, Größe, Content-Hash,
+Pfad, Beschreibung, Hochlader). Keine Karenzzeit — jede aktuell
+soft-gelöschte Datei erscheint in dieser Liste, damit der Operator selbst
+beurteilen kann, ob etwas zu frisch aussieht, um es anzufassen.
 
-Pro Datei wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
-Kommentare) und committet — **erst danach** versucht das Script, das
-zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
-im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)
-referenziert. Gecachte Thumbnail-Varianten
+`purge <id>` prüft zuerst erneut, ob die angegebene ID noch in der
+`list`-Ausgabe vorkommt (also tatsächlich purgeable ist) — alles andere wird
+abgelehnt, bevor irgendeine Abfrage erscheint, und nichts wird gelöscht.
+Erst nach dieser Prüfung fragt das Script interaktiv nach Bestätigung; einen
+Parameter zum Überspringen gibt es nicht. Danach wird zuerst die DB-Zeile
+hart gelöscht (kaskadiert auf ihre Kommentare) und committet — **erst
+danach** versucht das Script, das zugehörige S3-Objekt zu löschen, und auch
+nur dann, wenn keine andere Datei im System noch denselben Content-Hash
+(`ArchiveStoreItem.sha256_hash`) referenziert. Gecachte Thumbnail-Varianten
 werden über eine Prefix-Auflistung bereinigt, nicht über hartkodierte
 Größen — ein künftiges Thumbnail-Cache-Versions-Update kann so keine
 Leichen hinterlassen. Diese DB-zuerst-Reihenfolge ist bewusst: Ein
@@ -388,8 +391,7 @@ fehlgeschlagenes S3-Löschen nach bereits committetem DB-Löschen hinterlässt
 bestenfalls ein harmloses, selbst-diagnostizierbares Waisenobjekt (genau
 die Art, die `check_s3_integrity.py` bereits erkennt) — die umgekehrte
 Reihenfolge riskiert stillen Datenverlust für andere Dateien, die denselben
-Inhalt noch teilen. Der Fehlschlag einer einzelnen Datei bricht nie den
-Rest der Batch ab.
+Inhalt noch teilen.
 
 Läuft in **jeder** Umgebung, auch in Produktion — anders als
 `downsync_prod.py` ist das kein reines Dev-Tooling, sondern der tatsächliche
@@ -399,21 +401,18 @@ Dateien, daher gibt es keinen Umgebungs-Guard.
 **Aufruf:**
 ```bash
 # Im Container
-python scripts/purge_deleted_archive_files.py --list
-python scripts/purge_deleted_archive_files.py --dry-run
 python scripts/purge_deleted_archive_files.py
-python scripts/purge_deleted_archive_files.py --yes
-python scripts/purge_deleted_archive_files.py --file-id 12 --file-id 34
+python scripts/purge_deleted_archive_files.py list
+python scripts/purge_deleted_archive_files.py purge 42
 
 # Via podman exec
-podman exec vb-api python scripts/purge_deleted_archive_files.py --list
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py
+podman exec vb-api python scripts/purge_deleted_archive_files.py list
+podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
 ```
 
-**Parameter:**
-- `--list` — gibt nur die Liste aus, fragt nicht nach und löscht nichts.
-- `--file-id ID` — schränkt die Operation auf konkrete Datei-ID(s) statt aller soft-gelöschten Dateien ein (wiederholbar). IDs, die zur Laufzeit nicht mehr soft-gelöscht sind (Tippfehler, oder seit dem letzten Listing wiederhergestellt), werden mit einer Warnung übersprungen und führen zu einem Exit-Code ungleich 0.
-- `--yes` — überspringt die interaktive Bestätigungsabfrage.
-- `--dry-run` — zeigt die Liste plus was gelöscht würde an, ohne etwas zu löschen.
+**Subcommands:**
+- *(keins)* — gibt nur einen kurzen Hilfetext aus, kein DB-/S3-Zugriff.
+- `list` — listet jede aktuell soft-gelöschte (purgeable) Archiv-Datei auf.
+- `purge <id>` — löscht genau eine Datei dauerhaft aus DB und S3, nachdem geprüft wurde, dass sie in `list` erscheint, und nach interaktiver `yes`-Bestätigung. Nicht purgeable (nicht aktuell soft-gelöscht) → Fehlermeldung, Exit-Code 1, nichts wird angefasst.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars.
