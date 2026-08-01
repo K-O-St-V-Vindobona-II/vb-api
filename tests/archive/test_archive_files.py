@@ -137,7 +137,6 @@ def _make_file(db, dir_id=0, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension="jpg",
         mime_type="image/jpeg",
         size=5000,
@@ -355,7 +354,6 @@ class TestUpload:
             now = _now()
             item = ArchiveStoreItem(
                 name="testfile",
-                original_name="testfile",
                 extension="jpg",
                 mime_type="image/jpeg",
                 size=5000,
@@ -498,46 +496,6 @@ class TestComments:
         assert resp.status_code == 403
 
 
-class TestDownload:
-    def test_download_not_found(
-        self,
-        client,
-        db_session,
-    ):
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        resp = client.get(
-            "/api/archive/files/99999/download",
-            headers=headers,
-        )
-        assert resp.status_code == 404
-
-    def test_download_requires_auth(
-        self,
-        client,
-        db_session,
-    ):
-        resp = client.get("/api/archive/files/1/download")
-        assert resp.status_code == 401
-
-    def test_download_invalid_thumb_size(
-        self,
-        client,
-        db_session,
-    ):
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        d = _make_dir(db_session, "Dir")
-        f = _make_file(db_session, dir_id=d.id)
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download/xxl",
-            headers=headers,
-        )
-        # Falls through to original download
-        # (xxl is not in THUMB_SIZES)
-        assert resp.status_code in (200, 404)
-
-
 class TestPresignedUrl:
     def test_file_url_returns_url(
         self,
@@ -569,6 +527,24 @@ class TestPresignedUrl:
             f"/api/archive/files/{f.id}/url/md",
             headers=headers,
         )
+        assert resp.status_code == 200
+        assert "url" in resp.json()
+
+    def test_file_url_invalid_thumb_size_falls_through(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Dir")
+        f = _make_file(db_session, dir_id=d.id)
+        resp = client.get(
+            f"/api/archive/files/{f.id}/url/xxl",
+            headers=headers,
+        )
+        # Falls through to the original file's URL
+        # (xxl is not in THUMB_SIZES)
         assert resp.status_code == 200
         assert "url" in resp.json()
 

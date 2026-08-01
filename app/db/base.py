@@ -7,6 +7,7 @@ from app.models.archive_file import ArchiveFile  # noqa: F401
 from app.models.archive_file_comment import ArchiveFileComment  # noqa: F401
 from app.models.archive_permission import ArchivePermission  # noqa: F401
 from app.models.archive_store_item import ArchiveStoreItem  # noqa: F401
+from app.models.auth_session import AuthSession  # noqa: F401
 from app.models.badge import Badge  # noqa: F401
 from app.models.client_user_agent import ClientUserAgent  # noqa: F401
 from app.models.contact import Contact  # noqa: F401
@@ -30,7 +31,6 @@ from app.models.p4x_specialcontact import P4xSpecialcontact  # noqa: F401
 from app.models.p4x_summary_order import P4xSummaryOrder  # noqa: F401
 from app.models.p4x_transaction import P4xTransaction  # noqa: F401
 from app.models.password_reset import PasswordResetToken  # noqa: F401
-from app.models.personal_access_token import PersonalAccessToken  # noqa: F401
 from app.models.public_gallery_image import PublicGalleryImage  # noqa: F401
 from app.models.request_log import RequestLog  # noqa: F401
 from app.models.role import Role  # noqa: F401

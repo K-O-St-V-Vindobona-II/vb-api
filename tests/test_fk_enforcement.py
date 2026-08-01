@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.auth_session import AuthSession
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -16,7 +17,6 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_transaction import P4xTransaction
-from app.models.personal_access_token import PersonalAccessToken
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 
@@ -106,16 +106,14 @@ class TestFkInsertEnforcement:
         db_session.rollback()
 
 
-class TestPersonalAccessTokenFk:
-    """personal_access_tokens.member_id -> members.id (Alembic revision
-    5292367fb696) replaces the previously vestigial tokenable_type/
-    tokenable_id pair — no code ever branched on the discriminator, so this
-    became a real FK instead of an exclusive-arc redesign."""
+class TestSessionFk:
+    """sessions.member_id -> members.id (Alembic revision 5292367fb696)
+    replaces the previously vestigial tokenable_type/tokenable_id pair — no
+    code ever branched on the discriminator, so this became a real FK
+    instead of an exclusive-arc redesign."""
 
-    def test_inserting_a_token_with_unknown_member_id_is_rejected(self, db_session):
-        db_session.add(
-            PersonalAccessToken(member_id=999999, name="session", token="jti-1")
-        )
+    def test_inserting_a_session_with_unknown_member_id_is_rejected(self, db_session):
+        db_session.add(AuthSession(member_id=999999, jti="jti-1"))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -125,15 +123,15 @@ class TestPersonalAccessTokenFk:
         db_session.add(member)
         db_session.commit()
 
-        token = PersonalAccessToken(member_id=member.id, name="session", token="jti-2")
-        db_session.add(token)
+        session = AuthSession(member_id=member.id, jti="jti-2")
+        db_session.add(session)
         db_session.commit()
-        token_id = token.id
+        session_id = session.id
 
         db_session.execute(delete(Member).where(Member.id == member.id))
         db_session.commit()
 
-        assert db_session.get(PersonalAccessToken, token_id) is None
+        assert db_session.get(AuthSession, session_id) is None
 
 
 class TestStandesdbImageExclusiveArc:

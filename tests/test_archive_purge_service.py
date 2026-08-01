@@ -45,7 +45,6 @@ def _make_store_item(db, hash_suffix="", size=5000, created_by=None):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension="jpg",
         mime_type="image/jpeg",
         size=size,

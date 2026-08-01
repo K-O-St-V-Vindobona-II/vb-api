@@ -140,7 +140,6 @@ def _make_file(db, dir_id=0, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension="jpg",
         mime_type="image/jpeg",
         size=5000,

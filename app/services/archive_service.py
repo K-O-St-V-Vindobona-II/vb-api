@@ -1,11 +1,8 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from urllib.parse import quote
 
-from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
-from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -746,74 +743,6 @@ def restore_file(
     db.commit()
 
 
-def _serve_thumbnail(
-    sha256_hash: str,
-    size: str,
-    storage: StorageClient,
-) -> Response | None:
-    thumb_data = _get_or_create_thumbnail(sha256_hash, size, storage)
-    if thumb_data is None:
-        return None
-    return Response(content=thumb_data, media_type="image/jpeg")
-
-
-def serve_download(
-    db: Session,
-    file_id: int,
-    user: Member,
-    storage: StorageClient,
-    size: str | None = None,
-) -> Response:
-    file_obj = db.get(ArchiveFile, file_id)
-    if not file_obj:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Datei nicht gefunden.",
-        )
-
-    if file_obj.archive_dir_id:
-        dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
-        if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
-
-    item = file_obj.store_item
-    sha256_hash, is_image = item.sha256_hash, item.is_image
-    name, extension, mime_type = item.name, item.extension, item.mime_type
-    # Everything from here on only talks to S3 (cache check, download,
-    # possibly resize+reupload on a cache miss) — release the pooled DB
-    # connection first instead of holding it for that whole, potentially
-    # slow round-trip. Under a burst of concurrent requests (e.g. opening a
-    # directory listing with hundreds of trashed files, each triggering a
-    # thumbnail load), holding the connection open for the S3 duration
-    # instead of just the few ms of DB access is what exhausts the pool —
-    # see incident 2026-08-01.
-    db.close()
-
-    if size and size in THUMB_SIZES and is_image:
-        thumb_response = _serve_thumbnail(sha256_hash, size, storage)
-        if thumb_response is not None:
-            return thumb_response
-
-    key = f"{S3_PATH_ARCHIVE_STORE}/{sha256_hash}"
-    try:
-        data = storage.download(key)
-    except ClientError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Datei nicht im Speicher gefunden.",
-        ) from None
-
-    filename = f"{name}.{extension}"
-    safe = quote(filename, safe=".-_")
-    return Response(
-        content=data,
-        media_type=mime_type,
-        headers={
-            "Content-Disposition": (f"attachment; filename*=UTF-8''{safe}"),
-        },
-    )
-
-
 def get_presigned_url(
     db: Session,
     file_id: int,
@@ -836,8 +765,14 @@ def get_presigned_url(
     item = file_obj.store_item
     sha256_hash, is_image = item.sha256_hash, item.is_image
     name, extension, mime_type = item.name, item.extension, item.mime_type
-    # See serve_download() above for why the DB connection is released
-    # before the S3 work starts.
+    # Everything from here on only talks to S3 (cache check, presigned-URL
+    # generation, possibly resize+reupload on a cache miss) — release the
+    # pooled DB connection first instead of holding it for that whole,
+    # potentially slow round-trip. Under a burst of concurrent requests
+    # (e.g. opening a directory listing with hundreds of trashed files,
+    # each triggering a thumbnail load), holding the connection open for
+    # the S3 duration instead of just the few ms of DB access is what
+    # exhausts the pool — see incident 2026-08-01.
     db.close()
 
     if size and size in THUMB_SIZES and is_image:
@@ -996,8 +931,6 @@ def upload_file(
 
     now = _now()
     store_item = ArchiveStoreItem(
-        original_name=name,
-        original_description=description,
         name=name,
         description=description,
         extension=ext,

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.security import ALGORITHM, SECRET_KEY, SESSION_IDLE_TIMEOUT_MINUTES
 from app.db.database import get_db
+from app.models.auth_session import AuthSession
 from app.models.member import Member
-from app.models.personal_access_token import PersonalAccessToken
 
 # This defines the security scheme.
 # It tells FastAPI (and the Swagger UI!) where a user can get a token.
@@ -34,12 +34,8 @@ def _decode_token(token: str) -> tuple[str, str]:
         return email, token_id
 
 
-def _get_session_record(db: Session, token_id: str) -> PersonalAccessToken:
-    session_record = (
-        db.query(PersonalAccessToken)
-        .filter(PersonalAccessToken.token == token_id)
-        .first()
-    )
+def _get_session_record(db: Session, token_id: str) -> AuthSession:
+    session_record = db.query(AuthSession).filter(AuthSession.jti == token_id).first()
     if not session_record:
         raise _CREDENTIALS_EXCEPTION
     return session_record
@@ -55,7 +51,7 @@ def _bump_lastsignal(db: Session, member_id: int, now: datetime) -> None:
     db.query(Member).filter(Member.id == member_id).update({"auth_lastsignal": now})
 
 
-def _enforce_idle_timeout(db: Session, session_record: PersonalAccessToken) -> None:
+def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
     now = datetime.now(UTC)
     last_used = session_record.last_used_at
 

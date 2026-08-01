@@ -34,7 +34,6 @@ from app.schemas.archive import (
 from app.services.archive_service import (
     _get_or_create_thumbnail,
     _is_descendant,
-    _serve_thumbnail,
     get_unsorted_upload_count,
     receive_items,
 )
@@ -163,7 +162,6 @@ def _make_file(
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
-        original_name="testfile",
         extension=extension,
         mime_type=mime_type,
         size=5000,
@@ -670,43 +668,22 @@ class TestMoveReceiveEdgeCases:
 
 
 # ------------------------------------------------------------------ #
-# Thumbnail download and caching (lines 762-765, 778-780, 852, 858-867)
+# Thumbnail caching (_get_or_create_thumbnail) - tested directly rather
+# than through an HTTP endpoint, since this logic is shared by whichever
+# delivery endpoint requests it (currently only /url/{size})
 # ------------------------------------------------------------------ #
 
 
-class TestThumbnailDownload:
-    def test_download_thumbnail_for_image(
+class TestThumbnailCaching:
+    def test_uses_cached_version_without_regenerating(
         self,
-        client,
         db_session,
         mock_s3,
     ):
-        """Downloading with size=sm for image creates and returns a thumbnail."""
+        """A pre-existing, correctly-versioned cache entry is returned as-is,
+        with no source image needed (proves the cache-hit path never touches
+        the source key)."""
         _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="img-thumb")
-        item = f.store_item
-        # Upload real JPEG data to S3 for the store item
-        jpeg_data = _make_jpeg_bytes(200, 200)
-        key = f"archive/store/{item.sha256_hash}"
-        mock_s3.upload(key, jpeg_data, "image/jpeg")
-
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download/sm",
-            headers=headers,
-        )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
-
-    def test_download_thumbnail_uses_cache(
-        self,
-        client,
-        db_session,
-        mock_s3,
-    ):
-        """Second thumbnail request uses cached version."""
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
         f = _make_file(
             db_session,
             dir_id=0,
@@ -714,24 +691,17 @@ class TestThumbnailDownload:
             hash_suffix="cache",
         )
         item = f.store_item
-        # Pre-populate the cache (versioned key: bumping THUMBNAIL_CACHE_VERSION
-        # invalidates stale entries, e.g. after the EXIF-orientation fix)
         cache_key = (
             f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
         )
         cached_jpeg = _make_jpeg_bytes(50, 50)
         mock_s3.upload(cache_key, cached_jpeg, "image/jpeg")
 
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download/sm",
-            headers=headers,
-        )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
+        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
+        assert result == cached_jpeg
 
     def test_stale_unversioned_cache_entry_is_ignored(
         self,
-        client,
         db_session,
         mock_s3,
     ):
@@ -739,7 +709,6 @@ class TestThumbnailDownload:
         holding a wrongly-oriented pre-fix thumbnail) must not be served -
         it has to be regenerated from the source under the new cache key."""
         _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
         f = _make_file(
             db_session,
             dir_id=0,
@@ -754,40 +723,12 @@ class TestThumbnailDownload:
         source_key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(source_key, _make_jpeg_bytes(200, 200), "image/jpeg")
 
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download/sm",
-            headers=headers,
-        )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
+        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
+        assert result is not None
         versioned_key = (
             f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
         )
         assert mock_s3.exists(versioned_key)
-
-    def test_db_session_still_usable_after_download(
-        self,
-        client,
-        db_session,
-        mock_s3,
-    ):
-        """serve_download() closes the request-scoped DB session before the
-        S3 round-trip (regression test for the pool-exhaustion incident
-        2026-08-01). The session must still be safely reusable afterwards."""
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="close-then-reuse")
-        item = f.store_item
-        jpeg_data = _make_jpeg_bytes(200, 200)
-        key = f"archive/store/{item.sha256_hash}"
-        mock_s3.upload(key, jpeg_data, "image/jpeg")
-
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download/sm",
-            headers=headers,
-        )
-        assert resp.status_code == 200
-        assert db_session.get(ArchiveFile, f.id) is not None
 
     def test_thumbnail_returns_none_when_source_missing(
         self,
@@ -827,32 +768,15 @@ class TestThumbnailDownload:
         result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
         assert result is None
 
-    def test_serve_thumbnail_returns_none_when_no_thumb_data(
-        self,
-        db_session,
-        mock_s3,
-    ):
-        """_serve_thumbnail returns None when thumbnail cannot be created."""
-        _seed(db_session)
-        f = _make_file(
-            db_session,
-            dir_id=0,
-            desc="no-thumb",
-            hash_suffix="nothumb",
-        )
-        item = f.store_item
-        # No source in S3 -> thumbnail creation returns None
-        result = _serve_thumbnail(item.sha256_hash, "sm", mock_s3)
-        assert result is None
-
-    def test_download_falls_through_when_thumbnail_fails(
+    def test_presigned_url_falls_through_when_not_an_image(
         self,
         client,
         db_session,
         mock_s3,
     ):
-        """Download with valid thumb size falls through to original
-        when thumbnail creation fails (non-image or corrupt)."""
+        """Presigned URL with a valid thumb size falls through to the
+        original file's key when the file is not an image (thumbnail
+        generation is skipped entirely, not attempted-and-failed)."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         # Create a PDF file (not an image) so thumbnail is skipped
@@ -870,41 +794,12 @@ class TestThumbnailDownload:
         mock_s3.upload(key, pdf_content, "application/pdf")
 
         resp = client.get(
-            f"/api/archive/files/{f.id}/download/sm",
+            f"/api/archive/files/{f.id}/url/sm",
             headers=headers,
         )
-        # Falls through to regular download since PDF is not is_image
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "application/pdf"
-
-
-# ------------------------------------------------------------------ #
-# Download S3 error (lines 791-793)
-# ------------------------------------------------------------------ #
-
-
-class TestDownloadS3Error:
-    def test_download_s3_client_error_returns_404(
-        self,
-        client,
-        db_session,
-    ):
-        """Download returns 404 when S3 storage raises ClientError."""
-        _seed(db_session)
-        headers, _ = _login_admin(db_session, client)
-        f = _make_file(
-            db_session,
-            dir_id=0,
-            desc="missing-in-s3",
-            hash_suffix="s3err",
-        )
-        # File exists in DB but NOT in S3 storage -> ClientError
-        resp = client.get(
-            f"/api/archive/files/{f.id}/download",
-            headers=headers,
-        )
-        assert resp.status_code == 404
-        assert "Speicher" in resp.json()["detail"]
+        # Falls through to the original file's URL, not a thumbnail cache key
+        assert "thumb_sm" not in resp.json()["url"]
 
 
 # ------------------------------------------------------------------ #
@@ -1186,8 +1081,9 @@ class TestPresignedUrlThumbnail:
         db_session,
         mock_s3,
     ):
-        """get_presigned_url() closes the DB session before the S3 call too -
-        regression test analogous to the download-endpoint case above."""
+        """get_presigned_url() closes the DB session before the S3 call
+        (regression test for the pool-exhaustion incident 2026-08-01). The
+        session must still be safely reusable afterwards."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         f = _make_file(

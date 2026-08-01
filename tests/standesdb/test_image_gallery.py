@@ -420,8 +420,8 @@ class TestPresignedUrl:
     def test_db_session_still_usable_after_download(self, client, db_session):
         """get_image_for_serving() closes the request-scoped DB session
         before the S3 round-trip (same pattern/incident as
-        archive_service.serve_download()). The session must still be safely
-        reusable afterwards."""
+        archive_service.get_presigned_url()). The session must still be
+        safely reusable afterwards."""
         _seed(db_session)
         admin = _admin(db_session)
         target = _target_member(db_session)
