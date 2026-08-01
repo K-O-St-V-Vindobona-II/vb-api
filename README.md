@@ -107,6 +107,8 @@ podman exec vb-api alembic upgrade head
 podman exec vb-api alembic revision --autogenerate -m "description"
 ```
 
+The prod image's `docker-entrypoint.sh` runs `alembic upgrade head` automatically before starting gunicorn, so every container restart (including `podman-auto-update` pulling a new image) applies pending migrations itself — no separate manual step needed there. The manual command above stays relevant for local development (the dev image keeps its plain `uvicorn --reload` command, no auto-migration) and for creating new migrations.
+
 ## Scheduler
 
 Background jobs run via a single in-process APScheduler instance (`app/core/scheduler.py`), started once per deployment (a Postgres advisory lock ensures only one gunicorn worker process actually registers/fires jobs, even though every worker boots its own scheduler instance).
