@@ -29,6 +29,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# Shell history (accidentally tracked in 6f24ef3)
+.bash_history
+
 # Logs
 *.log
 
