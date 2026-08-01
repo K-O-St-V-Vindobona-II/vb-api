@@ -520,7 +520,7 @@ def download_member_image(
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
     """Download a member's profile image (original or thumbnail)."""
-    img = image_service.get_image_record(db, "member", member_id, image_id)
+    img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     return image_service.serve_download(img, storage)
 
 
@@ -537,7 +537,7 @@ def member_image_url(
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
 ) -> dict[str, str]:
     """Generate a presigned S3 URL for a member's profile image."""
-    img = image_service.get_image_record(db, "member", member_id, image_id)
+    img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     url = image_service.get_presigned_url(
         img,
         storage,
@@ -668,7 +668,7 @@ def download_contact_image(
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
     """Download a contact's profile image (original or thumbnail)."""
-    img = image_service.get_image_record(db, "contact", contact_id, image_id)
+    img = image_service.get_image_for_serving(db, "contact", contact_id, image_id)
     return image_service.serve_download(img, storage)
 
 
@@ -685,7 +685,7 @@ def contact_image_url(
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
 ) -> dict[str, str]:
     """Generate a presigned S3 URL for a contact's profile image."""
-    img = image_service.get_image_record(db, "contact", contact_id, image_id)
+    img = image_service.get_image_for_serving(db, "contact", contact_id, image_id)
     url = image_service.get_presigned_url(
         img,
         storage,

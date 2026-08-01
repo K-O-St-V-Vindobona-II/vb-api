@@ -107,6 +107,16 @@ def restore_dir(
     return {"status": "ok"}
 
 
+@archive_router.delete("/dirs/{dir_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_dir(
+    dir_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[Member, Depends(get_current_user)],
+) -> None:
+    """Permanently delete an empty, soft-deleted directory. Irreversible."""
+    archive_service.purge_dir(db, dir_id, user)
+
+
 @archive_router.post("/dirs/{dir_id}/receive")
 def receive_in_dir(
     dir_id: int,

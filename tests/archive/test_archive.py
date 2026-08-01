@@ -391,6 +391,113 @@ class TestDirEndpoints:
         db_session.refresh(d)
         assert d.deleted_at is None
 
+    def test_purge_empty_trashed_dir_succeeds(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Trashed", perms=["vbw_fu"])
+        dir_id = d.id
+        d.deleted_at = _now()
+        db_session.commit()
+
+        resp = client.delete(f"/api/archive/dirs/{dir_id}/purge", headers=headers)
+
+        assert resp.status_code == 204
+        assert resp.content == b""
+        db_session.expire_all()
+        assert db_session.get(ArchiveDir, dir_id) is None
+        assert (
+            db_session.query(ArchivePermission)
+            .filter(ArchivePermission.archive_dir_id == dir_id)
+            .count()
+            == 0
+        )
+
+    def test_purge_dir_not_found_404(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.delete("/api/archive/dirs/99999/purge", headers=headers)
+        assert resp.status_code == 404
+
+    def test_purge_dir_not_deleted_returns_409(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "NotTrashed")
+
+        resp = client.delete(f"/api/archive/dirs/{d.id}/purge", headers=headers)
+
+        assert resp.status_code == 409
+        db_session.expire_all()
+        assert db_session.get(ArchiveDir, d.id) is not None
+
+    def test_purge_dir_with_files_returns_409(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "HasFiles")
+        _make_file(db_session, dir_id=d.id)
+        d.deleted_at = _now()
+        db_session.commit()
+
+        resp = client.delete(f"/api/archive/dirs/{d.id}/purge", headers=headers)
+
+        assert resp.status_code == 409
+        db_session.expire_all()
+        assert db_session.get(ArchiveDir, d.id) is not None
+
+    def test_purge_dir_with_soft_deleted_child_still_returns_409(
+        self,
+        client,
+        db_session,
+    ):
+        """ "Empty" must not ignore a child dir just because that child is
+        itself already soft-deleted — archive_dir_id has no real FK, so
+        purging the parent would leave the child pointing at nothing."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        parent = _make_dir(db_session, "Parent")
+        child = _make_dir(db_session, "Child", parent_id=parent.id)
+        child.deleted_at = _now()
+        parent.deleted_at = _now()
+        db_session.commit()
+
+        resp = client.delete(f"/api/archive/dirs/{parent.id}/purge", headers=headers)
+
+        assert resp.status_code == 409
+        db_session.expire_all()
+        assert db_session.get(ArchiveDir, parent.id) is not None
+
+    def test_purge_dir_requires_admin_403(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        d = _make_dir(db_session, "Trashed")
+        d.deleted_at = _now()
+        db_session.commit()
+
+        resp = client.delete(f"/api/archive/dirs/{d.id}/purge", headers=headers)
+
+        assert resp.status_code == 403
+        db_session.expire_all()
+        assert db_session.get(ArchiveDir, d.id) is not None
+
     def test_move_dir(
         self,
         client,
