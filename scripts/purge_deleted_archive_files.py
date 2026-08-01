@@ -66,7 +66,7 @@ def _print_candidates(candidates: list[PurgeCandidate]) -> None:
 
     print(
         f"{'ID':<6} {'DELETED_AT':<20} {'SIZE':>9}  {'HASH':<16}  "
-        f"{'PATH':<28} {'DESCRIPTION':<22} CREATED_BY"
+        f"{'PATH':<20} {'FILENAME':<24} {'DESCRIPTION':<22} CREATED_BY"
     )
     total_size = 0
     for c in candidates:
@@ -75,8 +75,8 @@ def _print_candidates(candidates: list[PurgeCandidate]) -> None:
         total_size += c.size
         print(
             f"{c.file_id:<6} {deleted_at:<20} {_human_size(c.size):>9}  "
-            f"{hash_short:<16}  {c.path:<28} {(c.description or ''):<22} "
-            f"{c.created_by or ''}"
+            f"{hash_short:<16}  {c.path:<20} {c.filename:<24} "
+            f"{(c.description or ''):<22} {c.created_by or ''}"
         )
     print(
         f"\n{len(candidates)} soft-deleted file(s). "
@@ -87,7 +87,7 @@ def _print_candidates(candidates: list[PurgeCandidate]) -> None:
 def _confirm(candidate: PurgeCandidate) -> None:
     prompt = (
         f'Type "yes" to permanently delete file {candidate.file_id} '
-        f"({candidate.path}) from DB and S3: "
+        f'("{candidate.filename}" in "{candidate.path}") from DB and S3: '
     )
     answer = input(prompt)
     if answer.strip().lower() != "yes":
@@ -103,7 +103,10 @@ def _purge_one(db: Session, storage: StorageClient, candidate: PurgeCandidate) -
         print(f"ERROR: file {candidate.file_id}: {exc}", file=sys.stderr)
         return True
 
-    print(f"Purged file {candidate.file_id} ({candidate.path}).")
+    print(
+        f"Purged file {candidate.file_id} "
+        f'("{candidate.filename}" in "{candidate.path}").'
+    )
     if not result.s3_errors:
         return False
     for err in result.s3_errors:

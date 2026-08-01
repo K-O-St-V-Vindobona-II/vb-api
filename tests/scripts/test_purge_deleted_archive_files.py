@@ -23,10 +23,13 @@ def _run_main(argv: list[str]) -> None:
         purge_script.main()
 
 
-def _candidate(file_id: int = 1, path: str = "Fotos") -> PurgeCandidate:
+def _candidate(
+    file_id: int = 1, path: str = "Fotos", filename: str = "gruppenfoto.jpg"
+) -> PurgeCandidate:
     return PurgeCandidate(
         file_id=file_id,
         path=path,
+        filename=filename,
         description="Gruppenfoto",
         deleted_at=datetime(2026, 7, 20, 14, 32, 10, tzinfo=UTC),
         size=100,
@@ -77,6 +80,7 @@ def test_list_prints_candidates_without_prompting_and_exits_zero(capsys) -> None
     mock_purge_file.assert_not_called()
     out = capsys.readouterr().out
     assert "Fotos" in out
+    assert "gruppenfoto.jpg" in out
     assert "2026-07-20" in out
     mock_db.close.assert_called_once()
 
