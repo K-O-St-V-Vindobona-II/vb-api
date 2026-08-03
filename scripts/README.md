@@ -159,14 +159,28 @@ that as an explicit rule, not just a convention).
 Called without a subcommand, prints a short usage text — nothing is read
 from the database and nothing is deleted. `list` shows every currently
 soft-deleted archive file (id, deletion timestamp, size, content hash,
-path, file name, description, uploader). No retention/grace period — every currently
-soft-deleted file appears in that list, so the operator can judge for
-themselves whether anything looks too recent to touch.
+S3 impact, path, file name, description, uploader). No retention/grace
+period — every currently soft-deleted file appears in that list, so the
+operator can judge for themselves whether anything looks too recent to
+touch.
+
+`archive_store_item_id` is not unique on `ArchiveFile` — several files
+(active and/or soft-deleted) can reference the same underlying S3 object
+(content dedup inherited from the legacy migration). Every listing therefore
+classifies each file's **S3 impact**:
+- **duplicate** — an active file still references the same content; purging
+  this file never touches S3.
+- **shared** — no active file, but another soft-deleted file still
+  references the same content; S3 stays untouched for now, but the last
+  remaining reference in that group will remove it.
+- **sole** (shown as `SOLE`) — no other reference at all; purging this file
+  deletes the underlying S3 object immediately.
 
 `purge <id>` first re-checks that the given id is still present in the
 `list` output (i.e. actually purgeable) — anything else is rejected before
 any prompt is shown, and nothing is deleted. Only after that check passes
-does it ask for interactive confirmation; there is no flag to skip it. The
+does it ask for interactive confirmation (with an impact-specific note or
+warning, depending on the category above); there is no flag to skip it. The
 database row is then hard-deleted first (cascading its comments) and
 committed — only *after* that commit succeeds does the script attempt to
 delete the underlying S3 object(s), and only if no other file anywhere
@@ -177,6 +191,23 @@ orphans behind. This DB-first ordering is deliberate: a failed S3 delete
 after a committed DB delete leaves at worst a harmless, self-diagnosable
 orphan (the kind `check_s3_integrity.py` already detects) — the reverse
 order risks silent data loss for other files still sharing that content.
+
+`purge-duplicates <dir_id>` cleans up one directory's soft-deleted files in a
+single guided session (direct children only, not recursive — subdirectories
+need their own run). Every `duplicate` file is batch-purged after **one**
+confirmation for the whole batch; since purging deleted files never touches
+active ones, a file's `duplicate` status can't flip mid-batch — but each
+file is still freshly re-checked immediately before its own purge, so a
+concurrent soft-delete of its active sibling during the batch (a real
+possibility in production) is caught and the file is skipped and reported
+instead of unexpectedly deleting S3 data. Any remaining `shared`/`sole`
+files in that directory are then walked through individually, reusing the
+same confirmation as `purge <id>` — declining one only skips that file, it
+does not abort the rest of the walkthrough. Unlike `duplicate`, a `shared`
+file's status *can* flip mid-session (purging one shared sibling can make
+the next one the last remaining reference), so each file's impact note is
+recomputed right before its own prompt rather than reused from the initial
+listing.
 
 Runs in **every** environment, including production — unlike
 `downsync_prod.py`, this is not dev-only tooling but the actual production
@@ -189,16 +220,19 @@ environment guard.
 python scripts/purge_deleted_archive_files.py
 python scripts/purge_deleted_archive_files.py list
 python scripts/purge_deleted_archive_files.py purge 42
+python scripts/purge_deleted_archive_files.py purge-duplicates 7
 
 # Via podman exec
 podman exec vb-api python scripts/purge_deleted_archive_files.py list
 podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
+podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge-duplicates 7
 ```
 
 **Subcommands:**
 - *(none)* — prints a short usage text, no DB/S3 access.
-- `list` — prints every currently soft-deleted (purgeable) archive file.
+- `list` — prints every currently soft-deleted (purgeable) archive file, with its S3 impact category.
 - `purge <id>` — permanently deletes exactly one file from DB and S3, after verifying it appears in `list` and after an interactive `yes` confirmation. Not purgeable (not currently soft-deleted) → error message, exit code 1, nothing is touched.
+- `purge-duplicates <dir_id>` — batch-purges every `duplicate` file directly in that directory after one confirmation (S3-safe by construction, with a live per-file re-check), then walks through any remaining `shared`/`sole` files individually.
 
 **Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`.
 
@@ -371,14 +405,29 @@ festhält, nicht nur als Konvention).
 Ohne Subcommand aufgerufen, gibt es nur einen kurzen Hilfetext aus — es wird
 weder die Datenbank angefragt noch irgendetwas gelöscht. `list` zeigt jede
 aktuell soft-gelöschte Archiv-Datei (ID, Löschzeitpunkt, Größe, Content-Hash,
-Pfad, Dateiname, Beschreibung, Hochlader). Keine Karenzzeit — jede aktuell
-soft-gelöschte Datei erscheint in dieser Liste, damit der Operator selbst
-beurteilen kann, ob etwas zu frisch aussieht, um es anzufassen.
+S3-Auswirkung, Pfad, Dateiname, Beschreibung, Hochlader). Keine Karenzzeit —
+jede aktuell soft-gelöschte Datei erscheint in dieser Liste, damit der
+Operator selbst beurteilen kann, ob etwas zu frisch aussieht, um es
+anzufassen.
+
+`archive_store_item_id` ist auf `ArchiveFile` nicht eindeutig — mehrere
+Dateien (aktiv und/oder soft-gelöscht) können dasselbe S3-Objekt
+referenzieren (Content-Dedup, ein Erbe der Legacy-Migration). Jede Auflistung
+klassifiziert deshalb die **S3-Auswirkung** pro Datei:
+- **duplicate** — mindestens eine aktive Datei referenziert denselben Inhalt
+  noch; das Purgen dieser Datei berührt S3 nie.
+- **shared** — keine aktive Datei, aber mindestens eine weitere
+  soft-gelöschte Datei referenziert denselben Inhalt noch; S3 bleibt jetzt
+  unangetastet, aber die letzte verbleibende Referenz dieser Gruppe entfernt
+  es.
+- **sole** (angezeigt als `SOLE`) — keine andere Referenz mehr vorhanden;
+  das Purgen dieser Datei löscht das zugehörige S3-Objekt sofort.
 
 `purge <id>` prüft zuerst erneut, ob die angegebene ID noch in der
 `list`-Ausgabe vorkommt (also tatsächlich purgeable ist) — alles andere wird
 abgelehnt, bevor irgendeine Abfrage erscheint, und nichts wird gelöscht.
-Erst nach dieser Prüfung fragt das Script interaktiv nach Bestätigung; einen
+Erst nach dieser Prüfung fragt das Script interaktiv nach Bestätigung (mit
+einem kategorieabhängigen Hinweis bzw. einer Warnung, siehe oben); einen
 Parameter zum Überspringen gibt es nicht. Danach wird zuerst die DB-Zeile
 hart gelöscht (kaskadiert auf ihre Kommentare) und committet — **erst
 danach** versucht das Script, das zugehörige S3-Objekt zu löschen, und auch
@@ -393,6 +442,26 @@ die Art, die `check_s3_integrity.py` bereits erkennt) — die umgekehrte
 Reihenfolge riskiert stillen Datenverlust für andere Dateien, die denselben
 Inhalt noch teilen.
 
+`purge-duplicates <dir_id>` räumt die soft-gelöschten Dateien eines
+Verzeichnisses in einer einzigen geführten Session auf (nur direkte Kinder,
+nicht rekursiv — Unterverzeichnisse brauchen einen eigenen Aufruf). Jede
+`duplicate`-Datei wird nach **einer** Bestätigung für den gesamten Batch
+gepurged; da das Purgen gelöschter Dateien nie aktive Dateien anfasst, kann
+sich der `duplicate`-Status einer Datei während des Batches nicht ändern —
+trotzdem wird jede Datei unmittelbar vor ihrem eigenen Purge nochmal frisch
+geprüft, damit ein gleichzeitiges Soft-Delete ihrer aktiven Zwillingsdatei
+während des Batch-Laufs (im Produktivbetrieb real möglich) abgefangen wird:
+die Datei wird übersprungen und gemeldet, statt unerwartet S3-Daten zu
+löschen. Verbleibende `shared`/`sole`-Dateien desselben Verzeichnisses werden
+danach einzeln durchgegangen, mit derselben Bestätigung wie bei `purge
+<id>` — ein Ablehnen überspringt nur diese eine Datei, der restliche
+Walkthrough bricht nicht ab. Anders als bei `duplicate` KANN sich der Status
+einer `shared`-Datei innerhalb derselben Session ändern (das Purgen einer
+gemeinsam referenzierten Datei kann die nächste zur letzten verbleibenden
+Referenz machen) — deshalb wird der Hinweistext jeder Datei unmittelbar vor
+ihrer eigenen Abfrage neu berechnet, statt den Stand aus dem initialen
+Listing weiterzuverwenden.
+
 Läuft in **jeder** Umgebung, auch in Produktion — anders als
 `downsync_prod.py` ist das kein reines Dev-Tooling, sondern der tatsächliche
 Produktions-Bereinigungsmechanismus für angesammelte soft-gelöschte
@@ -404,15 +473,18 @@ Dateien, daher gibt es keinen Umgebungs-Guard.
 python scripts/purge_deleted_archive_files.py
 python scripts/purge_deleted_archive_files.py list
 python scripts/purge_deleted_archive_files.py purge 42
+python scripts/purge_deleted_archive_files.py purge-duplicates 7
 
 # Via podman exec
 podman exec vb-api python scripts/purge_deleted_archive_files.py list
 podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
+podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge-duplicates 7
 ```
 
 **Subcommands:**
 - *(keins)* — gibt nur einen kurzen Hilfetext aus, kein DB-/S3-Zugriff.
-- `list` — listet jede aktuell soft-gelöschte (purgeable) Archiv-Datei auf.
+- `list` — listet jede aktuell soft-gelöschte (purgeable) Archiv-Datei mit ihrer S3-Auswirkungs-Kategorie auf.
 - `purge <id>` — löscht genau eine Datei dauerhaft aus DB und S3, nachdem geprüft wurde, dass sie in `list` erscheint, und nach interaktiver `yes`-Bestätigung. Nicht purgeable (nicht aktuell soft-gelöscht) → Fehlermeldung, Exit-Code 1, nichts wird angefasst.
+- `purge-duplicates <dir_id>` — purged jede `duplicate`-Datei direkt in diesem Verzeichnis nach einer Bestätigung im Batch (S3-sicher per Konstruktion, mit Live-Recheck pro Datei), geht danach verbleibende `shared`/`sole`-Dateien einzeln durch.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars.
