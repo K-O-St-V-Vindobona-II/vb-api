@@ -147,22 +147,31 @@ podman exec -it vb-api python scripts/downsync_prod.py
 
 ---
 
-## `purge_deleted_archive_files.py`
+## `maintain_deleted_archive_files.py`
 
-Hard-deletes soft-deleted archive files from **both** the database and S3 —
-the only way to permanently remove an archive file's data, since the
-regular API only ever soft-deletes. Deliberately CLI-only by design: this
-functionality must never be exposed via the API or frontend (see
-`app/services/archive_purge_service.py`'s module docstring, which enforces
-that as an explicit rule, not just a convention).
+Inspects, restores, or hard-deletes soft-deleted archive files. Hard-delete
+removes data from **both** the database and S3 — the only way to
+permanently remove an archive file's data, since the regular API only ever
+soft-deletes. Deliberately CLI-only by design: none of this must ever be
+exposed via the API or frontend (see
+`app/services/archive_maintenance_service.py`'s module docstring, which
+enforces that as an explicit rule, not just a convention).
 
 Called without a subcommand, prints a short usage text — nothing is read
-from the database and nothing is deleted. `list` shows every currently
-soft-deleted archive file (id, deletion timestamp, size, content hash,
-S3 impact, path, file name, description, uploader). No retention/grace
-period — every currently soft-deleted file appears in that list, so the
-operator can judge for themselves whether anything looks too recent to
-touch.
+from the database and nothing is changed.
+
+**`list [dir_id] [--short]`** — read-only. Groups every currently
+soft-deleted archive file by directory: one paragraph per directory — its
+path and dir_id (the same id `purge-duplicates` and `list-duplicates --dir`
+expect) — followed by that directory's files (id, content hash, S3 impact,
+file name/extension, size, description, deletion timestamp). Long file
+names/descriptions are truncated so the columns never shift. With `dir_id`,
+only that one directory's paragraph is shown. `--short` collapses each
+paragraph to a single `path (dir_id: N): <count>` line — a fast triage
+overview when hundreds of files are scattered across many directories. No
+retention/grace period — every currently soft-deleted file appears in that
+list, so the operator can judge for themselves whether anything looks too
+recent to touch.
 
 `archive_store_item_id` is not unique on `ArchiveFile` — several files
 (active and/or soft-deleted) can reference the same underlying S3 object
@@ -176,63 +185,100 @@ classifies each file's **S3 impact**:
 - **sole** (shown as `SOLE`) — no other reference at all; purging this file
   deletes the underlying S3 object immediately.
 
-`purge <id>` first re-checks that the given id is still present in the
-`list` output (i.e. actually purgeable) — anything else is rejected before
-any prompt is shown, and nothing is deleted. Only after that check passes
-does it ask for interactive confirmation (with an impact-specific note or
-warning, depending on the category above); there is no flag to skip it. The
-database row is then hard-deleted first (cascading its comments) and
-committed — only *after* that commit succeeds does the script attempt to
-delete the underlying S3 object(s), and only if no other file anywhere
-still references the same content hash (`ArchiveStoreItem.sha256_hash`).
-Cached thumbnail variants are cleaned up via a prefix listing, not
-hardcoded sizes, so a future thumbnail-cache version bump can't leave
-orphans behind. This DB-first ordering is deliberate: a failed S3 delete
-after a committed DB delete leaves at worst a harmless, self-diagnosable
-orphan (the kind `check_s3_integrity.py` already detects) — the reverse
-order risks silent data loss for other files still sharing that content.
+**`purge <id>`** — **destructive, S3-relevant.** First re-checks that the
+given id is currently soft-deleted (i.e. actually purgeable — rejected
+otherwise, before any prompt is shown, nothing deleted). Only after that
+check passes does it ask for interactive confirmation (with an
+impact-specific note or warning, depending on the category above, and the
+confirmation prompt itself states whether this purge affects "DB only" or
+"DB AND S3"); there is no flag to skip it. The database row is then
+hard-deleted first (cascading its comments) and committed — only *after*
+that commit succeeds does the script attempt to delete the underlying S3
+object(s), and only if no other file anywhere still references the same
+content hash (`ArchiveStoreItem.sha256_hash`). Cached thumbnail variants are
+cleaned up via a prefix listing, not hardcoded sizes, so a future
+thumbnail-cache version bump can't leave orphans behind. This DB-first
+ordering is deliberate: a failed S3 delete after a committed DB delete
+leaves at worst a harmless, self-diagnosable orphan (the kind
+`check_s3_integrity.py` already detects) — the reverse order risks silent
+data loss for other files still sharing that content.
 
-`purge-duplicates <dir_id>` cleans up one directory's soft-deleted files in a
-single guided session (direct children only, not recursive — subdirectories
-need their own run). Every `duplicate` file is batch-purged after **one**
-confirmation for the whole batch; since purging deleted files never touches
-active ones, a file's `duplicate` status can't flip mid-batch — but each
-file is still freshly re-checked immediately before its own purge, so a
-concurrent soft-delete of its active sibling during the batch (a real
-possibility in production) is caught and the file is skipped and reported
-instead of unexpectedly deleting S3 data. Any remaining `shared`/`sole`
-files in that directory are then walked through individually, reusing the
-same confirmation as `purge <id>` — declining one only skips that file, it
-does not abort the rest of the walkthrough. Unlike `duplicate`, a `shared`
-file's status *can* flip mid-session (purging one shared sibling can make
-the next one the last remaining reference), so each file's impact note is
-recomputed right before its own prompt rather than reused from the initial
-listing.
+**`purge-duplicates <dir_id>`** — **destructive to the DB (hard-deletes
+rows, irreversibly), but S3-safe by construction.** Batch-purges only the
+`duplicate` files directly in that directory (direct children only, not
+recursive — subdirectories need their own run) after **one** confirmation
+for the whole batch — files where an active copy guarantees the S3 object
+survives; since purging deleted files never touches active ones, a file's
+`duplicate` status can't flip mid-batch — but each file is still freshly
+re-checked immediately before its own purge, so a concurrent soft-delete of
+its active sibling during the batch (a real possibility in production) is
+caught and the file is skipped and reported instead of unexpectedly
+deleting S3 data. Any remaining `shared`/`sole` files in that directory
+(which WOULD be S3-relevant) are only *reported* (a count, pointing at
+`list-duplicates`/`purge <id>`) — they are **never** processed
+automatically.
+
+**`restore <file_id>`** — reversible, non-destructive. Clears `deleted_at`,
+undoing a soft-delete. Runs **immediately, without a confirmation prompt** —
+unlike purge, restoring is safe and trivially undoable again via the GUI.
+Errors (id not found, or not currently soft-deleted) go to stderr with exit
+code 1.
+
+**`list-duplicates --file FILE_ID [--file FILE_ID ...] --dir DIR_ID [--dir
+DIR_ID ...]`** — read-only. `--file` shows the active files sharing content
+with the given file (any status — active or soft-deleted itself); `--dir`
+does the same for every currently soft-deleted file directly in that
+directory. Both flags are repeatable and combinable in one call, e.g.
+`list-duplicates --file 1 --file 2 --dir 10 --dir 11`. Each file gets a
+two-part block, both using the same ID/PATH/FILENAME table: `DELETED FILE:`
+or `ACTIVE FILE:` (whichever the file's actual current state is) for the
+file itself, then `DUPLICATES:` for its active duplicates (or `(none)`).
+Multiple blocks in one run are separated by a `=====` delimiter. A file
+with zero active duplicates is a normal result, not an error — an error is
+only reported (and only skips that one entry) for a `--file` id that
+doesn't exist at all. At least one `--file`/`--dir` is required.
+
+**`urlpath <id>`** — read-only convenience lookup. Looks the given id up as
+**both** a file id and a directory id and, for whichever match(es), prints
+its archive path and the frontend's relative URL path
+(`/archive/files/<id>` or `/archive/dirs/<id>`) — just the path, not a full
+URL, since the frontend domain differs per environment and isn't reliably
+known to this script. Error only if neither a file nor a directory with
+that id exists.
 
 Runs in **every** environment, including production — unlike
 `downsync_prod.py`, this is not dev-only tooling but the actual production
-cleanup mechanism for accumulated soft-deleted files, so there is no
+maintenance mechanism for accumulated soft-deleted files, so there is no
 environment guard.
 
 **Usage:**
 ```bash
 # Inside the container
-python scripts/purge_deleted_archive_files.py
-python scripts/purge_deleted_archive_files.py list
-python scripts/purge_deleted_archive_files.py purge 42
-python scripts/purge_deleted_archive_files.py purge-duplicates 7
+python scripts/maintain_deleted_archive_files.py
+python scripts/maintain_deleted_archive_files.py list
+python scripts/maintain_deleted_archive_files.py list --short
+python scripts/maintain_deleted_archive_files.py list 7
+python scripts/maintain_deleted_archive_files.py purge 42
+python scripts/maintain_deleted_archive_files.py purge-duplicates 7
+python scripts/maintain_deleted_archive_files.py restore 42
+python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
+python scripts/maintain_deleted_archive_files.py urlpath 42
 
 # Via podman exec
-podman exec vb-api python scripts/purge_deleted_archive_files.py list
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge-duplicates 7
+podman exec vb-api python scripts/maintain_deleted_archive_files.py list
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge 42
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge-duplicates 7
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 42
 ```
 
 **Subcommands:**
 - *(none)* — prints a short usage text, no DB/S3 access.
-- `list` — prints every currently soft-deleted (purgeable) archive file, with its S3 impact category.
-- `purge <id>` — permanently deletes exactly one file from DB and S3, after verifying it appears in `list` and after an interactive `yes` confirmation. Not purgeable (not currently soft-deleted) → error message, exit code 1, nothing is touched.
-- `purge-duplicates <dir_id>` — batch-purges every `duplicate` file directly in that directory after one confirmation (S3-safe by construction, with a live per-file re-check), then walks through any remaining `shared`/`sole` files individually.
+- `list [dir_id] [--short]` — read-only, see above.
+- `purge <id>` — destructive/S3-relevant, permanently deletes exactly one file from DB and S3, after verifying it appears in `list` and after an interactive `yes` confirmation. Not purgeable (not currently soft-deleted) → error message, exit code 1, nothing is touched.
+- `purge-duplicates <dir_id>` — destructive to the DB, S3-safe by construction, scoped to the `duplicate` category only, see above.
+- `restore <file_id>` — reversible/non-destructive, no confirmation, see above.
+- `list-duplicates --file ... --dir ...` — read-only, see above.
+- `urlpath <id>` — read-only, see above.
 
 **Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`.
 
@@ -392,20 +438,30 @@ podman exec -it vb-api python scripts/downsync_prod.py
 
 ---
 
-## `purge_deleted_archive_files.py`
+## `maintain_deleted_archive_files.py`
 
-Löscht soft-gelöschte Archiv-Dateien hart aus **sowohl** Datenbank als auch
-S3 — der einzige Weg, die Daten einer Archiv-Datei endgültig zu entfernen,
-da die reguläre API ausschließlich soft-deleted. Bewusst per Design nur per
-Kommandozeile: diese Funktion darf niemals über die API oder das Frontend
+Inspiziert, stellt wieder her oder löscht soft-gelöschte Archiv-Dateien hart.
+Hard-Delete entfernt Daten aus **sowohl** Datenbank als auch S3 — der
+einzige Weg, die Daten einer Archiv-Datei endgültig zu entfernen, da die
+reguläre API ausschließlich soft-deleted. Bewusst per Design nur per
+Kommandozeile: nichts davon darf jemals über die API oder das Frontend
 angeboten werden (siehe der Modul-Docstring von
-`app/services/archive_purge_service.py`, der das als explizite Regel
+`app/services/archive_maintenance_service.py`, der das als explizite Regel
 festhält, nicht nur als Konvention).
 
 Ohne Subcommand aufgerufen, gibt es nur einen kurzen Hilfetext aus — es wird
-weder die Datenbank angefragt noch irgendetwas gelöscht. `list` zeigt jede
-aktuell soft-gelöschte Archiv-Datei (ID, Löschzeitpunkt, Größe, Content-Hash,
-S3-Auswirkung, Pfad, Dateiname, Beschreibung, Hochlader). Keine Karenzzeit —
+weder die Datenbank angefragt noch irgendetwas verändert.
+
+**`list [dir_id] [--short]`** — rein lesend. Gruppiert jede aktuell
+soft-gelöschte Archiv-Datei nach Verzeichnis: ein Absatz pro Verzeichnis —
+Pfad und Verzeichnis-ID (dieselbe ID, die `purge-duplicates` und
+`list-duplicates --dir` erwarten) — gefolgt von dessen Dateien (ID,
+Content-Hash, S3-Auswirkung, Dateiname/-endung, Größe, Beschreibung,
+Löschzeitpunkt). Lange Dateinamen/Beschreibungen werden gekürzt, damit die
+Spalten nie verrutschen. Mit `dir_id` wird nur der Absatz dieses einen
+Verzeichnisses gezeigt. `--short` reduziert jeden Absatz auf eine einzelne
+Zeile `Pfad (dir_id: N): <Anzahl>` — eine schnelle Triage-Übersicht, wenn
+hunderte Dateien über viele Verzeichnisse verstreut sind. Keine Karenzzeit —
 jede aktuell soft-gelöschte Datei erscheint in dieser Liste, damit der
 Operator selbst beurteilen kann, ob etwas zu frisch aussieht, um es
 anzufassen.
@@ -423,68 +479,106 @@ klassifiziert deshalb die **S3-Auswirkung** pro Datei:
 - **sole** (angezeigt als `SOLE`) — keine andere Referenz mehr vorhanden;
   das Purgen dieser Datei löscht das zugehörige S3-Objekt sofort.
 
-`purge <id>` prüft zuerst erneut, ob die angegebene ID noch in der
-`list`-Ausgabe vorkommt (also tatsächlich purgeable ist) — alles andere wird
-abgelehnt, bevor irgendeine Abfrage erscheint, und nichts wird gelöscht.
-Erst nach dieser Prüfung fragt das Script interaktiv nach Bestätigung (mit
-einem kategorieabhängigen Hinweis bzw. einer Warnung, siehe oben); einen
-Parameter zum Überspringen gibt es nicht. Danach wird zuerst die DB-Zeile
-hart gelöscht (kaskadiert auf ihre Kommentare) und committet — **erst
-danach** versucht das Script, das zugehörige S3-Objekt zu löschen, und auch
-nur dann, wenn keine andere Datei im System noch denselben Content-Hash
-(`ArchiveStoreItem.sha256_hash`) referenziert. Gecachte Thumbnail-Varianten
-werden über eine Prefix-Auflistung bereinigt, nicht über hartkodierte
-Größen — ein künftiges Thumbnail-Cache-Versions-Update kann so keine
-Leichen hinterlassen. Diese DB-zuerst-Reihenfolge ist bewusst: Ein
-fehlgeschlagenes S3-Löschen nach bereits committetem DB-Löschen hinterlässt
-bestenfalls ein harmloses, selbst-diagnostizierbares Waisenobjekt (genau
-die Art, die `check_s3_integrity.py` bereits erkennt) — die umgekehrte
-Reihenfolge riskiert stillen Datenverlust für andere Dateien, die denselben
-Inhalt noch teilen.
+**`purge <id>`** — **destruktiv, S3-relevant.** Prüft zuerst erneut, ob die
+angegebene ID aktuell soft-gelöscht (also tatsächlich purgeable) ist —
+alles andere wird abgelehnt, bevor irgendeine Abfrage erscheint, und nichts
+wird gelöscht. Erst nach dieser Prüfung fragt das Script interaktiv nach
+Bestätigung (mit einem kategorieabhängigen Hinweis bzw. einer Warnung,
+siehe oben; die Bestätigungszeile selbst nennt außerdem, ob der Purge nur
+die DB oder DB UND S3 betrifft); einen Parameter zum Überspringen gibt es
+nicht. Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
+Kommentare) und committet — **erst danach** versucht das Script, das
+zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
+im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)
+referenziert. Gecachte Thumbnail-Varianten werden über eine
+Prefix-Auflistung bereinigt, nicht über hartkodierte Größen — ein künftiges
+Thumbnail-Cache-Versions-Update kann so keine Leichen hinterlassen. Diese
+DB-zuerst-Reihenfolge ist bewusst: Ein fehlgeschlagenes S3-Löschen nach
+bereits committetem DB-Löschen hinterlässt bestenfalls ein harmloses,
+selbst-diagnostizierbares Waisenobjekt (genau die Art, die
+`check_s3_integrity.py` bereits erkennt) — die umgekehrte Reihenfolge
+riskiert stillen Datenverlust für andere Dateien, die denselben Inhalt noch
+teilen.
 
-`purge-duplicates <dir_id>` räumt die soft-gelöschten Dateien eines
-Verzeichnisses in einer einzigen geführten Session auf (nur direkte Kinder,
-nicht rekursiv — Unterverzeichnisse brauchen einen eigenen Aufruf). Jede
-`duplicate`-Datei wird nach **einer** Bestätigung für den gesamten Batch
-gepurged; da das Purgen gelöschter Dateien nie aktive Dateien anfasst, kann
-sich der `duplicate`-Status einer Datei während des Batches nicht ändern —
-trotzdem wird jede Datei unmittelbar vor ihrem eigenen Purge nochmal frisch
-geprüft, damit ein gleichzeitiges Soft-Delete ihrer aktiven Zwillingsdatei
-während des Batch-Laufs (im Produktivbetrieb real möglich) abgefangen wird:
-die Datei wird übersprungen und gemeldet, statt unerwartet S3-Daten zu
-löschen. Verbleibende `shared`/`sole`-Dateien desselben Verzeichnisses werden
-danach einzeln durchgegangen, mit derselben Bestätigung wie bei `purge
-<id>` — ein Ablehnen überspringt nur diese eine Datei, der restliche
-Walkthrough bricht nicht ab. Anders als bei `duplicate` KANN sich der Status
-einer `shared`-Datei innerhalb derselben Session ändern (das Purgen einer
-gemeinsam referenzierten Datei kann die nächste zur letzten verbleibenden
-Referenz machen) — deshalb wird der Hinweistext jeder Datei unmittelbar vor
-ihrer eigenen Abfrage neu berechnet, statt den Stand aus dem initialen
-Listing weiterzuverwenden.
+**`purge-duplicates <dir_id>`** — **destruktiv für die DB (löscht Zeilen
+unwiderruflich hart), aber S3-sicher per Konstruktion.** Purged im Batch
+ausschließlich die `duplicate`-Dateien direkt in diesem Verzeichnis (nur
+direkte Kinder, nicht rekursiv — Unterverzeichnisse brauchen einen eigenen
+Aufruf) nach **einer** Bestätigung für den gesamten Batch — Dateien, bei
+denen eine aktive Kopie das Überleben des S3-Objekts garantiert; da das
+Purgen gelöschter Dateien nie aktive Dateien anfasst, kann sich der
+`duplicate`-Status einer Datei während des Batches nicht ändern — trotzdem
+wird jede Datei unmittelbar vor ihrem eigenen Purge nochmal frisch geprüft,
+damit ein gleichzeitiges Soft-Delete ihrer aktiven Zwillingsdatei während
+des Batch-Laufs (im Produktivbetrieb real möglich) abgefangen wird: die
+Datei wird übersprungen und gemeldet, statt unerwartet S3-Daten zu löschen.
+Verbleibende `shared`/`sole`-Dateien desselben Verzeichnisses (die SEHR WOHL
+S3-relevant wären) werden nur noch *gemeldet* (Anzahl, Verweis auf
+`list-duplicates`/`purge <id>`) — sie werden **nicht** mehr automatisch
+bearbeitet.
+
+**`restore <file_id>`** — reversibel, nicht-destruktiv. Setzt `deleted_at`
+zurück, macht ein Soft-Delete rückgängig. Läuft **sofort, ohne
+Bestätigungs-Prompt** — anders als Purge ist Restore ungefährlich und
+jederzeit über die GUI wieder rückgängig zu machen. Fehler (ID nicht
+gefunden, oder nicht aktuell soft-gelöscht) gehen auf stderr, Exit-Code 1.
+
+**`list-duplicates --file FILE_ID [--file FILE_ID ...] --dir DIR_ID [--dir
+DIR_ID ...]`** — rein lesend. `--file` zeigt die aktiven Dateien, die
+denselben Inhalt wie die angegebene Datei teilen (beliebiger Status — aktiv
+oder selbst soft-gelöscht); `--dir` macht dasselbe für jede aktuell
+soft-gelöschte Datei direkt in diesem Verzeichnis. Beide Flags sind
+wiederholbar und in einem Aufruf kombinierbar, z. B. `list-duplicates
+--file 1 --file 2 --dir 10 --dir 11`. Jede Datei bekommt einen zweiteiligen
+Block, beide mit derselben ID/PATH/FILENAME-Tabelle: `DELETED FILE:` oder
+`ACTIVE FILE:` (je nach tatsächlichem aktuellem Zustand der Datei) für die
+Datei selbst, danach `DUPLICATES:` für ihre aktiven Duplikate (oder
+`(none)`). Mehrere Blöcke in einem Lauf werden durch einen `=====`-Delimiter
+getrennt. Eine Datei mit null aktiven Duplikaten ist ein normales Ergebnis,
+kein Fehler — ein Fehler wird nur (und überspringt auch nur diesen einen
+Eintrag) für eine `--file`-ID gemeldet, die gar nicht existiert. Mindestens
+ein `--file`/`--dir` ist Pflicht.
+
+**`urlpath <id>`** — rein lesende Komfort-Abfrage. Sucht die angegebene ID
+**sowohl** als file_id als auch als dir_id und gibt für jeden Treffer den
+Archiv-Pfad sowie den relativen Frontend-URL-Pfad aus (`/archive/files/<id>`
+bzw. `/archive/dirs/<id>`) — nur den Pfad, keine vollständige URL, da die
+Frontend-Domain je nach Umgebung unterschiedlich und für dieses Skript nicht
+zuverlässig bekannt ist. Fehler nur, wenn weder eine Datei noch ein
+Verzeichnis mit dieser ID existiert.
 
 Läuft in **jeder** Umgebung, auch in Produktion — anders als
 `downsync_prod.py` ist das kein reines Dev-Tooling, sondern der tatsächliche
-Produktions-Bereinigungsmechanismus für angesammelte soft-gelöschte
-Dateien, daher gibt es keinen Umgebungs-Guard.
+Produktions-Wartungsmechanismus für angesammelte soft-gelöschte Dateien,
+daher gibt es keinen Umgebungs-Guard.
 
 **Aufruf:**
 ```bash
 # Im Container
-python scripts/purge_deleted_archive_files.py
-python scripts/purge_deleted_archive_files.py list
-python scripts/purge_deleted_archive_files.py purge 42
-python scripts/purge_deleted_archive_files.py purge-duplicates 7
+python scripts/maintain_deleted_archive_files.py
+python scripts/maintain_deleted_archive_files.py list
+python scripts/maintain_deleted_archive_files.py list --short
+python scripts/maintain_deleted_archive_files.py list 7
+python scripts/maintain_deleted_archive_files.py purge 42
+python scripts/maintain_deleted_archive_files.py purge-duplicates 7
+python scripts/maintain_deleted_archive_files.py restore 42
+python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
+python scripts/maintain_deleted_archive_files.py urlpath 42
 
 # Via podman exec
-podman exec vb-api python scripts/purge_deleted_archive_files.py list
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge 42
-podman exec -it vb-api python scripts/purge_deleted_archive_files.py purge-duplicates 7
+podman exec vb-api python scripts/maintain_deleted_archive_files.py list
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge 42
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge-duplicates 7
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 42
 ```
 
 **Subcommands:**
 - *(keins)* — gibt nur einen kurzen Hilfetext aus, kein DB-/S3-Zugriff.
-- `list` — listet jede aktuell soft-gelöschte (purgeable) Archiv-Datei mit ihrer S3-Auswirkungs-Kategorie auf.
-- `purge <id>` — löscht genau eine Datei dauerhaft aus DB und S3, nachdem geprüft wurde, dass sie in `list` erscheint, und nach interaktiver `yes`-Bestätigung. Nicht purgeable (nicht aktuell soft-gelöscht) → Fehlermeldung, Exit-Code 1, nichts wird angefasst.
-- `purge-duplicates <dir_id>` — purged jede `duplicate`-Datei direkt in diesem Verzeichnis nach einer Bestätigung im Batch (S3-sicher per Konstruktion, mit Live-Recheck pro Datei), geht danach verbleibende `shared`/`sole`-Dateien einzeln durch.
+- `list [dir_id] [--short]` — rein lesend, siehe oben.
+- `purge <id>` — destruktiv/S3-relevant, löscht genau eine Datei dauerhaft aus DB und S3, nachdem geprüft wurde, dass sie in `list` erscheint, und nach interaktiver `yes`-Bestätigung. Nicht purgeable (nicht aktuell soft-gelöscht) → Fehlermeldung, Exit-Code 1, nichts wird angefasst.
+- `purge-duplicates <dir_id>` — destruktiv für die DB, S3-sicher per Konstruktion, auf die `duplicate`-Kategorie begrenzt, siehe oben.
+- `restore <file_id>` — reversibel/nicht-destruktiv, keine Bestätigung, siehe oben.
+- `list-duplicates --file ... --dir ...` — rein lesend, siehe oben.
+- `urlpath <id>` — rein lesend, siehe oben.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars.

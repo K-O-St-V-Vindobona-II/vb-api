@@ -86,7 +86,7 @@ max-complexity = 8
 "app/core/mailer.py" = ["TID251"]
 "scripts/check_s3_integrity.py" = ["TID251"]
 "scripts/trigger_chronicles.py" = ["TID251"]
-"scripts/purge_deleted_archive_files.py" = ["TID251"]
+"scripts/maintain_deleted_archive_files.py" = ["TID251"]
 # Different reason from the SessionLocal exceptions above: this file
 # spreads the *entire* current environment (`{**os.environ, "PGPASSWORD":
 # ...}`) to build a pg_dump/pg_restore subprocess env — a legitimate use

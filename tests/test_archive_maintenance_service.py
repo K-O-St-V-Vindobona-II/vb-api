@@ -1,6 +1,7 @@
-"""Tests for archive_purge_service.py — hard-delete of soft-deleted archive
-files (DB + S3), including the store-item reference-counting logic that
-decides whether the underlying S3 object may safely be removed.
+"""Tests for archive_maintenance_service.py — hard-delete/restore of
+soft-deleted archive files (DB + S3) and active-duplicate inspection,
+including the store-item reference-counting logic that decides whether the
+underlying S3 object may safely be removed.
 """
 
 from datetime import UTC, datetime
@@ -14,27 +15,23 @@ from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
 from app.models.archive_store_item import ArchiveStoreItem
-from app.models.member import Member
-from app.services.archive_purge_service import (
-    PurgeError,
+from app.services.archive_maintenance_service import (
+    ArchiveMaintenanceError,
     PurgeImpact,
+    active_duplicates_in_dir,
+    active_duplicates_of_file,
+    find_dir_location,
+    find_file_location,
     is_still_duplicate,
     list_deleted_files,
     list_deleted_files_in_dir,
     purge_file,
-    refresh_candidate,
+    restore_file,
 )
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
-
-
-def _make_member(db, vorname="Max", nachname="Muster"):
-    m = Member(vorname=vorname, nachname=nachname)
-    db.add(m)
-    db.flush()
-    return m
 
 
 def _make_dir(db, name="Fotos", parent_id=0):
@@ -45,7 +42,7 @@ def _make_dir(db, name="Fotos", parent_id=0):
     return d
 
 
-def _make_store_item(db, hash_suffix="", size=5000, created_by=None):
+def _make_store_item(db, hash_suffix="", size=5000):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
@@ -53,7 +50,7 @@ def _make_store_item(db, hash_suffix="", size=5000, created_by=None):
         mime_type="image/jpeg",
         size=size,
         sha256_hash=f"hash_{now.timestamp()}_{hash_suffix}",
-        created_by=created_by.id if created_by else None,
+        created_by=None,
         created_at=now,
         updated_at=now,
     )
@@ -91,8 +88,7 @@ class TestListDeletedFiles:
         assert list_deleted_files(db_session) == []
 
     def test_returns_candidates_with_expected_fields(self, db_session):
-        member = _make_member(db_session, "Erika", "Musterfrau")
-        item = _make_store_item(db_session, created_by=member)
+        item = _make_store_item(db_session)
         d = _make_dir(db_session, "Sommerfest")
         f = _make_file(db_session, dir_id=d.id, desc="Gruppenfoto", item=item)
 
@@ -102,12 +98,14 @@ class TestListDeletedFiles:
         c = candidates[0]
         assert c.file_id == f.id
         assert c.path == "Sommerfest"
+        assert c.archive_dir_id == d.id
+        assert c.name == "testfile"
+        assert c.extension == "jpg"
         assert c.filename == "testfile.jpg"
         assert c.description == "Gruppenfoto"
         assert c.deleted_at is not None
         assert c.size == item.size
         assert c.sha256_hash == item.sha256_hash
-        assert c.created_by == "Erika Musterfrau"
 
     def test_excludes_active_files(self, db_session):
         _make_file(db_session, desc="active", deleted=False)
@@ -257,59 +255,15 @@ class TestIsStillDuplicate:
         assert is_still_duplicate(db_session, candidate) is False
 
 
-class TestRefreshCandidate:
-    def test_reflects_purge_of_sibling_within_same_session(self, db_session):
-        item = _make_store_item(db_session)
-        f1 = _make_file(db_session, item=item, deleted=True)
-        f2 = _make_file(db_session, item=item, deleted=True)
-
-        candidates = {c.file_id: c for c in list_deleted_files(db_session)}
-        stale = candidates[f2.id]
-        assert stale.other_deleted_sibling_count == 1
-        assert stale.impact is PurgeImpact.SHARED
-
-        # f1 gets purged elsewhere in the same walkthrough session.
-        db_session.delete(f1)
-        db_session.commit()
-
-        fresh = refresh_candidate(db_session, stale)
-
-        assert fresh.other_deleted_sibling_count == 0
-        assert fresh.impact is PurgeImpact.SOLE
-        assert fresh.file_id == stale.file_id
-        assert fresh.filename == stale.filename
-
-    def test_reflects_concurrent_soft_delete_of_active_sibling(self, db_session):
-        item = _make_store_item(db_session)
-        candidate_file = _make_file(db_session, item=item, deleted=True)
-        active = _make_file(db_session, item=item, deleted=False)
-
-        candidate = list_deleted_files(db_session)[0]
-        assert candidate.file_id == candidate_file.id
-        assert candidate.impact is PurgeImpact.DUPLICATE
-
-        # The formerly active sibling gets soft-deleted too — its row still
-        # exists (just now also soft-deleted), so this is a DUPLICATE ->
-        # SHARED transition, not a jump straight to SOLE.
-        active.deleted_at = _now()
-        db_session.commit()
-
-        fresh = refresh_candidate(db_session, candidate)
-
-        assert fresh.active_sibling_count == 0
-        assert fresh.other_deleted_sibling_count == 1
-        assert fresh.impact is PurgeImpact.SHARED
-
-
 class TestPurgeFileValidation:
     def test_not_found_raises(self, db_session, mock_s3):
-        with pytest.raises(PurgeError):
+        with pytest.raises(ArchiveMaintenanceError):
             purge_file(db_session, mock_s3, 999999)
 
     def test_not_soft_deleted_raises(self, db_session, mock_s3):
         f = _make_file(db_session, deleted=False)
 
-        with pytest.raises(PurgeError):
+        with pytest.raises(ArchiveMaintenanceError):
             purge_file(db_session, mock_s3, f.id)
 
         assert db_session.get(ArchiveFile, f.id) is not None
@@ -424,3 +378,160 @@ class TestPurgeFileOrdering:
         assert result.s3_keys_deleted == [cache_key]
         assert len(result.s3_errors) == 1
         assert main_key in result.s3_errors[0]
+
+
+class TestRestoreFile:
+    def test_restores_and_returns_location(self, db_session):
+        d = _make_dir(db_session, "Sommerfest")
+        f = _make_file(db_session, dir_id=d.id, deleted=True)
+
+        result = restore_file(db_session, f.id)
+
+        assert db_session.get(ArchiveFile, f.id).deleted_at is None
+        assert result.file_id == f.id
+        assert result.path == "Sommerfest"
+        assert result.name == "testfile"
+        assert result.extension == "jpg"
+        assert result.filename == "testfile.jpg"
+        assert result.deleted is False
+
+    def test_not_found_raises(self, db_session):
+        with pytest.raises(ArchiveMaintenanceError):
+            restore_file(db_session, 999999)
+
+    def test_not_currently_deleted_raises(self, db_session):
+        f = _make_file(db_session, deleted=False)
+
+        with pytest.raises(ArchiveMaintenanceError):
+            restore_file(db_session, f.id)
+
+        assert db_session.get(ArchiveFile, f.id).deleted_at is None
+
+
+class TestActiveDuplicatesOfFile:
+    def test_no_duplicates(self, db_session):
+        f = _make_file(db_session, deleted=True)
+
+        location, duplicates = active_duplicates_of_file(db_session, f.id)
+
+        assert location.file_id == f.id
+        assert location.deleted is True
+        assert duplicates == []
+
+    def test_finds_active_duplicates_with_path(self, db_session):
+        item = _make_store_item(db_session)
+        d = _make_dir(db_session, "Archiv2")
+        target = _make_file(db_session, item=item, deleted=True)
+        active = _make_file(db_session, dir_id=d.id, item=item, deleted=False)
+
+        _, duplicates = active_duplicates_of_file(db_session, target.id)
+
+        assert [dup.file_id for dup in duplicates] == [active.id]
+        assert duplicates[0].path == "Archiv2"
+        assert duplicates[0].filename == "testfile.jpg"
+
+    def test_excludes_deleted_siblings(self, db_session):
+        item = _make_store_item(db_session)
+        target = _make_file(db_session, item=item, deleted=True)
+        _make_file(db_session, item=item, deleted=True)
+
+        _, duplicates = active_duplicates_of_file(db_session, target.id)
+
+        assert duplicates == []
+
+    def test_excludes_itself_even_if_active(self, db_session):
+        f = _make_file(db_session, deleted=False)
+
+        location, duplicates = active_duplicates_of_file(db_session, f.id)
+
+        assert location.deleted is False
+        assert duplicates == []
+
+    def test_not_found_raises(self, db_session):
+        with pytest.raises(ArchiveMaintenanceError):
+            active_duplicates_of_file(db_session, 999999)
+
+
+class TestActiveDuplicatesInDir:
+    def test_empty_dir_returns_empty_list(self, db_session):
+        assert active_duplicates_in_dir(db_session, 999999) == []
+
+    def test_pairs_each_deleted_file_with_its_duplicates(self, db_session):
+        d = _make_dir(db_session, "Fotos")
+        item = _make_store_item(db_session)
+        with_dup = _make_file(db_session, dir_id=d.id, item=item, deleted=True)
+        _make_file(db_session, item=item, deleted=False)
+        without_dup = _make_file(db_session, dir_id=d.id, deleted=True)
+
+        pairs = active_duplicates_in_dir(db_session, d.id)
+        duplicates_by_id = {c.file_id: dups for c, dups in pairs}
+
+        assert len(duplicates_by_id[with_dup.id]) == 1
+        assert duplicates_by_id[without_dup.id] == []
+
+    def test_no_n_plus_one(self, db_session, count_queries):
+        d = _make_dir(db_session, "Fotos")
+        _make_file(db_session, dir_id=d.id, deleted=True)
+
+        with count_queries() as small:
+            small_result = active_duplicates_in_dir(db_session, d.id)
+
+        for _ in range(10):
+            _make_file(db_session, dir_id=d.id, deleted=True)
+
+        with count_queries() as large:
+            large_result = active_duplicates_in_dir(db_session, d.id)
+
+        assert len(small_result) == 1
+        assert len(large_result) == 11
+        assert large.count == small.count
+
+
+class TestFindFileLocation:
+    def test_finds_deleted_file(self, db_session):
+        d = _make_dir(db_session, "Sommerfest")
+        f = _make_file(db_session, dir_id=d.id, deleted=True)
+
+        location = find_file_location(db_session, f.id)
+
+        assert location is not None
+        assert location.file_id == f.id
+        assert location.path == "Sommerfest"
+        assert location.filename == "testfile.jpg"
+        assert location.deleted is True
+
+    def test_finds_active_file(self, db_session):
+        f = _make_file(db_session, deleted=False)
+
+        location = find_file_location(db_session, f.id)
+
+        assert location is not None
+        assert location.deleted is False
+
+    def test_returns_none_when_not_found(self, db_session):
+        assert find_file_location(db_session, 999999) is None
+
+
+class TestFindDirLocation:
+    def test_finds_active_dir(self, db_session):
+        d = _make_dir(db_session, "Sommerfest")
+
+        location = find_dir_location(db_session, d.id)
+
+        assert location is not None
+        assert location.dir_id == d.id
+        assert location.path == "Sommerfest"
+        assert location.deleted is False
+
+    def test_finds_deleted_dir(self, db_session):
+        d = _make_dir(db_session, "Sommerfest")
+        d.deleted_at = _now()
+        db_session.commit()
+
+        location = find_dir_location(db_session, d.id)
+
+        assert location is not None
+        assert location.deleted is True
+
+    def test_returns_none_when_not_found(self, db_session):
+        assert find_dir_location(db_session, 999999) is None
