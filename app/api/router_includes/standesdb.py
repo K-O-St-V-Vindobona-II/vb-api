@@ -251,15 +251,21 @@ def get_member(
 def get_member_auth_activity(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberAuthActivityResponse:
-    """Return recent authentication activity for a member."""
+    """Return recent authentication activity for a member.
+
+    Requires standesdb write access for the member's own org (same check
+    as editing the member — see _require_standesdb_admin()), not a
+    blanket systemAdmin permission.
+    """
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Mitglied nicht gefunden.",
         )
+    _require_standesdb_admin(current_user, member.org_id)
     return MemberAuthActivityResponse(
         auth_lastlogin=member.auth_lastlogin,
         auth_lastsignal=member.auth_lastsignal,

@@ -34,6 +34,7 @@ from app.models.password_reset import PasswordResetToken  # noqa: F401
 from app.models.public_gallery_image import PublicGalleryImage  # noqa: F401
 from app.models.request_log import RequestLog  # noqa: F401
 from app.models.role import Role  # noqa: F401
+from app.models.scheduled_task_run import ScheduledTaskRun  # noqa: F401
 from app.models.sent_email import SentEmail  # noqa: F401
 from app.models.standesdb_image import StandesdbImage  # noqa: F401
 from app.models.state import State  # noqa: F401

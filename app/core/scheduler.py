@@ -54,6 +54,7 @@ from app.services.p4x_category_service import apply_all_category_filters
 from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
 from app.services.permission_service import get_emails_with_permission
 from app.services.s3_mirror_service import mirror_prefix
+from app.services.scheduled_task_run_service import record_job_run
 from app.services.storage_integrity_service import (
     check_archive_integrity,
     check_standesdb_integrity,
@@ -136,6 +137,7 @@ def _acquire_scheduler_lock() -> bool:
 
 def job_cleanup() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         now = datetime.now(UTC)
 
@@ -199,8 +201,15 @@ def job_cleanup() -> None:
             )
 
         db.commit()
-    except Exception:
+        record_job_run(
+            "cleanup",
+            started,
+            exit_code=0,
+            output=f"{deleted_logs} logs, {deleted_emails} emails removed",
+        )
+    except Exception as exc:
         logger.exception("Cleanup failed")
+        record_job_run("cleanup", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -212,11 +221,21 @@ def job_cleanup() -> None:
 
 def job_refresh_category_filter_hits() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         apply_all_category_filters(db, truncate_first=True)
         logger.info("Category filter hits refreshed.")
-    except Exception:
+        record_job_run(
+            "refresh_category_filter_hits",
+            started,
+            exit_code=0,
+            output="Category filter hits refreshed.",
+        )
+    except Exception as exc:
         logger.exception("RefreshCategoryFilterHits failed")
+        record_job_run(
+            "refresh_category_filter_hits", started, exit_code=1, output=str(exc)
+        )
     finally:
         db.close()
 
@@ -228,6 +247,7 @@ def job_refresh_category_filter_hits() -> None:
 
 def job_birthday_mails() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         tomorrow = datetime.now(UTC).date() + timedelta(days=1)
 
@@ -255,6 +275,9 @@ def job_birthday_mails() -> None:
         ]
 
         if not birthday_members:
+            record_job_run(
+                "birthday_mails", started, exit_code=0, output="No birthdays tomorrow."
+            )
             return
 
         bcc_emails = _get_role_holder_emails(
@@ -287,8 +310,15 @@ def job_birthday_mails() -> None:
                 "Birthday mail sent to %s",
                 m.cn,
             )
-    except Exception:
+        record_job_run(
+            "birthday_mails",
+            started,
+            exit_code=0,
+            output=f"{len(birthday_members)} birthday mail(s) sent.",
+        )
+    except Exception as exc:
         logger.exception("BirthdayMails failed")
+        record_job_run("birthday_mails", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -436,15 +466,29 @@ def job_debtor_reminder() -> None:
         return
 
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         if not _validate_latest_booking(db, today):
+            record_job_run(
+                "debtor_reminder",
+                started,
+                exit_code=1,
+                output="Latest transaction booking is too old — import missing.",
+            )
             return
 
         target = _compute_target_date(today)
         target_str = target.strftime("%Y-%m-%d")
         _send_debtor_reminders(db, target, target_str)
-    except Exception:
+        record_job_run(
+            "debtor_reminder",
+            started,
+            exit_code=0,
+            output=f"Debtor reminders sent for target date {target_str}.",
+        )
+    except Exception as exc:
         logger.exception("DebtorReminder failed")
+        record_job_run("debtor_reminder", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -479,14 +523,27 @@ def _get_phil_xxxx_email(
 
 def job_standesdb_chronicles() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         bcc_emails = get_opted_in_recipients(db)
         if not bcc_emails:
+            record_job_run(
+                "standesdb_chronicles",
+                started,
+                exit_code=0,
+                output="No opted-in recipients.",
+            )
             return
 
         given = datetime.now(UTC).date()
         anniversaries = compute_anniversaries(db, given)
         if not anniversaries:
+            record_job_run(
+                "standesdb_chronicles",
+                started,
+                exit_code=0,
+                output="No anniversaries this week.",
+            )
             return
 
         week_start, week_end = week_window(given)
@@ -507,8 +564,15 @@ def job_standesdb_chronicles() -> None:
             "Chronicles sent to %d recipients.",
             len(bcc_emails),
         )
-    except Exception:
+        record_job_run(
+            "standesdb_chronicles",
+            started,
+            exit_code=0,
+            output=f"Chronicles sent to {len(bcc_emails)} recipient(s).",
+        )
+    except Exception as exc:
         logger.exception("Chronicles failed")
+        record_job_run("standesdb_chronicles", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -525,10 +589,17 @@ def _health_check_subject(feature: str, *, is_healthy: bool) -> str:
 
 def job_archive_health_check() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         to_emails = get_emails_with_permission(db, "archiveAdmin")
         if not to_emails:
             logger.warning("ArchiveHealthCheck: no archiveAdmin recipients found.")
+            record_job_run(
+                "archive_health_check",
+                started,
+                exit_code=1,
+                output="No archiveAdmin recipients found.",
+            )
             return
 
         storage = get_storage()
@@ -556,8 +627,18 @@ def job_archive_health_check() -> None:
             len(report.orphans),
             unsorted_count,
         )
-    except Exception:
+        record_job_run(
+            "archive_health_check",
+            started,
+            exit_code=0 if report.is_healthy else 1,
+            output=(
+                f"{len(report.missing)} missing, {len(report.orphans)} orphans, "
+                f"{unsorted_count} unsorted."
+            ),
+        )
+    except Exception as exc:
         logger.exception("ArchiveHealthCheck failed")
+        record_job_run("archive_health_check", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -569,11 +650,18 @@ def job_archive_health_check() -> None:
 
 def job_standesdb_health_check() -> None:
     db = SessionLocal()
+    started = datetime.now(UTC)
     try:
         to_emails = get_emails_with_permission(db, "standesdbVbwAdmin")
         if not to_emails:
             logger.warning(
                 "StandesdbHealthCheck: no standesdbVbwAdmin recipients found."
+            )
+            record_job_run(
+                "standesdb_health_check",
+                started,
+                exit_code=1,
+                output="No standesdbVbwAdmin recipients found.",
             )
             return
 
@@ -598,8 +686,15 @@ def job_standesdb_health_check() -> None:
             len(report.missing),
             len(report.orphans),
         )
-    except Exception:
+        record_job_run(
+            "standesdb_health_check",
+            started,
+            exit_code=0 if report.is_healthy else 1,
+            output=f"{len(report.missing)} missing, {len(report.orphans)} orphans.",
+        )
+    except Exception as exc:
         logger.exception("StandesdbHealthCheck failed")
+        record_job_run("standesdb_health_check", started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -611,19 +706,28 @@ def job_standesdb_health_check() -> None:
 
 async def job_db_backup() -> None:
     storage = get_storage()
+    started = datetime.now(UTC)
     try:
         backup_name = run_backup(storage)
         logger.info("Scheduled DB backup succeeded: %s", backup_name)
-    except Exception:
+    except Exception as exc:
         logger.exception("Scheduled DB backup failed.")
+        record_job_run(
+            "db_backup", started, exit_code=1, output=f"Backup failed: {exc}"
+        )
         return
 
+    output = f"Backup succeeded: {backup_name}"
     try:
         deleted = cleanup_old_backups(storage)
         if deleted:
             logger.info("Cleaned up %d expired backup(s).", len(deleted))
-    except Exception:
+            output += f"; {len(deleted)} expired backup(s) cleaned up."
+    except Exception as exc:
         logger.exception("Backup retention cleanup failed.")
+        output += f"; retention cleanup failed: {exc}"
+
+    record_job_run("db_backup", started, exit_code=0, output=output)
 
 
 # -------------------------------------------------------------------
@@ -642,24 +746,40 @@ def job_downsync() -> None:
         return
 
     local_storage = get_storage()
+    started = datetime.now(UTC)
 
     try:
         aws_env = load_aws_env()
         prod_storage = build_prod_storage(aws_env)
-    except RuntimeError:
+    except RuntimeError as exc:
         logger.exception("Downsync failed: could not load prod AWS credentials.")
+        record_job_run(
+            "downsync",
+            started,
+            exit_code=1,
+            output=f"Could not load prod AWS credentials: {exc}",
+        )
         return
 
     try:
         result = mirror_prefix(prod_storage, local_storage)
-    except Exception:
+    except Exception as exc:
         logger.exception("Downsync S3 mirror failed.")
+        record_job_run(
+            "downsync", started, exit_code=1, output=f"S3 mirror failed: {exc}"
+        )
         return
 
     if result.has_errors:
         logger.error(
             "Downsync S3 mirror had %d error(s), skipping DB restore.",
             len(result.errors),
+        )
+        record_job_run(
+            "downsync",
+            started,
+            exit_code=1,
+            output=f"S3 mirror had {len(result.errors)} error(s), restore skipped.",
         )
         return
     logger.info(
@@ -672,11 +792,26 @@ def job_downsync() -> None:
     try:
         run_restore(local_storage)
         command.upgrade(Config("alembic.ini"), "head")
-    except Exception:
+    except Exception as exc:
         logger.exception("Downsync DB restore/migration failed.")
+        record_job_run(
+            "downsync",
+            started,
+            exit_code=1,
+            output=f"DB restore/migration failed: {exc}",
+        )
         return
 
     logger.info("Downsync complete: local DB restored from latest prod backup.")
+    record_job_run(
+        "downsync",
+        started,
+        exit_code=0,
+        output=(
+            f"{len(result.synced)} synced, {result.skipped} skipped, "
+            f"{len(result.deleted)} deleted. DB restored from latest prod backup."
+        ),
+    )
 
 
 # -------------------------------------------------------------------

@@ -535,3 +535,78 @@ class TestChangelog:
         assert data["total"] == 1
         assert data["items"][0]["key"] == "deleted_at"
         assert data["items"][0]["action"] == "delete"
+
+
+class TestMemberAuthActivity:
+    def test_auth_activity_for_matching_standesdb_org_admin(self, client, db_session):
+        _seed(db_session)
+        admin = _admin(db_session)
+        h = _headers(db_session, admin)
+        target = Member(
+            email="authtarget@vbw.at",
+            vorname="Auth",
+            nachname="Target",
+            org_id="vbw",
+            state_id="fu",
+            auth_lastlogin=datetime(2026, 8, 1, 10, 0, tzinfo=UTC),
+            auth_lastsignal=datetime(2026, 8, 2, 11, 0, tzinfo=UTC),
+            auth_lastlogout=datetime(2026, 8, 2, 11, 5, tzinfo=UTC),
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/auth-activity",
+            headers=h,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["auth_lastlogin"] is not None
+        assert data["auth_lastsignal"] is not None
+        assert data["auth_lastlogout"] is not None
+
+    def test_auth_activity_rejects_system_admin_without_standesdb_role(
+        self, client, db_session
+    ):
+        """systemAdmin alone must no longer grant access - only the
+        org-matching standesdb admin permission does (same rule as the
+        changelog endpoints)."""
+        _seed(db_session)
+        system_admin = _system_admin_only(db_session)
+        h = _headers(db_session, system_admin)
+        target = Member(
+            email="authtarget2@vbw.at",
+            vorname="Auth",
+            nachname="Target2",
+            org_id="vbw",
+            state_id="fu",
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/auth-activity",
+            headers=h,
+        )
+        assert resp.status_code == 403
+
+    def test_auth_activity_rejects_admin_of_other_org(self, client, db_session):
+        """A standesdbVbwAdmin must not see the auth activity of a VBN member."""
+        _seed(db_session)
+        vbw_admin = _admin(db_session, org="vbw")
+        h = _headers(db_session, vbw_admin)
+        vbn_member = Member(
+            email="authvbnmember@vbn.at",
+            vorname="Vbn",
+            nachname="Member",
+            org_id="vbn",
+            state_id="fu",
+        )
+        db_session.add(vbn_member)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{vbn_member.id}/auth-activity",
+            headers=h,
+        )
+        assert resp.status_code == 403

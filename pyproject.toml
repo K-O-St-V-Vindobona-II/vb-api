@@ -84,6 +84,7 @@ max-complexity = 8
 "app/core/activity_logger.py" = ["TID251"]
 "app/core/scheduler.py" = ["TID251"]
 "app/core/mailer.py" = ["TID251"]
+"app/services/scheduled_task_run_service.py" = ["TID251"]
 "scripts/check_s3_integrity.py" = ["TID251"]
 "scripts/trigger_chronicles.py" = ["TID251"]
 "scripts/maintain_deleted_archive_files.py" = ["TID251"]

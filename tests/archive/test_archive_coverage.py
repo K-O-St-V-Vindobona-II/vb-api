@@ -1025,6 +1025,56 @@ class TestSearch:
         assert len(file_results) >= 1
         assert file_results[0]["path"] == "Archiv"
 
+    def test_search_finds_top_level_dir_by_name(
+        self,
+        client,
+        db_session,
+    ):
+        """Regression: a directory directly under root (archive_dir_id=0,
+        a sentinel with no real row — see get_root_content()) must still be
+        searchable. An earlier `archive_dir_id != 0` filter excluded every
+        top-level directory from search results, not just the nonexistent
+        root row it was meant to guard against."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        _make_dir(db_session, "Digitalisierte Archivstube")
+        resp = client.get(
+            "/api/archive/search?q=Archivstube",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        results = resp.json()
+        dir_results = [r for r in results if r["type"] == "dir"]
+        assert len(dir_results) == 1
+        assert dir_results[0]["name"] == "Digitalisierte Archivstube"
+
+    def test_search_hides_unsorted_root_files_from_normal_user(
+        self,
+        client,
+        db_session,
+    ):
+        """Regression: files at root (dir_id=0, unsorted uploads) have no
+        resolvable parent directory. The permission check used to be
+        `if parent and not admin and not can_insight(...): continue` —
+        with parent None, that short-circuited to False and skipped the
+        check entirely, showing unsorted uploads to every authenticated
+        user. get_root_content() only ever exposes them to archiveAdmin,
+        so search must match that."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        _make_file(
+            db_session,
+            dir_id=0,
+            desc="UnsortedSearchFile",
+            hash_suffix="unsorted-perm",
+        )
+        resp = client.get(
+            "/api/archive/search?q=UnsortedSearch",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
     def test_search_requires_min_3_chars(
         self,
         client,
