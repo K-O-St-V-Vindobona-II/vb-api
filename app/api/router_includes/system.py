@@ -1,4 +1,3 @@
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
@@ -61,7 +60,7 @@ class ScheduledJobRunSummary(BaseModel):
 
 
 class ScheduledJobRunListItem(ScheduledJobRunSummary):
-    id: uuid.UUID
+    id: int
     job_id: str
 
 

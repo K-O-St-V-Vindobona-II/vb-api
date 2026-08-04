@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime
 from decimal import Decimal
 
@@ -9,7 +8,6 @@ from sqlalchemy import (
     Index,
     Numeric,
     Text,
-    Uuid,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -41,6 +39,11 @@ class ScheduledTaskRun(Base):
     restore/downsync never mixes another stage's run history into this
     one — each stage's scheduler is configured independently and only its
     own runs are meaningful here.
+
+    Plain integer id, not UUID: unlike public_gallery_images, id is never
+    exposed on a public/unauthenticated endpoint (systemAdmin-only) and
+    nothing else in the schema has a FK to it, so UUID's enumeration-
+    resistance buys nothing here.
     """
 
     __tablename__ = "scheduled_task_runs"
@@ -57,7 +60,7 @@ class ScheduledTaskRun(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[str] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
