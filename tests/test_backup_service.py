@@ -180,6 +180,24 @@ class TestRunBackup:
         assert env_part == os.environ.get("APP_ENVIRONMENT", "test")
         assert _parse_backup_timestamp(name) is not None
 
+    def test_run_backup_excludes_scheduled_task_runs_data(self, backup_bucket):
+        """scheduled_task_runs is stage-local by design (see its model
+        docstring) — must never be carried across stages via backup/
+        restore/downsync, but the table structure itself must survive so a
+        restore never leaves it permanently missing."""
+        storage = _make_storage()
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_DUMP),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout=b"x", returncode=0)
+            run_backup(storage)
+
+        args = mock_run.call_args.args[0]
+        assert "--exclude-table-data=public.scheduled_task_runs" in args
+        assert not any(a.startswith("--exclude-table=") for a in args)
+
     def test_run_backup_not_postgres(self):
         storage = MagicMock(spec=StorageClient)
         with (

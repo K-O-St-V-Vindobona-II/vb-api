@@ -1,6 +1,6 @@
 """Tests for system endpoints: health check, scheduled jobs, table browser."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 import bcrypt
@@ -9,6 +9,7 @@ from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.role import Role
+from app.models.scheduled_task_run import ScheduledTaskRun
 from app.models.state import State
 from app.services.auth_service import create_user_session
 
@@ -129,6 +130,125 @@ class TestScheduledJobs:
         assert len(data) == 1
         assert data[0]["id"] == "cleanup"
         assert data[0]["next_run"] == "01.07.2026, 08:00"
+        assert data[0]["last_run"] is None
+
+    def test_list_scheduled_jobs_includes_last_run(self, client, db_session):
+        _seed(db_session)
+        headers = _login_admin(db_session)
+        started = datetime(2026, 8, 4, 3, 0, 0, tzinfo=UTC)
+        db_session.add(
+            ScheduledTaskRun(
+                job_id="cleanup",
+                started_at=started,
+                finished_at=started,
+                exit_code=0,
+                output="3 removed",
+            )
+        )
+        db_session.commit()
+        mock_jobs = [
+            {
+                "id": "cleanup",
+                "name": "cleanup",
+                "trigger": "interval[1:00:00]",
+                "next_run": "01.07.2026, 08:00",
+                "description": "Expired tokens cleanup",
+            },
+        ]
+        with patch(
+            "app.api.router_includes.system.get_scheduled_jobs",
+            return_value=mock_jobs,
+        ):
+            resp = client.get("/api/system/scheduled-jobs", headers=headers)
+        assert resp.status_code == 200
+        last_run = resp.json()[0]["last_run"]
+        assert last_run["exit_code"] == 0
+        assert last_run["output"] == "3 removed"
+        # Regression guard: Pydantic v2 serializes Decimal as a JSON string
+        # by default — duration_seconds must come through as a number.
+        assert isinstance(last_run["duration_seconds"], int | float)
+
+    def test_requires_systemAdmin(self, client, db_session):
+        _seed(db_session)
+        headers = _login_unprivileged(db_session)
+        resp = client.get("/api/system/scheduled-jobs", headers=headers)
+        assert resp.status_code == 403
+
+
+class TestScheduledJobHistory:
+    def test_requires_systemAdmin(self, client, db_session):
+        _seed(db_session)
+        headers = _login_unprivileged(db_session)
+        resp = client.get("/api/system/scheduled-jobs/cleanup/history", headers=headers)
+        assert resp.status_code == 403
+
+    def test_returns_paginated_runs_newest_first(self, client, db_session):
+        _seed(db_session)
+        headers = _login_admin(db_session)
+        older = datetime(2026, 8, 1, 3, 0, 0, tzinfo=UTC)
+        newer = datetime(2026, 8, 4, 3, 0, 0, tzinfo=UTC)
+        db_session.add_all(
+            [
+                ScheduledTaskRun(
+                    job_id="cleanup",
+                    started_at=older,
+                    finished_at=older,
+                    exit_code=0,
+                ),
+                ScheduledTaskRun(
+                    job_id="cleanup",
+                    started_at=newer,
+                    finished_at=newer,
+                    exit_code=1,
+                    output="boom",
+                ),
+                ScheduledTaskRun(
+                    job_id="db_backup",
+                    started_at=newer,
+                    finished_at=newer,
+                    exit_code=0,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        resp = client.get("/api/system/scheduled-jobs/cleanup/history", headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert data["page"] == 1
+        assert data["page_size"] == 25
+        assert [item["exit_code"] for item in data["items"]] == [1, 0]
+        assert data["items"][0]["output"] == "boom"
+
+    def test_pagination_params(self, client, db_session):
+        _seed(db_session)
+        headers = _login_admin(db_session)
+        base = datetime(2026, 8, 4, 3, 0, 0, tzinfo=UTC)
+        db_session.add_all(
+            [
+                ScheduledTaskRun(
+                    job_id="cleanup",
+                    started_at=base,
+                    finished_at=base,
+                    exit_code=0,
+                )
+                for _ in range(3)
+            ]
+        )
+        db_session.commit()
+
+        resp = client.get(
+            "/api/system/scheduled-jobs/cleanup/history?page=2&page_size=2",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["page"] == 2
+        assert data["page_size"] == 2
+        assert len(data["items"]) == 1
 
 
 class TestTriggerBackup:

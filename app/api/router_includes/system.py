@@ -1,8 +1,10 @@
+import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, PlainSerializer
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
@@ -16,6 +18,10 @@ from app.services.backup_service import run_backup
 from app.services.permission_service import (
     get_dev_superuser_cn,
     get_permission_rules_display,
+)
+from app.services.scheduled_task_run_service import (
+    get_latest_run_per_job,
+    list_job_runs,
 )
 
 system_router = APIRouter()
@@ -36,12 +42,36 @@ class PermissionRulesResponse(BaseModel):
     dev_superuser_cn: str | None
 
 
+# Pydantic v2 serializes Decimal as a JSON string by default, not a
+# number — silently breaks the frontend's `number` typing. Same fix as
+# app/schemas/p4x.py's MoneyOut (see feedback memory on this gotcha).
+_DurationSecondsOut = Annotated[
+    Decimal, PlainSerializer(float, return_type=float, when_used="json")
+]
+
+
+class ScheduledJobRunSummary(BaseModel):
+    exit_code: int
+    output: str | None
+    started_at: datetime
+    finished_at: datetime
+    duration_seconds: _DurationSecondsOut
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduledJobRunListItem(ScheduledJobRunSummary):
+    id: uuid.UUID
+    job_id: str
+
+
 class ScheduledJobResponse(BaseModel):
     id: str
     name: str
     trigger: str
     next_run: str | None = None
     description: str | None = None
+    last_run: ScheduledJobRunSummary | None = None
 
 
 class BackupTriggerResponse(BaseModel):
@@ -105,13 +135,52 @@ def trigger_backup(
 
 @system_router.get("/scheduled-jobs")
 def list_scheduled_jobs(
+    db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> list[ScheduledJobResponse]:
-    """List all registered APScheduler jobs with trigger info and next run time.
+    """List all registered APScheduler jobs with trigger info, next run time,
+    and each job's most recent recorded run (if any).
 
     Requires systemAdmin.
     """
-    return [ScheduledJobResponse.model_validate(j) for j in get_scheduled_jobs()]
+    latest_runs = get_latest_run_per_job(db)
+    jobs = []
+    for j in get_scheduled_jobs():
+        last_run = latest_runs.get(j["id"] or "")
+        jobs.append(
+            ScheduledJobResponse.model_validate(
+                {
+                    **j,
+                    "last_run": ScheduledJobRunSummary.model_validate(last_run)
+                    if last_run
+                    else None,
+                }
+            )
+        )
+    return jobs
+
+
+@system_router.get("/scheduled-jobs/{job_id}/history", response_model=dict)
+def get_scheduled_job_history(
+    job_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> dict[str, list[ScheduledJobRunListItem] | int]:
+    """List the recorded run history for one job, newest first (paginated).
+
+    Requires systemAdmin.
+    """
+    result = list_job_runs(db, job_id, page, page_size)
+    return {
+        "items": [
+            ScheduledJobRunListItem.model_validate(item) for item in result["items"]
+        ],
+        "total": result["total"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+    }
 
 
 @system_router.get("/tables")

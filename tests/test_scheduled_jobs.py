@@ -1,8 +1,19 @@
-"""Tests for scheduled jobs — logic verification without email sending."""
+"""Tests for scheduled jobs — logic verification without email sending.
 
+record_job_run() (app.services.scheduled_task_run_service) opens its own
+real SessionLocal() (see its docstring) — like the mailer, its writes
+would bypass the db_session fixture's per-test rollback if left
+unmocked. mock_record_job_run patches it away for every test in this
+file by default (no real scheduled_task_runs rows written), and the
+instrumentation-specific tests below request the fixture explicitly to
+assert on its call args instead.
+"""
+
+import asyncio
 from datetime import UTC, date, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
+import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -14,7 +25,9 @@ from app.core.scheduler import (
     _send_debtor_reminders,
     job_archive_health_check,
     job_birthday_mails,
+    job_cleanup,
     job_db_backup,
+    job_debtor_reminder,
     job_downsync,
     job_refresh_category_filter_hits,
     job_standesdb_chronicles,
@@ -36,6 +49,12 @@ from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 from app.services.s3_mirror_service import MirrorResult
+
+
+@pytest.fixture(autouse=True)
+def mock_record_job_run():
+    with patch("app.core.scheduler.record_job_run") as mock:
+        yield mock
 
 
 def _seed_base(db):
@@ -69,6 +88,7 @@ class TestRefreshCategoryFilterHits:
     def test_refresh_clears_and_reapplies(
         self,
         db_session,
+        mock_record_job_run,
     ):
         _seed_base(db_session)
         db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
@@ -118,6 +138,10 @@ class TestRefreshCategoryFilterHits:
         assert len(hits) == 1
         assert hits[0].p4x_category_filter_id == cf.id
 
+        mock_record_job_run.assert_called_once_with(
+            "refresh_category_filter_hits", ANY, exit_code=0, output=ANY
+        )
+
 
 def _make_admin_member(db, email: str, role_id: str, role_group: str) -> Member:
     db.add(Role(id=role_id, group=role_group, label=role_id, order=9))
@@ -146,7 +170,7 @@ def _make_admin_member(db, email: str, role_id: str, role_group: str) -> Member:
 
 
 class TestArchiveHealthCheck:
-    def test_sends_ok_mail_when_healthy(self, db_session, mock_s3):
+    def test_sends_ok_mail_when_healthy(self, db_session, mock_s3, mock_record_job_run):
         _seed_base(db_session)
         member = _make_admin_member(
             db_session, "archiveadmin@vbw.at", "internetreferent", "funktion"
@@ -163,8 +187,13 @@ class TestArchiveHealthCheck:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == [member.email]
         assert kwargs["subject"].startswith("OK:")
+        mock_record_job_run.assert_called_once_with(
+            "archive_health_check", ANY, exit_code=0, output=ANY
+        )
 
-    def test_sends_error_mail_when_file_missing(self, db_session, mock_s3):
+    def test_sends_error_mail_when_file_missing(
+        self, db_session, mock_s3, mock_record_job_run
+    ):
         _seed_base(db_session)
         _make_admin_member(
             db_session, "archiveadmin@vbw.at", "internetreferent", "funktion"
@@ -192,8 +221,11 @@ class TestArchiveHealthCheck:
 
         kwargs = mock_send.call_args.kwargs
         assert kwargs["subject"].startswith("FEHLER:")
+        mock_record_job_run.assert_called_once_with(
+            "archive_health_check", ANY, exit_code=1, output=ANY
+        )
 
-    def test_no_mail_when_no_recipients(self, db_session, mock_s3):
+    def test_no_mail_when_no_recipients(self, db_session, mock_s3, mock_record_job_run):
         _seed_base(db_session)
 
         with (
@@ -204,10 +236,13 @@ class TestArchiveHealthCheck:
             job_archive_health_check()
 
         mock_send.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "archive_health_check", ANY, exit_code=1, output=ANY
+        )
 
 
 class TestStandesdbHealthCheck:
-    def test_sends_ok_mail_when_healthy(self, db_session, mock_s3):
+    def test_sends_ok_mail_when_healthy(self, db_session, mock_s3, mock_record_job_run):
         _seed_base(db_session)
         member = _make_admin_member(
             db_session, "standesdbadmin@vbw.at", "standesfuehrer", "chc"
@@ -224,8 +259,13 @@ class TestStandesdbHealthCheck:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == [member.email]
         assert kwargs["subject"].startswith("OK:")
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_health_check", ANY, exit_code=0, output=ANY
+        )
 
-    def test_sends_error_mail_when_image_missing(self, db_session, mock_s3):
+    def test_sends_error_mail_when_image_missing(
+        self, db_session, mock_s3, mock_record_job_run
+    ):
         _seed_base(db_session)
         admin = _make_admin_member(
             db_session, "standesdbadmin@vbw.at", "standesfuehrer", "chc"
@@ -247,8 +287,11 @@ class TestStandesdbHealthCheck:
 
         kwargs = mock_send.call_args.kwargs
         assert kwargs["subject"].startswith("FEHLER:")
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_health_check", ANY, exit_code=1, output=ANY
+        )
 
-    def test_no_mail_when_no_recipients(self, db_session, mock_s3):
+    def test_no_mail_when_no_recipients(self, db_session, mock_s3, mock_record_job_run):
         _seed_base(db_session)
 
         with (
@@ -259,6 +302,9 @@ class TestStandesdbHealthCheck:
             job_standesdb_health_check()
 
         mock_send.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_health_check", ANY, exit_code=1, output=ANY
+        )
 
 
 class TestBackupJobRegistration:
@@ -308,7 +354,7 @@ class TestBackupJobRegistration:
 
 
 class TestJobDownsync:
-    def test_happy_path_calls_steps_in_order(self):
+    def test_happy_path_calls_steps_in_order(self, mock_record_job_run):
         with (
             patch(
                 "app.core.scheduler.load_aws_env", return_value={"AWS_BUCKET": "x"}
@@ -330,8 +376,11 @@ class TestJobDownsync:
         mock_mirror.assert_called_once()
         mock_restore.assert_called_once()
         mock_upgrade.assert_called_once()
+        mock_record_job_run.assert_called_once_with(
+            "downsync", ANY, exit_code=0, output=ANY
+        )
 
-    def test_mirror_errors_skip_restore_and_migration(self):
+    def test_mirror_errors_skip_restore_and_migration(self, mock_record_job_run):
         with (
             patch("app.core.scheduler.load_aws_env", return_value={}),
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
@@ -346,8 +395,11 @@ class TestJobDownsync:
 
         mock_restore.assert_not_called()
         mock_upgrade.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "downsync", ANY, exit_code=1, output=ANY
+        )
 
-    def test_missing_credentials_is_caught_and_logged(self):
+    def test_missing_credentials_is_caught_and_logged(self, mock_record_job_run):
         with (
             patch(
                 "app.core.scheduler.load_aws_env",
@@ -358,8 +410,11 @@ class TestJobDownsync:
             job_downsync()  # must not raise
 
         mock_mirror.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "downsync", ANY, exit_code=1, output=ANY
+        )
 
-    def test_restore_exception_is_caught_and_logged(self):
+    def test_restore_exception_is_caught_and_logged(self, mock_record_job_run):
         with (
             patch("app.core.scheduler.load_aws_env", return_value={}),
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
@@ -370,13 +425,19 @@ class TestJobDownsync:
             job_downsync()  # must not raise
 
         mock_upgrade.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "downsync", ANY, exit_code=1, output=ANY
+        )
 
-    def test_production_guard_refuses_to_run(self, monkeypatch):
+    def test_production_guard_refuses_to_run(self, monkeypatch, mock_record_job_run):
         monkeypatch.setenv("APP_ENVIRONMENT", "production")
         with patch("app.core.scheduler.load_aws_env") as mock_load_env:
             job_downsync()
 
         mock_load_env.assert_not_called()
+        # Deliberately untracked — see app/core/scheduler.py's job_downsync
+        # docstring: this guard should never actually trigger in practice.
+        mock_record_job_run.assert_not_called()
 
 
 class TestSchedulerTimezone:
@@ -391,7 +452,7 @@ class TestSchedulerTimezone:
 
 
 class TestStandesdbChronicles:
-    def test_recipients_sent_via_bcc_not_to(self, db_session):
+    def test_recipients_sent_via_bcc_not_to(self, db_session, mock_record_job_run):
         _seed_base(db_session)
         today = datetime.now(UTC).date()
         dow = today.isoweekday()
@@ -425,8 +486,11 @@ class TestStandesdbChronicles:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == []
         assert kwargs["bcc_emails"] == ["chronik@vbw.at"]
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_chronicles", ANY, exit_code=0, output=ANY
+        )
 
-    def test_no_send_when_no_recipients(self, db_session):
+    def test_no_send_when_no_recipients(self, db_session, mock_record_job_run):
         _seed_base(db_session)
 
         with (
@@ -437,8 +501,11 @@ class TestStandesdbChronicles:
             job_standesdb_chronicles()
 
         mock_send.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_chronicles", ANY, exit_code=0, output=ANY
+        )
 
-    def test_no_send_when_no_anniversaries(self, db_session):
+    def test_no_send_when_no_anniversaries(self, db_session, mock_record_job_run):
         _seed_base(db_session)
         db_session.add(
             Member(
@@ -463,10 +530,13 @@ class TestStandesdbChronicles:
             job_standesdb_chronicles()
 
         mock_send.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_chronicles", ANY, exit_code=0, output=ANY
+        )
 
 
 class TestBirthdayMails:
-    def test_sends_with_personal_from_name(self, db_session):
+    def test_sends_with_personal_from_name(self, db_session, mock_record_job_run):
         _seed_base(db_session)
         tomorrow = datetime.now(UTC).date() + timedelta(days=1)
 
@@ -497,6 +567,112 @@ class TestBirthdayMails:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == [m.email]
         assert kwargs["from_name"] == "Philister-ChC Vindobona II"
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails", ANY, exit_code=0, output=ANY
+        )
+
+    def test_no_birthdays_tomorrow_still_records_success(
+        self, db_session, mock_record_job_run
+    ):
+        _seed_base(db_session)
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch("app.core.scheduler.send_to_recipients") as mock_send,
+        ):
+            job_birthday_mails()
+
+        mock_send.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails", ANY, exit_code=0, output=ANY
+        )
+
+
+class TestJobCleanup:
+    def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+        ):
+            job_cleanup()
+
+        mock_record_job_run.assert_called_once_with(
+            "cleanup", ANY, exit_code=0, output=ANY
+        )
+
+    def test_failure_records_exit_code_one(self, db_session, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch.object(db_session, "query", side_effect=RuntimeError("db exploded")),
+        ):
+            job_cleanup()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "cleanup", ANY, exit_code=1, output="db exploded"
+        )
+
+
+class TestJobDbBackup:
+    def test_success_includes_backup_name_in_output(self, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.get_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.run_backup",
+                return_value="development-2026-08-04_03-00-00.dump",
+            ),
+            patch("app.core.scheduler.cleanup_old_backups", return_value=[]),
+        ):
+            asyncio.run(job_db_backup())
+
+        mock_record_job_run.assert_called_once_with(
+            "db_backup",
+            ANY,
+            exit_code=0,
+            output="Backup succeeded: development-2026-08-04_03-00-00.dump",
+        )
+
+    def test_backup_failure_records_exit_code_one(self, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.get_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.run_backup",
+                side_effect=RuntimeError("pg_dump failed"),
+            ),
+            patch("app.core.scheduler.cleanup_old_backups") as mock_cleanup,
+        ):
+            asyncio.run(job_db_backup())  # must not raise
+
+        mock_cleanup.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "db_backup", ANY, exit_code=1, output=ANY
+        )
+
+    def test_retention_cleanup_failure_does_not_flip_exit_code(
+        self, mock_record_job_run
+    ):
+        """Cleanup is best-effort — a failure there must not overwrite an
+        already-successful backup's exit_code, only be noted in output."""
+        with (
+            patch("app.core.scheduler.get_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.run_backup",
+                return_value="development-2026-08-04_03-00-00.dump",
+            ),
+            patch(
+                "app.core.scheduler.cleanup_old_backups",
+                side_effect=RuntimeError("s3 unreachable"),
+            ),
+        ):
+            asyncio.run(job_db_backup())
+
+        mock_record_job_run.assert_called_once_with(
+            "db_backup", ANY, exit_code=0, output=ANY
+        )
+        assert (
+            "retention cleanup failed" in mock_record_job_run.call_args.kwargs["output"]
+        )
 
 
 class TestDebtorReminder:
@@ -556,3 +732,43 @@ class TestDebtorReminder:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == [debtor.email]
         assert kwargs["from_name"] == treasurer.cn
+
+    def test_quarter_skip_month_not_tracked(self, mock_record_job_run):
+        """June (%3==0) is a skip month by design — this early return
+        happens before a DB session even opens, so it's deliberately not
+        recorded as a run (see job_debtor_reminder's instrumentation)."""
+        with patch("app.core.scheduler.datetime") as mock_datetime:
+            mock_datetime.now.return_value.date.return_value = date(2026, 6, 15)
+            job_debtor_reminder()
+
+        mock_record_job_run.assert_not_called()
+
+    def test_stale_booking_records_exit_code_one(self, db_session, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.datetime") as mock_datetime,
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch("app.core.scheduler._validate_latest_booking", return_value=False),
+        ):
+            mock_datetime.now.return_value.date.return_value = date(2026, 7, 15)
+            job_debtor_reminder()
+
+        mock_record_job_run.assert_called_once_with(
+            "debtor_reminder", ANY, exit_code=1, output=ANY
+        )
+
+    def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.datetime") as mock_datetime,
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch("app.core.scheduler._validate_latest_booking", return_value=True),
+            patch("app.core.scheduler._send_debtor_reminders") as mock_send_reminders,
+        ):
+            mock_datetime.now.return_value.date.return_value = date(2026, 7, 15)
+            job_debtor_reminder()
+
+        mock_send_reminders.assert_called_once()
+        mock_record_job_run.assert_called_once_with(
+            "debtor_reminder", ANY, exit_code=0, output=ANY
+        )

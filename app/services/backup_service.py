@@ -117,6 +117,11 @@ def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
             f"--port={port}",
             f"--username={user}",
             f"--dbname={dbname}",
+            # scheduled_task_runs is stage-local by design (each stage's
+            # scheduler is configured independently) — keep the table
+            # structure in the dump (so restore/downsync never leaves it
+            # missing) but never carry another stage's run history along.
+            "--exclude-table-data=public.scheduled_task_runs",
         ],
         env=_build_pg_env(password),
         tool_name="pg_dump",
