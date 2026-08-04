@@ -1029,7 +1029,6 @@ def search_archive(
         db.query(ArchiveDir)
         .filter(
             ArchiveDir.deleted_at.is_(None),
-            ArchiveDir.archive_dir_id != 0,
             ArchiveDir.name.ilike(term),
         )
         .limit(SEARCH_LIMIT)
@@ -1071,15 +1070,14 @@ def search_archive(
             ArchiveDir,
             f.archive_dir_id,
         )
-        if (
-            parent
-            and not admin
-            and not can_insight(
-                user,
-                db,
-                parent,
-                perm_sets,
-            )
+        # No resolvable parent means an unsorted upload sitting directly at
+        # the root (archive_dir_id 0, which is a sentinel, not a real row —
+        # see get_root_content()) — those are archiveAdmin-only, same as in
+        # regular directory browsing, so a missing parent must NOT skip the
+        # permission check the way it did before (that silently showed
+        # unsorted uploads to every authenticated user, admin or not).
+        if not admin and (
+            parent is None or not can_insight(user, db, parent, perm_sets)
         ):
             continue
         item = f.store_item
