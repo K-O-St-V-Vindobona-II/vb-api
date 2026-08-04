@@ -719,7 +719,80 @@ class TestRestoreCommand:
             _run_main(["restore", "999"])
 
         assert exc_info.value.code == 1
-        assert "nicht gefunden" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "WARNING: file 999 not restored" in err
+        assert "nicht gefunden" in err
+
+    def test_multiple_ids_processed_in_order(self) -> None:
+        mock_db = MagicMock()
+        loc1 = FileLocation(
+            file_id=1, path="Fotos", name="a", extension="jpg", deleted=False
+        )
+        loc2 = FileLocation(
+            file_id=2, path="Fotos", name="b", extension="jpg", deleted=False
+        )
+
+        with (
+            patch.object(maintain_script, "SessionLocal", return_value=mock_db),
+            patch.object(
+                maintain_script, "restore_file", side_effect=[loc1, loc2]
+            ) as mock_restore_file,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            _run_main(["restore", "1", "2"])
+
+        assert exc_info.value.code == 0
+        assert [c.args[1] for c in mock_restore_file.call_args_list] == [1, 2]
+
+    def test_unrestorable_id_warns_and_does_not_stop_the_batch(self, capsys) -> None:
+        """A file that isn't SOLE (or otherwise can't be restored) must not
+        abort the remaining ids — only a warning is printed for it."""
+        mock_db = MagicMock()
+        loc1 = FileLocation(
+            file_id=1, path="Fotos", name="a", extension="jpg", deleted=False
+        )
+        loc3 = FileLocation(
+            file_id=3, path="Fotos", name="c", extension="jpg", deleted=False
+        )
+
+        with (
+            patch.object(maintain_script, "SessionLocal", return_value=mock_db),
+            patch.object(
+                maintain_script,
+                "restore_file",
+                side_effect=[
+                    loc1,
+                    ArchiveMaintenanceError("Archivdatei 2 ist nicht SOLE"),
+                    loc3,
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            _run_main(["restore", "1", "2", "3"])
+
+        assert exc_info.value.code == 1
+        out, err = capsys.readouterr()
+        assert "Restored file 1" in out
+        assert "Restored file 3" in out
+        assert "WARNING: file 2 not restored" in err
+        assert "nicht SOLE" in err
+        assert "2 file(s) restored, 1 failed." in out
+
+    def test_summary_line_omitted_for_single_id(self, capsys) -> None:
+        mock_db = MagicMock()
+        location = FileLocation(
+            file_id=42, path="Fotos", name="bild", extension="jpg", deleted=False
+        )
+
+        with (
+            patch.object(maintain_script, "SessionLocal", return_value=mock_db),
+            patch.object(maintain_script, "restore_file", return_value=location),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            _run_main(["restore", "42"])
+
+        assert exc_info.value.code == 0
+        assert "file(s) restored" not in capsys.readouterr().out
 
 
 class TestListDuplicatesCommand:

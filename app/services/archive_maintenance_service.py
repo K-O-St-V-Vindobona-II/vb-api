@@ -43,6 +43,14 @@ class PurgeImpact(Enum):
     purging this candidate deletes the underlying S3 object immediately."""
 
 
+def _classify_impact(active_count: int, other_deleted_count: int) -> PurgeImpact:
+    if active_count > 0:
+        return PurgeImpact.DUPLICATE
+    if other_deleted_count > 0:
+        return PurgeImpact.SHARED
+    return PurgeImpact.SOLE
+
+
 @dataclass(frozen=True)
 class PurgeCandidate:
     file_id: int
@@ -64,11 +72,9 @@ class PurgeCandidate:
 
     @property
     def impact(self) -> PurgeImpact:
-        if self.active_sibling_count > 0:
-            return PurgeImpact.DUPLICATE
-        if self.other_deleted_sibling_count > 0:
-            return PurgeImpact.SHARED
-        return PurgeImpact.SOLE
+        return _classify_impact(
+            self.active_sibling_count, self.other_deleted_sibling_count
+        )
 
 
 @dataclass(frozen=True)
@@ -363,8 +369,26 @@ def restore_file(db: Session, file_id: int) -> FileLocation:
     explicit-error philosophy elsewhere. `updated_at` is maintained
     automatically by the archive_files_set_updated_at DB trigger, not set
     here.
+
+    Restricted to SOLE-impact files only (see PurgeImpact): if an active or
+    another soft-deleted file still references the same content, restoring
+    this one would resurrect a file whose content already survives (or will
+    keep surviving) elsewhere, so it is rejected instead of silently
+    restoring. Use the GUI for those cases.
     """
     file_obj = _get_soft_deleted_file(db, file_id)
+    active_count, deleted_count = _live_sibling_counts(
+        db, file_obj.archive_store_item_id
+    )
+    impact = _classify_impact(active_count, deleted_count - 1)
+    if impact is not PurgeImpact.SOLE:
+        msg = (
+            f"Archivdatei {file_id} ist nicht SOLE (aktive oder andere "
+            "gelöscht-markierte Referenzen auf denselben Inhalt vorhanden) "
+            "und kann über die Konsole nicht wiederhergestellt werden."
+        )
+        raise ArchiveMaintenanceError(msg)
+
     file_obj.deleted_at = None
     db.commit()
     path, name, extension = _describe_location(db, file_obj)
