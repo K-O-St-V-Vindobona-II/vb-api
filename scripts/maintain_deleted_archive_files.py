@@ -54,10 +54,15 @@ Any remaining "shared"/"sole" files in that directory are only *reported*
 (count + pointer to `list-duplicates`/`purge <id>`) — they are never
 processed automatically; use `purge <id>` for those individually.
 
-`restore <file_id>` is the reverse of a purge: it clears deleted_at, undoing
-a soft-delete. Non-destructive and reversible (the file can simply be
-soft-deleted again via the GUI), so — unlike `purge`/`purge-duplicates` — it
-runs immediately without a confirmation prompt.
+`restore <file_id> [<file_id> ...]` is the reverse of a purge: it clears
+deleted_at, undoing a soft-delete. Non-destructive and reversible (the file
+can simply be soft-deleted again via the GUI), so — unlike
+`purge`/`purge-duplicates` — it runs immediately without a confirmation
+prompt. Only SOLE files (see the IMPACT column in `list` — no other active
+or soft-deleted file references the same content) may be restored this way;
+anything else is rejected. Takes any number of ids and works through them
+one after another: an id that can't be restored (not found, not
+soft-deleted, or not SOLE) only prints a warning and does not stop the rest.
 
 `list-duplicates` is read-only. `--file FILE_ID` shows the active files that
 share content with the given file (any status — active or soft-deleted);
@@ -91,6 +96,7 @@ Usage:
     python scripts/maintain_deleted_archive_files.py purge 42
     python scripts/maintain_deleted_archive_files.py purge-duplicates 7
     python scripts/maintain_deleted_archive_files.py restore 42
+    python scripts/maintain_deleted_archive_files.py restore 42 43 44
     python scripts/maintain_deleted_archive_files.py urlpath 42
     python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
 """
@@ -371,15 +377,27 @@ def _run_purge_duplicates(db: Session, dir_id: int) -> NoReturn:
     sys.exit(1 if had_error else 0)
 
 
-def _run_restore(db: Session, file_id: int) -> NoReturn:
-    try:
-        restored = restore_file(db, file_id)
-    except ArchiveMaintenanceError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        sys.exit(1)
+def _run_restore(db: Session, file_ids: list[int]) -> NoReturn:
+    """Restores every given file id one after another. An id that can't be
+    restored (not found, not soft-deleted, or not SOLE) only prints a
+    warning and does not stop the remaining ids — see restore_file() for
+    the SOLE requirement.
+    """
+    restored_count = 0
+    failed_count = 0
+    for file_id in file_ids:
+        try:
+            location = restore_file(db, file_id)
+        except ArchiveMaintenanceError as exc:
+            print(f"WARNING: file {file_id} not restored: {exc}", file=sys.stderr)
+            failed_count += 1
+            continue
+        print(f'Restored file {file_id} ("{location.filename}" in "{location.path}").')
+        restored_count += 1
 
-    print(f'Restored file {file_id} ("{restored.filename}" in "{restored.path}").')
-    sys.exit(0)
+    if len(file_ids) > 1:
+        print(f"\n{restored_count} file(s) restored, {failed_count} failed.")
+    sys.exit(1 if failed_count else 0)
 
 
 def _print_file_table_header() -> None:
@@ -558,12 +576,23 @@ def _build_parser() -> argparse.ArgumentParser:
     restore_parser = subparsers.add_parser(
         "restore",
         help=(
-            "Reversible, non-destructive: restore one soft-deleted file "
-            "(clears deleted_at), runs immediately without confirmation"
+            "Reversible, non-destructive: restore one or more soft-deleted "
+            "SOLE files (clears deleted_at), runs immediately without "
+            "confirmation; ids that can't be restored are skipped with a "
+            "warning instead of stopping the rest"
         ),
     )
     restore_parser.add_argument(
-        "file_id", type=int, help="ID of the soft-deleted file to restore"
+        "file_ids",
+        type=int,
+        nargs="+",
+        metavar="FILE_ID",
+        help=(
+            "One or more ids of soft-deleted files to restore, separated "
+            "by spaces. Each must currently be soft-deleted and SOLE — no "
+            "other active or deleted file may reference the same content "
+            "(see 'list')"
+        ),
     )
 
     list_duplicates_parser = subparsers.add_parser(
@@ -658,7 +687,7 @@ def main() -> None:
         elif args.command == "purge-duplicates":
             _run_purge_duplicates(db, args.dir_id)
         elif args.command == "restore":
-            _run_restore(db, args.file_id)
+            _run_restore(db, args.file_ids)
         elif args.command == "list-duplicates":
             _run_list_duplicates(db, args.file_ids, args.dir_ids)
         elif args.command == "urlpath":

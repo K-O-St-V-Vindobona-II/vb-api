@@ -407,6 +407,26 @@ class TestRestoreFile:
 
         assert db_session.get(ArchiveFile, f.id).deleted_at is None
 
+    def test_duplicate_impact_raises_and_stays_deleted(self, db_session):
+        item = _make_store_item(db_session)
+        deleted = _make_file(db_session, item=item, deleted=True)
+        _make_file(db_session, item=item, deleted=False)
+
+        with pytest.raises(ArchiveMaintenanceError):
+            restore_file(db_session, deleted.id)
+
+        assert db_session.get(ArchiveFile, deleted.id).deleted_at is not None
+
+    def test_shared_impact_raises_and_stays_deleted(self, db_session):
+        item = _make_store_item(db_session)
+        f1 = _make_file(db_session, item=item, deleted=True)
+        _make_file(db_session, item=item, deleted=True)
+
+        with pytest.raises(ArchiveMaintenanceError):
+            restore_file(db_session, f1.id)
+
+        assert db_session.get(ArchiveFile, f1.id).deleted_at is not None
+
 
 class TestActiveDuplicatesOfFile:
     def test_no_duplicates(self, db_session):
