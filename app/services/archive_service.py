@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -307,6 +308,7 @@ def get_root_content(
         "recursive_permissions": False,
         "content": content,
         "sets": _get_sets(db),
+        "stats": get_archive_stats(db),
         "created_at": None,
         "updated_at": None,
         "deleted_at": None,
@@ -382,6 +384,7 @@ def get_dir_detail(
             "orgs": [],
             "states": [],
         },
+        "stats": None,
         "created_at": _ts(dir_obj.created_at),
         "updated_at": _ts(dir_obj.updated_at),
         "deleted_at": _ts(dir_obj.deleted_at),
@@ -650,6 +653,16 @@ def get_file_detail(
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
+    elif not is_archive_admin(user):
+        # archive_dir_id == 0 is the "unsorted upload" sentinel - no real
+        # ArchiveDir row to check can_insight() against. Admin-only
+        # everywhere else in this module (get_root_content(),
+        # search_archive(), create_comment()), so viewing one follows the
+        # same rule.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Keine Berechtigung für diese Datei.",
+        )
 
     admin = is_archive_admin(user)
     item = file_obj.store_item
@@ -863,6 +876,99 @@ def get_unsorted_upload_count(db: Session) -> int:
     return db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).count()
 
 
+def get_archive_stats(db: Session) -> dict[str, object]:
+    """Archive-wide counts shown in the root directory's info card, which
+    otherwise has nothing to show there (permissions are meaningless at
+    the synthetic root). "Effectively present" here means reachable
+    through normal browsing - not deleted, not unfiled, and not sitting
+    under a trashed ancestor - independent of the caller's own org/state
+    permissions (this is a coarse, permission-agnostic overview, not a
+    per-user visibility count).
+
+    delete_dir() never cascades deleted_at onto children when trashing a
+    non-empty directory (see _dir_has_content()'s docstring) - a
+    subdirectory or file can therefore have deleted_at IS NULL while an
+    ancestor is trashed, making it reachable only via the trash UI, not
+    normal navigation. trashed_subtree resolves this once via a recursive
+    CTE (trashed dirs plus every descendant of a trashed dir) and is
+    reused below wherever a directory/file's reachability matters.
+
+    unique_object_count/total_size/by_extension are additionally scoped to
+    store items referenced by at least one such reachable file - the same
+    scope as file_count - since many files can share one object but never
+    the reverse, so unique_object_count must never exceed file_count.
+    """
+    trashed_base = select(ArchiveDir.id).where(ArchiveDir.deleted_at.isnot(None))
+    trashed_subtree = trashed_base.cte(
+        name="archive_stats_trashed_subtree", recursive=True
+    )
+    trashed_subtree = trashed_subtree.union(
+        select(ArchiveDir.id).join(
+            trashed_subtree, ArchiveDir.archive_dir_id == trashed_subtree.c.id
+        )
+    )
+    under_trash = select(trashed_subtree.c.id)
+
+    active_file_exists = (
+        db.query(ArchiveFile.id)
+        .filter(
+            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
+            ArchiveFile.deleted_at.is_(None),
+            ArchiveFile.archive_dir_id != 0,
+            ~ArchiveFile.archive_dir_id.in_(under_trash),
+        )
+        .correlate(ArchiveStoreItem)
+        .exists()
+    )
+
+    file_count = (
+        db.query(ArchiveFile)
+        .filter(
+            ArchiveFile.deleted_at.is_(None),
+            ArchiveFile.archive_dir_id != 0,
+            ~ArchiveFile.archive_dir_id.in_(under_trash),
+        )
+        .count()
+    )
+    dir_count = (
+        db.query(ArchiveDir)
+        .filter(ArchiveDir.deleted_at.is_(None), ~ArchiveDir.id.in_(under_trash))
+        .count()
+    )
+
+    unique_object_count, total_size = (
+        db.query(
+            func.count(ArchiveStoreItem.id),
+            func.coalesce(func.sum(ArchiveStoreItem.size), 0),
+        )
+        .filter(active_file_exists)
+        .one()
+    )
+
+    by_extension = (
+        db.query(
+            ArchiveStoreItem.extension,
+            func.count(ArchiveStoreItem.id),
+            func.coalesce(func.sum(ArchiveStoreItem.size), 0),
+        )
+        .filter(active_file_exists)
+        .group_by(ArchiveStoreItem.extension)
+        .order_by(func.count(ArchiveStoreItem.id).desc())
+        .all()
+    )
+
+    return {
+        "file_count": file_count,
+        "unique_object_count": unique_object_count,
+        "dir_count": dir_count,
+        "total_size": int(total_size),
+        "by_extension": [
+            {"extension": extension, "count": count, "size": int(size)}
+            for extension, count, size in by_extension
+        ],
+    }
+
+
 def upload_file(
     db: Session,
     file: UploadFile,
@@ -964,7 +1070,7 @@ def create_comment(
     db: Session,
     file_id: int,
     content: str,
-    user_id: int,
+    user: Member,
 ) -> dict[str, object]:
     file_obj = db.get(ArchiveFile, file_id)
     if not file_obj:
@@ -972,11 +1078,27 @@ def create_comment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Datei nicht gefunden.",
         )
+
+    # archive_dir_id == 0 is the "unsorted upload" sentinel - no real
+    # ArchiveDir row to check can_insight() against. Those files are
+    # archiveAdmin-only everywhere else in this module (get_root_content(),
+    # search_archive()), so commenting on one follows the same rule.
+    parent = (
+        db.get(ArchiveDir, file_obj.archive_dir_id) if file_obj.archive_dir_id else None
+    )
+    if parent is not None:
+        _require_insight_or_admin(user, db, parent, _load_perm_sets(db))
+    elif not is_archive_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Keine Berechtigung für diese Datei.",
+        )
+
     now = _now()
     comment = ArchiveFileComment(
         archive_file_id=file_id,
         content=content,
-        created_by=user_id,
+        created_by=user.id,
         created_at=now,
         updated_at=now,
     )
@@ -991,12 +1113,16 @@ def delete_comment(
     comment_id: int,
     user: Member,
 ) -> None:
-    _require_admin(user)
     comment = db.get(ArchiveFileComment, comment_id)
     if not comment or comment.archive_file_id != file_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kommentar nicht gefunden.",
+        )
+    if comment.created_by != user.id and not is_archive_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Fehlende Berechtigung: eigener Kommentar oder archiveAdmin",
         )
     comment.deleted_at = _now()
     db.commit()
@@ -1051,6 +1177,19 @@ def search_archive(
     if remaining <= 0:
         return results
 
+    # EXISTS rather than a join to ArchiveFileComment - a file with several
+    # matching comments must still only appear once in file_hits.
+    comment_match_exists = (
+        db.query(ArchiveFileComment.id)
+        .filter(
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.deleted_at.is_(None),
+            ArchiveFileComment.content.ilike(term),
+        )
+        .correlate(ArchiveFile)
+        .exists()
+    )
+
     file_hits = (
         db.query(ArchiveFile)
         .join(
@@ -1058,7 +1197,12 @@ def search_archive(
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),
-            (ArchiveStoreItem.name.ilike(term) | ArchiveFile.description.ilike(term)),
+            (
+                ArchiveStoreItem.name.ilike(term)
+                | ArchiveFile.description.ilike(term)
+                | ArchiveStoreItem.extension.ilike(term)
+                | comment_match_exists
+            ),
         )
         .limit(SEARCH_LIMIT)
         .all()
