@@ -20,9 +20,11 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.scheduler import (
     APP_TZ,
     BACKUP_HOUR,
+    _format_next_run,
     _parse_month_day,
     _parse_year,
     _send_debtor_reminders,
+    get_scheduled_jobs,
     job_archive_health_check,
     job_birthday_mails,
     job_cleanup,
@@ -351,6 +353,70 @@ class TestBackupJobRegistration:
 
         assert isinstance(trigger, CronTrigger)
         assert str(trigger) == f"cron[hour='{BACKUP_HOUR}', minute='0']"
+
+
+class TestFormatNextRun:
+    def test_computes_next_run_from_trigger(self):
+        trigger = CronTrigger(hour=7, minute=0, timezone=APP_TZ)
+        now = datetime(2026, 8, 5, 3, 0, tzinfo=APP_TZ)
+
+        result = _format_next_run(MagicMock(trigger=trigger), now)
+
+        assert result == "05.08.2026, 07:00"
+
+    def test_returns_none_when_trigger_has_no_further_fire_time(self):
+        trigger = CronTrigger(year=2020, timezone=APP_TZ)
+        now = datetime(2026, 8, 5, 3, 0, tzinfo=APP_TZ)
+
+        assert _format_next_run(MagicMock(trigger=trigger), now) is None
+
+
+class TestGetScheduledJobs:
+    """Regression tests for the production bug where /system/scheduled-jobs
+    showed an empty list depending on which of the 2 gunicorn workers
+    handled the request — see start_scheduler()/_acquire_scheduler_lock()
+    docstrings for the full mechanism.
+    """
+
+    def test_next_run_works_for_a_never_started_scheduler(self):
+        # This is the exact shape of the bug: a worker that never called
+        # scheduler.start() (i.e. never won the advisory lock) still adds
+        # every job (see start_scheduler()), but APScheduler only computes
+        # next_run_time for jobs added to an already-running scheduler —
+        # here the job stays "pending" and never gets a next_run_time
+        # attribute at all. The old implementation (job.next_run_time
+        # .strftime(...)) raised AttributeError in exactly this case;
+        # reading the trigger directly must not.
+        sched = AsyncIOScheduler(timezone=APP_TZ)
+        sched.add_job(
+            job_cleanup,
+            "cron",
+            hour=7,
+            minute=0,
+            id="cleanup",
+            replace_existing=True,
+        )
+        assert not hasattr(sched.get_job("cleanup"), "next_run_time")
+
+        with patch("app.core.scheduler.scheduler", sched):
+            result = get_scheduled_jobs()
+
+        assert len(result) == 1
+        assert result[0]["next_run"] is not None
+
+    def test_returns_none_next_run_when_trigger_exhausted(self):
+        sched = AsyncIOScheduler(timezone=APP_TZ)
+        sched.add_job(
+            job_cleanup,
+            CronTrigger(year=2020, timezone=APP_TZ),
+            id="cleanup",
+            replace_existing=True,
+        )
+
+        with patch("app.core.scheduler.scheduler", sched):
+            result = get_scheduled_jobs()
+
+        assert result[0]["next_run"] is None
 
 
 class TestJobDownsync:
