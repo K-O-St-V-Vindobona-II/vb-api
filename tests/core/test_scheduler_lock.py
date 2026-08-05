@@ -69,7 +69,12 @@ class TestStartSchedulerLockGating:
     def teardown_method(self):
         _teardown_lock_state()
 
-    def test_start_scheduler_skips_registration_without_lock(self):
+    def test_start_scheduler_registers_but_skips_start_without_lock(self):
+        # Registration must happen in every worker regardless of the lock
+        # — otherwise get_scheduled_jobs() returns an empty list whenever a
+        # request happens to land on a non-lock-holding worker (the actual
+        # production bug this test guards against). Only scheduler.start()
+        # — i.e. actually firing jobs — stays gated by the lock.
         with (
             patch.object(
                 scheduler_module, "_acquire_scheduler_lock", return_value=False
@@ -79,7 +84,8 @@ class TestStartSchedulerLockGating:
         ):
             scheduler_module.start_scheduler()
 
-        mock_add_job.assert_not_called()
+        job_ids = [call.kwargs["id"] for call in mock_add_job.call_args_list]
+        assert "cleanup" in job_ids
         mock_start.assert_not_called()
 
     def test_start_scheduler_registers_all_jobs_in_production(self, monkeypatch):

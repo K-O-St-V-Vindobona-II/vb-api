@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from alembic.config import Config
+from apscheduler.job import Job
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import text
 
@@ -968,13 +969,11 @@ def _register_non_production_jobs() -> None:
 
 
 def start_scheduler() -> None:
-    if not _acquire_scheduler_lock():
-        logger.info(
-            "Scheduler lock held by another worker process — skipping"
-            " scheduler startup in this process."
-        )
-        return
-
+    # Every worker registers the same jobs, lock or no lock — this is what
+    # makes get_scheduled_jobs() below return identical results regardless
+    # of which of the (production: 2) gunicorn workers handles the request.
+    # Registering a job on a scheduler that never starts is inert: nothing
+    # fires, only the trigger's schedule becomes introspectable.
     scheduler.add_job(
         job_cleanup,
         "cron",
@@ -991,6 +990,14 @@ def start_scheduler() -> None:
     else:
         _register_non_production_jobs()
 
+    if not _acquire_scheduler_lock():
+        logger.info(
+            "Scheduler lock held by another worker process — jobs are"
+            " registered for introspection, but execution stays disabled"
+            " in this process."
+        )
+        return
+
     scheduler.start()
     logger.info(
         "Scheduler started with %d jobs.",
@@ -998,19 +1005,32 @@ def start_scheduler() -> None:
     )
 
 
+def _format_next_run(job: Job, now: datetime) -> str | None:
+    """Compute a job's next fire time fresh from its trigger, not its cache.
+
+    Job.next_run_time only keeps advancing while the scheduler that added
+    it is actually ticking (scheduler.start()) — in production that is
+    exactly one of the two gunicorn workers (see _acquire_scheduler_lock).
+    The other worker's copy of the same job freezes at whatever
+    next_run_time was computed at add_job() time on process startup, which
+    goes stale (shows a past date) once that moment passes. Deriving it
+    from the trigger and the current time instead keeps every worker's
+    answer correct and identical.
+    """
+    next_run = job.trigger.get_next_fire_time(None, now)
+    if next_run is None:
+        return None
+    return next_run.strftime("%d.%m.%Y, %H:%M")
+
+
 def get_scheduled_jobs() -> list[dict[str, str | None]]:
+    now = datetime.now(APP_TZ)
     return [
         {
             "id": job.id,
             "name": job.name,
             "trigger": str(job.trigger),
-            "next_run": (
-                job.next_run_time.strftime(
-                    "%d.%m.%Y, %H:%M",
-                )
-                if job.next_run_time
-                else None
-            ),
+            "next_run": _format_next_run(job, now),
             "description": JOB_DESCRIPTIONS.get(job.id),
         }
         for job in scheduler.get_jobs()
