@@ -432,6 +432,37 @@ class TestFileDetail:
         db_session.refresh(f)
         assert f.description == "updated desc"
 
+    def test_non_admin_cannot_view_unsorted_upload_detail(
+        self,
+        client,
+        db_session,
+    ):
+        """archive_dir_id == 0 (unsorted upload, no real parent dir to
+        check can_insight() against) is archiveAdmin-only everywhere else
+        in this module - the detail endpoint must follow the same rule."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        resp = client.get(
+            f"/api/archive/files/{f.id}",
+            headers=headers,
+        )
+        assert resp.status_code == 403
+
+    def test_admin_can_view_unsorted_upload_detail(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        resp = client.get(
+            f"/api/archive/files/{f.id}",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
 
 class TestComments:
     def test_comment_create(
@@ -471,12 +502,13 @@ class TestComments:
         )
         assert resp.status_code == 422
 
-    def test_comment_delete_requires_admin(
+    def test_author_can_delete_own_comment(
         self,
         client,
         db_session,
     ):
-        """Non-admin cannot delete a comment (403)."""
+        """Comment authors may delete their own (still-active) comment,
+        in addition to archiveAdmin."""
         _seed(db_session)
         headers, user = _login_user(db_session, client)
         d = _make_dir(db_session, "Dir", perms=["vbw_fu"])
@@ -492,6 +524,31 @@ class TestComments:
         resp = client.delete(
             f"/api/archive/files/{f.id}/comments/{c.id}",
             headers=headers,
+        )
+        assert resp.status_code == 204
+
+    def test_comment_delete_requires_admin(
+        self,
+        client,
+        db_session,
+    ):
+        """Non-owner, non-admin cannot delete someone else's comment (403)."""
+        _seed(db_session)
+        _, author = _login_user(db_session, client)
+        other_headers, _ = _login_user(db_session, client, state="bi")
+        d = _make_dir(db_session, "Dir", perms=["vbw_fu", "vbw_bi"])
+        f = _make_file(db_session, dir_id=d.id)
+        c = ArchiveFileComment(
+            archive_file_id=f.id,
+            content="Test comment here",
+            created_by=author.id,
+            created_at=_now(),
+        )
+        db_session.add(c)
+        db_session.commit()
+        resp = client.delete(
+            f"/api/archive/files/{f.id}/comments/{c.id}",
+            headers=other_headers,
         )
         assert resp.status_code == 403
 

@@ -34,6 +34,7 @@ from app.schemas.archive import (
 from app.services.archive_service import (
     _get_or_create_thumbnail,
     _is_descendant,
+    get_archive_stats,
     get_unsorted_upload_count,
     receive_items,
 )
@@ -305,11 +306,16 @@ class TestDirDetailClassification:
         f = _make_file(db_session, dir_id=d.id, desc="admin-only-file")
         resp = client.get(f"/api/archive/dirs/{d.id}", headers=headers)
         assert resp.status_code == 200
-        content = resp.json()["content"]
+        body = resp.json()
+        content = body["content"]
         admin_ids = [x["id"] for x in content["files"]["admin"]]
         insight_ids = [x["id"] for x in content["files"]["insight"]]
         assert f.id in admin_ids
         assert f.id not in insight_ids
+        # A real subdirectory never carries the root-only archive stats -
+        # keeps the "stats" field's shape symmetric between the two
+        # response variants for the frontend.
+        assert body["stats"] is None
 
     def test_admin_sees_child_dir_in_admin_bucket(
         self,
@@ -973,6 +979,112 @@ class TestSearch:
         assert len(file_results) >= 1
         assert file_results[0]["description"] == "Festkommers Protokoll"
 
+    def test_search_finds_file_by_extension(
+        self,
+        client,
+        db_session,
+    ):
+        """Search matches on the file's extension too, not just its base
+        name (which never contains the extension - upload_file() splits
+        them apart) or its description."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "ExtDir")
+        _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="unrelated description",
+            extension="txt",
+            hash_suffix="ext-search",
+        )
+        resp = client.get(
+            "/api/archive/search?q=txt",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        assert len(file_results) >= 1
+
+    def test_search_finds_file_by_comment_content(
+        self,
+        client,
+        db_session,
+    ):
+        """Search matches a non-deleted comment's content too - and a file
+        with several matching comments must still appear only once."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "CommentDir")
+        f = _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="unrelated description",
+            hash_suffix="comment-search",
+        )
+        now = _now()
+        db_session.add_all(
+            [
+                ArchiveFileComment(
+                    archive_file_id=f.id,
+                    content="Festumzug erwähnt hier",
+                    created_at=now,
+                    updated_at=now,
+                ),
+                ArchiveFileComment(
+                    archive_file_id=f.id,
+                    content="Festumzug auch nochmal hier",
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        resp = client.get(
+            "/api/archive/search?q=Festumzug",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        assert len(file_results) == 1
+        assert file_results[0]["id"] == f.id
+
+    def test_search_ignores_soft_deleted_comment_content(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "TrashedCommentDir")
+        f = _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="unrelated description",
+            hash_suffix="trashed-comment-search",
+        )
+        now = _now()
+        db_session.add(
+            ArchiveFileComment(
+                archive_file_id=f.id,
+                content="Sonderwort löschprobe",
+                created_at=now,
+                updated_at=now,
+                deleted_at=now,
+            )
+        )
+        db_session.commit()
+
+        resp = client.get(
+            "/api/archive/search?q=löschprobe",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        assert f.id not in [r["id"] for r in file_results]
+
     def test_search_file_permission_filtering(
         self,
         client,
@@ -1075,19 +1187,37 @@ class TestSearch:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_search_requires_min_3_chars(
+    def test_search_requires_min_2_chars(
         self,
         client,
         db_session,
     ):
-        """Search query must be at least 3 characters (FastAPI validation)."""
+        """Search query must be at least 2 characters (FastAPI validation)
+        - lower than most other searches, since the archive has many
+        meaningful 2-letter abbreviations (BC/MC/FC/DC committees)."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/search?q=ab",
+            "/api/archive/search?q=a",
             headers=headers,
         )
         assert resp.status_code == 422
+
+    def test_search_accepts_2_char_query(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        _make_dir(db_session, "BC-Protokolle")
+        resp = client.get(
+            "/api/archive/search?q=BC",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        names = [r["name"] for r in resp.json()]
+        assert "BC-Protokolle" in names
 
 
 # ------------------------------------------------------------------ #
@@ -1250,3 +1380,217 @@ class TestGetUnsortedUploadCount:
         db_session.commit()
 
         assert get_unsorted_upload_count(db_session) == 0
+
+
+class TestGetArchiveStats:
+    def test_empty_archive_returns_zeroes(self, db_session):
+        stats = get_archive_stats(db_session)
+
+        assert stats == {
+            "file_count": 0,
+            "unique_object_count": 0,
+            "dir_count": 0,
+            "total_size": 0,
+            "by_extension": [],
+        }
+
+    def test_counts_only_filed_files(self, db_session):
+        """archive_dir_id == 0 is the "unsorted upload" sentinel, not a
+        real directory - must not count towards file_count, mirroring
+        get_unsorted_upload_count()'s inverse filter."""
+        _make_dir(db_session, "dir-a")
+        _make_file(db_session, dir_id=0, hash_suffix="unsorted")
+        _make_file(db_session, dir_id=1, hash_suffix="filed-1")
+        _make_file(db_session, dir_id=1, hash_suffix="filed-2")
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 2
+
+    def test_excludes_soft_deleted_files(self, db_session):
+        kept = _make_file(db_session, dir_id=1, hash_suffix="kept")
+        trashed = _make_file(db_session, dir_id=1, hash_suffix="trashed")
+        trashed.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 1
+        assert kept.deleted_at is None
+
+    def test_excludes_soft_deleted_dirs(self, db_session):
+        _make_dir(db_session, "dir-active")
+        trashed_dir = _make_dir(db_session, "dir-trashed")
+        trashed_dir.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["dir_count"] == 1
+
+    def test_unique_object_count_and_total_size(self, db_session):
+        """Each _make_file() call creates its own ArchiveStoreItem (size
+        5000 fixed) - two files means two distinct store items here, no
+        dedup involved."""
+        _make_file(db_session, dir_id=1, hash_suffix="a")
+        _make_file(db_session, dir_id=1, hash_suffix="b")
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["unique_object_count"] == 2
+        assert stats["total_size"] == 10000
+
+    def test_unique_object_count_never_exceeds_file_count_when_files_share_an_object(
+        self, db_session
+    ):
+        """Content-dedup means many files can point at one store item, but
+        never the reverse - so unique_object_count must never exceed
+        file_count. Two active files sharing one object here: 1 object,
+        2 files."""
+        first = _make_file(db_session, dir_id=1, hash_suffix="shared")
+        db_session.add(
+            ArchiveFile(
+                archive_dir_id=1,
+                description="same content, second file",
+                archive_store_item_id=first.archive_store_item_id,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 2
+        assert stats["unique_object_count"] == 1
+        assert stats["unique_object_count"] <= stats["file_count"]
+
+    def test_unique_object_count_excludes_objects_only_referenced_by_trashed_files(
+        self, db_session
+    ):
+        """A store item still on disk but referenced only by a soft-deleted
+        file must not inflate unique_object_count/total_size beyond what
+        the (excluded) trashed file itself would justify - regression test
+        for the scope mismatch this stat originally had."""
+        trashed = _make_file(db_session, dir_id=1, hash_suffix="trash-only")
+        trashed.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 0
+        assert stats["unique_object_count"] == 0
+        assert stats["total_size"] == 0
+        assert stats["by_extension"] == []
+
+    def test_unique_object_count_excludes_objects_only_referenced_by_unsorted_files(
+        self, db_session
+    ):
+        """Same scope-mismatch guard as above, for archive_dir_id == 0
+        (unsorted upload) instead of a trashed file."""
+        _make_file(db_session, dir_id=0, hash_suffix="unsorted-only")
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 0
+        assert stats["unique_object_count"] == 0
+        assert stats["total_size"] == 0
+
+    def test_excludes_dir_nested_under_a_trashed_ancestor(self, db_session):
+        """delete_dir() never cascades deleted_at onto children when
+        trashing a non-empty directory - a child dir can be individually
+        not-deleted while its parent is trashed, and is then only reachable
+        via the trash, not normal navigation. Must not count in dir_count."""
+        parent = _make_dir(db_session, "parent")
+        child = _make_dir(db_session, "child", parent_id=parent.id)
+        parent.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["dir_count"] == 0
+        assert child.deleted_at is None
+
+    def test_excludes_file_nested_under_a_trashed_ancestor(self, db_session):
+        """Same as above, for a file sitting inside a trashed directory
+        (the file's own deleted_at stays NULL - only its parent dir is
+        trashed)."""
+        parent = _make_dir(db_session, "parent")
+        _make_file(db_session, dir_id=parent.id, hash_suffix="under-trash")
+        parent.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 0
+        assert stats["unique_object_count"] == 0
+        assert stats["total_size"] == 0
+
+    def test_excludes_content_several_levels_under_a_trashed_ancestor(self, db_session):
+        """The recursive CTE must walk the full ancestor chain, not just
+        the immediate parent."""
+        grandparent = _make_dir(db_session, "grandparent")
+        parent = _make_dir(db_session, "parent", parent_id=grandparent.id)
+        child = _make_dir(db_session, "child", parent_id=parent.id)
+        _make_file(db_session, dir_id=child.id, hash_suffix="deep")
+        grandparent.deleted_at = _now()
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["dir_count"] == 0
+        assert stats["file_count"] == 0
+        assert stats["unique_object_count"] == 0
+
+    def test_does_not_exclude_a_sibling_branch_not_under_any_trashed_dir(
+        self, db_session
+    ):
+        """Regression guard: the exclusion must be scoped to the actual
+        trashed subtree, not accidentally suppress unrelated content."""
+        trashed = _make_dir(db_session, "trashed-branch")
+        _make_file(db_session, dir_id=trashed.id, hash_suffix="under-trash")
+        trashed.deleted_at = _now()
+
+        healthy = _make_dir(db_session, "healthy-branch")
+        _make_file(db_session, dir_id=healthy.id, hash_suffix="healthy")
+        db_session.commit()
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["dir_count"] == 1
+        assert stats["file_count"] == 1
+        assert stats["unique_object_count"] == 1
+
+    def test_by_extension_groups_and_sorts_by_count_desc(self, db_session):
+        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="a")
+        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="b")
+        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="c")
+        _make_file(db_session, dir_id=1, extension="pdf", hash_suffix="d")
+
+        stats = get_archive_stats(db_session)
+
+        assert stats["by_extension"] == [
+            {"extension": "jpg", "count": 3, "size": 15000},
+            {"extension": "pdf", "count": 1, "size": 5000},
+        ]
+
+    def test_query_count_does_not_scale_with_archive_size(
+        self, db_session, count_queries
+    ):
+        """The four aggregate queries backing this stats block must stay
+        flat regardless of how many dirs/files/store items exist."""
+        _make_dir(db_session, "dir-small")
+        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="small")
+
+        with count_queries() as small:
+            get_archive_stats(db_session)
+
+        for i in range(10):
+            _make_dir(db_session, f"dir-large-{i}", parent_id=1)
+            _make_file(db_session, dir_id=1, extension="pdf", hash_suffix=f"large-{i}")
+
+        with count_queries() as large:
+            stats = get_archive_stats(db_session)
+
+        assert stats["file_count"] == 11
+        assert large.count == small.count

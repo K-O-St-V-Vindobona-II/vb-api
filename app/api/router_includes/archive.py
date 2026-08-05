@@ -32,11 +32,14 @@ archive_router = APIRouter()
 
 @archive_router.get("/search")
 def search_archive(
-    q: Annotated[str, Query(min_length=3)],
+    q: Annotated[str, Query(min_length=2)],
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> list[dict[str, object]]:
-    """Search files and directories by name or description (min 3 characters)."""
+    """Search files and directories by name or description (min 2
+    characters - lower than most other searches in this app since the
+    archive has many meaningful 2-letter abbreviations, e.g. "BC"/"MC"/
+    "FC"/"DC" committee protocol directories)."""
     return archive_service.search_archive(db, user, q)
 
 
@@ -238,7 +241,7 @@ def create_comment(
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
     """Add a comment to a file."""
-    comment = archive_service.create_comment(db, file_id, data.content, user.id)
+    comment = archive_service.create_comment(db, file_id, data.content, user)
     return {"status": "ok", "comment": comment}
 
 
