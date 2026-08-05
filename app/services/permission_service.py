@@ -110,9 +110,12 @@ PERMISSION_RULES: list[PermissionRule] = [
     ),
     PermissionRule(
         permission="publicContentEditor",
-        description="Rolle 'Internetreferent' + Organisation VBW",
+        description=(
+            "Rolle 'Internetreferent' oder 'Social Media - Referent' + Organisation VBW"
+        ),
         condition=lambda rids, _rgrps, org, _email: (
-            "internetreferent" in rids and org == "vbw"
+            bool({"internetreferent", "socialmediareferent"}.intersection(rids))
+            and org == "vbw"
         ),
     ),
 ]

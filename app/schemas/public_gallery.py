@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -46,10 +45,6 @@ class GalleryImageUpdateRequest(StrictInputModel):
             msg = f"Maximal {MAX_CAPTION_LENGTH} Zeichen."
             raise ValueError(msg)
         return v
-
-
-class GalleryImageMoveRequest(StrictInputModel):
-    direction: Literal["up", "down"]
 
 
 class ContactFormRequest(StrictInputModel):

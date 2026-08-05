@@ -11,6 +11,9 @@ from app.api.router_includes.members import (
     members_router,
 )
 from app.api.router_includes.p4x import p4x_router
+from app.api.router_includes.public_content_admin import (
+    public_content_admin_router,
+)
 from app.api.router_includes.public_gallery_admin import (
     public_gallery_admin_router,
 )
@@ -83,15 +86,19 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "Public",
         "description": (
             "Unauthenticated endpoints backing the public www.vindobona2.at "
-            "site: published gallery images and the contact form."
+            "site: published gallery images, the "
+            "about/video/programm/quotes/social-links content bundle, "
+            "and the contact form."
         ),
     },
     {
         "name": "Public Site Administration",
         "description": (
             "Authenticated management of the public www.vindobona2.at "
-            "gallery (upload, reorder, publish/unpublish, delete). "
-            "Requires the 'publicContentEditor' permission."
+            "site: gallery (upload, reorder, publish/unpublish, delete), "
+            "about tabs, MKV video, programm calendar + hints, quotes, "
+            "and social media links. Requires the 'publicContentEditor' "
+            "permission."
         ),
     },
 ]
@@ -146,5 +153,10 @@ api_router.include_router(
 api_router.include_router(
     public_gallery_admin_router,
     prefix="/public-gallery-admin",
+    tags=["Public Site Administration"],
+)
+api_router.include_router(
+    public_content_admin_router,
+    prefix="/public-content-admin",
     tags=["Public Site Administration"],
 )
