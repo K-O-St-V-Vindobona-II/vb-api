@@ -2,6 +2,7 @@ import hashlib
 import io
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image as PILImage
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.storage import S3_PATH_PUBLIC_GALLERY, StorageClient
 from app.models.public_gallery_image import PublicGalleryImage
+from app.services.reorder_service import find_reorder_neighbor
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 8 * 1024 * 1024
@@ -135,15 +137,11 @@ def update_image(
     db.commit()
 
 
-def move_image(db: Session, img: PublicGalleryImage, direction: str) -> None:
-    comparator = PublicGalleryImage.sort_order < img.sort_order
-    ordering = PublicGalleryImage.sort_order.desc()
-    if direction == "down":
-        comparator = PublicGalleryImage.sort_order > img.sort_order
-        ordering = PublicGalleryImage.sort_order.asc()
-
-    neighbor = (
-        db.query(PublicGalleryImage).filter(comparator).order_by(ordering).first()
+def move_image(
+    db: Session, img: PublicGalleryImage, direction: Literal["up", "down"]
+) -> None:
+    neighbor = find_reorder_neighbor(
+        db, PublicGalleryImage, PublicGalleryImage.sort_order, img.sort_order, direction
     )
     if not neighbor:
         return

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -10,3 +12,12 @@ class StrictInputModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class MoveRequest(StrictInputModel):
+    """Shared request body for every sort_order-reorderable admin list
+    (gallery images, programm hints, quotes, social links) — see
+    app.services.reorder_service.find_reorder_neighbor().
+    """
+
+    direction: Literal["up", "down"]

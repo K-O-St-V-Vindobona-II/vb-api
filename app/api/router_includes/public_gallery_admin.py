@@ -9,9 +9,9 @@ from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
 from app.models.public_gallery_image import PublicGalleryImage
+from app.schemas.base import MoveRequest
 from app.schemas.public_gallery import (
     GalleryImageAdminResponse,
-    GalleryImageMoveRequest,
     GalleryImageUpdateRequest,
 )
 from app.services import public_gallery_service
@@ -86,7 +86,7 @@ def update_image(
 @public_gallery_admin_router.post("/images/{image_id}/move")
 def move_image(
     image_id: uuid.UUID,
-    data: GalleryImageMoveRequest,
+    data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> dict[str, str]:

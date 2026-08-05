@@ -32,6 +32,11 @@ from app.models.p4x_summary_order import P4xSummaryOrder  # noqa: F401
 from app.models.p4x_transaction import P4xTransaction  # noqa: F401
 from app.models.password_reset import PasswordResetToken  # noqa: F401
 from app.models.public_gallery_image import PublicGalleryImage  # noqa: F401
+from app.models.public_site_about_tab import PublicSiteAboutTab  # noqa: F401
+from app.models.public_site_programm_hint import PublicSiteProgrammHint  # noqa: F401
+from app.models.public_site_quote import PublicSiteQuote  # noqa: F401
+from app.models.public_site_settings import PublicSiteSettings  # noqa: F401
+from app.models.public_site_social_link import PublicSiteSocialLink  # noqa: F401
 from app.models.request_log import RequestLog  # noqa: F401
 from app.models.role import Role  # noqa: F401
 from app.models.scheduled_task_run import ScheduledTaskRun  # noqa: F401

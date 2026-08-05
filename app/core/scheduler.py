@@ -809,8 +809,8 @@ def job_downsync() -> None:
         started,
         exit_code=0,
         output=(
-            f"{len(result.synced)} synced, {result.skipped} skipped, "
-            f"{len(result.deleted)} deleted. DB restored from latest prod backup."
+            f"S3-Files: {len(result.synced)} synced, {result.skipped} skipped, "
+            f"{len(result.deleted)} deleted; DB: restored from latest prod backup."
         ),
     )
 
