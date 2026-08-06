@@ -130,11 +130,13 @@ class TestEmailTemplates:
         resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 8
+        assert len(data) == 10
         keys = {t["template_key"] for t in data}
         assert keys == {
             "password-reset",
             "entry-changed",
+            "member-change-request-submitted",
+            "member-change-request-resolved",
             "birthday",
             "debtor_reminder",
             "chronicles",
@@ -167,7 +169,7 @@ class TestEmailTemplates:
         _insert_sent_email(db_session, "legacy-junk")
         resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
         data = resp.json()
-        assert len(data) == 8
+        assert len(data) == 10
         keys = {t["template_key"] for t in data}
         assert "legacy-junk" not in keys
 

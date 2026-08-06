@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import (
     APIRouter,
@@ -17,14 +17,20 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
-from app.core.mailer import send_entry_changed_email
+from app.core.mailer import (
+    send_entry_changed_email,
+    send_member_change_request_resolved_email,
+    send_member_change_request_submitted_email,
+)
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.contact import Contact
+from app.models.enums import MemberDeliveryPreference
 from app.models.member import Member
 from app.schemas.archive import PresignedUrlResponse
 from app.schemas.standesdb import (
     ChangeLogEntry,
+    ChangeRequestFieldDiff,
     ContactDetailResponse,
     ContactSaveRequest,
     ContactStatsResponse,
@@ -32,10 +38,17 @@ from app.schemas.standesdb import (
     ImageUpdateRequest,
     KeysListResponse,
     MemberAuthActivityResponse,
+    MemberChangeRequestDecisionRequest,
+    MemberChangeRequestDetailResponse,
+    MemberChangeRequestListResponse,
+    MemberChangeRequestSummary,
     MemberDetailResponse,
     MemberDismissedResponse,
     MemberSaveRequest,
+    MemberSelfServiceDetailResponse,
+    MemberSelfServiceSaveRequest,
     MemberStatsResponse,
+    MyChangeRequestResponse,
     ReferenceDataResponse,
     RolesListResponse,
     StatsResponse,
@@ -43,6 +56,7 @@ from app.schemas.standesdb import (
 from app.services import (
     export_service,
     image_service,
+    member_change_request_service,
     standesdb_service,
 )
 from app.services.permission_service import (
@@ -373,6 +387,113 @@ def search_parent(
     _require_standesdb_admin(current_user, member.org_id)
 
     return {"data": standesdb_service.search_parent(db, member_id, q)}
+
+
+# --- Self-service Stammdaten (own account, no admin permission required) ---
+
+
+def _own_self_service_response(
+    member: Member,
+) -> MemberSelfServiceDetailResponse:
+    return MemberSelfServiceDetailResponse(
+        id=member.id,
+        cn=member.cn,
+        vortitel=member.vortitel,
+        vorname=member.vorname,
+        nachname=member.nachname,
+        nachname_geburt=member.nachname_geburt,
+        nachtitel=member.nachtitel,
+        couleurname=member.couleurname,
+        email=member.email,
+        url=member.url,
+        mkv_ogv_url=member.mkv_ogv_url,
+        rufnummer_mobil=member.rufnummer_mobil,
+        rufnummer_privat=member.rufnummer_privat,
+        rufnummer_beruf=member.rufnummer_beruf,
+        zustellungen=member.zustellungen or MemberDeliveryPreference.DEAKTIVIERT,
+        adresse_privat_anschrift=member.adresse_privat_anschrift,
+        adresse_privat_plz=member.adresse_privat_plz,
+        adresse_privat_ort=member.adresse_privat_ort,
+        adresse_privat_land=member.adresse_privat_land,
+        adresse_beruf_anschrift=member.adresse_beruf_anschrift,
+        adresse_beruf_plz=member.adresse_beruf_plz,
+        adresse_beruf_ort=member.adresse_beruf_ort,
+        adresse_beruf_land=member.adresse_beruf_land,
+        arbeitgeber=member.arbeitgeber,
+        taetigkeit=member.taetigkeit,
+        mitgliedschaften=member.mitgliedschaften,
+        verbandchargen=member.verbandchargen,
+    )
+
+
+@standesdb_router.get("/members/me/stammdaten")
+def get_own_stammdaten(
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> MemberSelfServiceDetailResponse:
+    """Return the authenticated member's own live Stammdaten - used to
+    pre-fill the self-service form when there's no pending change request
+    (see GET /members/me/change-request for that case)."""
+    return _own_self_service_response(current_user)
+
+
+@standesdb_router.get("/members/me/change-request")
+def get_own_change_request(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> MyChangeRequestResponse:
+    """Return the authenticated member's own pending change request, if
+    any - 404 if none, so the frontend falls back to live Stammdaten."""
+    request = member_change_request_service.get_own_pending_request(db, current_user)
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kein offener Änderungsantrag.",
+        )
+    proposed_data = cast("dict[str, dict[str, object]]", request.proposed_data)
+    proposed_fields = {field: values["new"] for field, values in proposed_data.items()}
+    return MyChangeRequestResponse(
+        id=request.id,
+        created_at=request.created_at,
+        proposed_fields=proposed_fields,
+    )
+
+
+@standesdb_router.post("/members/me/change-request")
+def submit_own_change_request(
+    data: MemberSelfServiceSaveRequest,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> dict[str, str]:
+    """Submit (or update, if one is already pending) a self-service
+    Stammdaten change request. No admin permission required - every member
+    may propose changes to their own account.
+    """
+    if not current_user.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Deinem Konto ist keine Verbindung zugewiesen — "
+                "Änderungsanträge können nicht eingereicht werden."
+            ),
+        )
+
+    request = member_change_request_service.submit_change_request(
+        db, current_user, data
+    )
+
+    if request is None:
+        return {"status": "no_changes"}
+
+    perm = f"standesdb{current_user.org_id.capitalize()}Admin"
+    recipients = get_emails_with_permission(db, perm)
+    background_tasks.add_task(
+        send_member_change_request_submitted_email,
+        recipients,
+        current_user.cn,
+        cast("dict[str, dict[str, object]]", request.proposed_data),
+    )
+    return {"status": "submitted"}
 
 
 # --- Contacts ---
@@ -802,6 +923,100 @@ def list_contact_changelog(
     return standesdb_service.get_contact_changelog(db, contact_id, page, page_size)
 
 
+# --- Member Change Requests (admin review) ---
+
+
+@standesdb_router.get("/member-change-requests")
+def list_member_change_requests(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> MemberChangeRequestListResponse:
+    """List pending self-service change requests for the orgs the caller
+    administers. Empty for a non-admin, not an error - matches the
+    org-scoped filtering already applied inside the service query."""
+    _require_any_standesdb_admin(current_user)
+    requests = member_change_request_service.get_pending_requests_for_admin(
+        db, current_user
+    )
+    items = [
+        MemberChangeRequestSummary(
+            id=r.id,
+            member_id=r.member_id,
+            member_cn=r.member.cn,
+            member_org_id=r.member.org_id,
+            field_count=len(r.proposed_data),
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in requests
+    ]
+    return MemberChangeRequestListResponse(items=items, total=len(items))
+
+
+@standesdb_router.get("/member-change-requests/{request_id}")
+def get_member_change_request(
+    request_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> MemberChangeRequestDetailResponse:
+    """Return one change request with its full field-level diff. Org-scoped
+    admin permission check, same function as the member-edit endpoints."""
+    request = member_change_request_service.get_change_request_or_404(db, request_id)
+    _require_standesdb_admin(current_user, request.member.org_id)
+
+    proposed_data = cast("dict[str, dict[str, object]]", request.proposed_data)
+    diff = [
+        ChangeRequestFieldDiff(
+            field=field,
+            old=str(values["old"]) if values["old"] is not None else None,
+            new=str(values["new"]) if values["new"] is not None else None,
+        )
+        for field, values in proposed_data.items()
+    ]
+    return MemberChangeRequestDetailResponse(
+        id=request.id,
+        member_id=request.member_id,
+        member_cn=request.member.cn,
+        status=request.status,
+        created_at=request.created_at,
+        updated_at=request.updated_at,
+        resolved_at=request.resolved_at,
+        resolved_by_name=(request.resolver.cn if request.resolver else None),
+        diff=diff,
+        field_decisions=request.field_decisions,
+    )
+
+
+@standesdb_router.post("/member-change-requests/{request_id}/decide")
+def decide_member_change_request(
+    request_id: int,
+    data: MemberChangeRequestDecisionRequest,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> dict[str, str]:
+    """Atomically resolve a change request: every proposed field must have
+    a decision in one submission (enforced in the service layer) - there is
+    no partially-decided state to save and resume later."""
+    request = member_change_request_service.get_change_request_or_404(db, request_id)
+    _require_standesdb_admin(current_user, request.member.org_id)
+
+    diff_snapshot = cast("dict[str, dict[str, object]]", dict(request.proposed_data))
+    decisions_snapshot: dict[str, str] = dict(data.field_decisions)
+    member = member_change_request_service.resolve_change_request(
+        db, request, decisions_snapshot, current_user
+    )
+
+    if member.email:
+        background_tasks.add_task(
+            send_member_change_request_resolved_email,
+            member.email,
+            diff_snapshot,
+            decisions_snapshot,
+        )
+    return {"status": "resolved"}
+
+
 # --- Helper ---
 
 
@@ -817,4 +1032,16 @@ def _require_standesdb_admin(user: Member, org_id: str | None) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(f"Fehlende Berechtigung: {org_perm}"),
+        )
+
+
+def _require_any_standesdb_admin(user: Member) -> None:
+    perms = calculate_permissions(user)
+    is_any_org_admin = any(
+        f"standesdb{org_id.capitalize()}Admin" in perms for org_id in ("vbw", "vbn")
+    )
+    if not is_any_org_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Fehlende Berechtigung.",
         )

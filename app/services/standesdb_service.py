@@ -319,7 +319,7 @@ def get_member_detail(
 _EMPTY_VALUES = {None, False, "", "deaktiviert"}
 
 
-def _values_differ(old_val: object, new_val: object) -> bool:
+def values_differ(old_val: object, new_val: object) -> bool:
     if old_val == new_val:
         return False
     return not (old_val in _EMPTY_VALUES and new_val in _EMPTY_VALUES)
@@ -437,7 +437,7 @@ def apply_member_input(  # noqa: C901
     diff: dict[str, dict[str, object]] = {}
     for field, new_val in input_dict.items():
         old_val = getattr(member, field, None)
-        if _values_differ(old_val, new_val):
+        if values_differ(old_val, new_val):
             diff[field] = {"old": old_val, "new": new_val}
             setattr(member, field, new_val)
         elif old_val != new_val:
@@ -955,7 +955,7 @@ def apply_contact_input(
 
     for field, new_val in data.items():
         old_val = getattr(contact, field, None)
-        if _values_differ(old_val, new_val):
+        if values_differ(old_val, new_val):
             diff[field] = {
                 "old": old_val,
                 "new": new_val,

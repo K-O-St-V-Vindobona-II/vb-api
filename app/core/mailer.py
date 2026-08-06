@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import smtplib
 from datetime import UTC, date, datetime
@@ -292,4 +293,89 @@ def send_entry_changed_email(
         html_content,
         "\n".join(text_lines),
         template_key="entry-changed",
+    )
+
+
+def _prepare_diff_for_display(
+    diff: dict[str, dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """proposed_data comes back from JSONB with geburtsdatum's value as a
+    plain ISO string, not a date object - _format_diff_value only applies
+    its fuzzy-date formatting to actual date instances. Converts just that
+    one field back so the email renders "4. Mai 2001" instead of the raw
+    "2001-05-04"."""
+    prepared: dict[str, dict[str, object]] = {}
+    for key, values in diff.items():
+        new_values = dict(values)
+        for side in ("old", "new"):
+            val = new_values.get(side)
+            if key == "geburtsdatum" and isinstance(val, str):
+                with contextlib.suppress(ValueError):
+                    new_values[side] = date.fromisoformat(val)
+        prepared[key] = new_values
+    return prepared
+
+
+def send_member_change_request_submitted_email(
+    to_emails: list[str],
+    member_cn: str,
+    diff: dict[str, dict[str, object]],
+) -> None:
+    """Notifies the submitting member's org admin(s) that a self-service
+    Stammdaten change request is waiting for review."""
+    if not to_emails or not diff:
+        return
+
+    subject = f"Neuer Änderungsantrag: {member_cn}"
+    prepared_diff = _prepare_diff_for_display(diff)
+
+    template = _jinja_env.get_template("member_change_request_submitted.html")
+    html_content = template.render(
+        member_cn=member_cn,
+        diff=prepared_diff,
+        format_value=_format_diff_value,
+    )
+
+    send_to_recipients(
+        to_emails,
+        subject,
+        html_content,
+        template_key="member-change-request-submitted",
+    )
+
+
+def send_member_change_request_resolved_email(
+    to_email: str,
+    diff: dict[str, dict[str, object]],
+    field_decisions: dict[str, str],
+) -> None:
+    """Notifies the member of the outcome of their own change request,
+    approved and rejected fields shown in clearly separate sections."""
+    if not to_email or not diff:
+        return
+
+    prepared_diff = _prepare_diff_for_display(diff)
+    approved = {
+        key: values
+        for key, values in prepared_diff.items()
+        if field_decisions.get(key) == "approved"
+    }
+    rejected = {
+        key: values
+        for key, values in prepared_diff.items()
+        if field_decisions.get(key) == "rejected"
+    }
+
+    template = _jinja_env.get_template("member_change_request_resolved.html")
+    html_content = template.render(
+        approved=approved,
+        rejected=rejected,
+        format_value=_format_diff_value,
+    )
+
+    send_to_recipients(
+        [to_email],
+        "Dein Änderungsantrag wurde bearbeitet",
+        html_content,
+        template_key="member-change-request-resolved",
     )

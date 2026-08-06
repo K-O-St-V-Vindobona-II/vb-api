@@ -55,6 +55,23 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
         },
         "format_value": _format_preview_value,
     },
+    "member-change-request-submitted": {
+        "member_cn": "Franz Beispiel v/o Musterknabe",
+        "diff": {
+            "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
+            "email": {"old": "alt@example.com", "new": "neu@example.com"},
+        },
+        "format_value": _format_preview_value,
+    },
+    "member-change-request-resolved": {
+        "approved": {
+            "email": {"old": "alt@example.com", "new": "neu@example.com"},
+        },
+        "rejected": {
+            "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
+        },
+        "format_value": _format_preview_value,
+    },
     "birthday": {
         "name": "Max Mustermann v/o Testikus",
         "age": 25,

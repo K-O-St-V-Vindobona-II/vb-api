@@ -1,6 +1,6 @@
 import re
 from datetime import UTC, date, datetime
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -15,6 +15,7 @@ from pydantic import (
 from app.models.enums import (
     BadgeGroup,
     ContactType,
+    MemberChangeRequestStatus,
     MemberDeliveryPreference,
     RoleGroup,
 )
@@ -237,7 +238,106 @@ class MemberDetailResponse(BaseModel):
     tree: dict[str, object] = {}
 
 
+class MemberSelfServiceDetailResponse(BaseModel):
+    """Self-service view of a member's own Stammdaten - same field subset
+    as MemberSelfServiceSaveRequest, output-shaped. Deliberately NOT a
+    filtered MemberDetailResponse: no admin-only field values are put on
+    the wire to the member's own client at all, same principle as
+    FeeMemberSelfResponse in app/schemas/p4x.py excluding p4x_comment."""
+
+    id: int
+    cn: str
+    vortitel: str | None = None
+    vorname: str | None = None
+    nachname: str | None = None
+    nachname_geburt: str | None = None
+    nachtitel: str | None = None
+    couleurname: str | None = None
+
+    email: str | None = None
+    url: str | None = None
+    mkv_ogv_url: str | None = None
+    rufnummer_mobil: str | None = None
+    rufnummer_privat: str | None = None
+    rufnummer_beruf: str | None = None
+
+    zustellungen: MemberDeliveryPreference = MemberDeliveryPreference.DEAKTIVIERT
+
+    adresse_privat_anschrift: str | None = None
+    adresse_privat_plz: str | None = None
+    adresse_privat_ort: str | None = None
+    adresse_privat_land: str | None = None
+    adresse_beruf_anschrift: str | None = None
+    adresse_beruf_plz: str | None = None
+    adresse_beruf_ort: str | None = None
+    adresse_beruf_land: str | None = None
+
+    arbeitgeber: str | None = None
+    taetigkeit: str | None = None
+    mitgliedschaften: str | None = None
+    verbandchargen: str | None = None
+
+
 # --- Member Save Request ---
+
+# Shared validator bodies, used by both MemberSaveRequest (all fields) and
+# MemberSelfServiceSaveRequest (the "echte Stammdaten" subset) - every one
+# of these validated fields also happens to be self-service-editable, so
+# duplicating the same six checks across both models would be a real DRY
+# violation, not just superficial similarity. Each model still declares its
+# own @field_validator/@model_validator methods (Pydantic v2 requires the
+# decorator on the class that owns the field), they just delegate to these
+# module-level functions instead of repeating the logic.
+
+
+def _validate_max_32(v: str | None) -> str | None:
+    if v and len(v) > 32:
+        msg = "Maximal 32 Zeichen."
+        raise ValueError(msg)
+    return v
+
+
+def _validate_max_64(v: str | None) -> str | None:
+    if v and len(v) > 64:
+        msg = "Maximal 64 Zeichen."
+        raise ValueError(msg)
+    return v
+
+
+def _validate_phone(v: str | None) -> str | None:
+    if v and not PHONE_REGEX.match(v):
+        msg = "Ungültiges Telefonnummernformat."
+        raise ValueError(msg)
+    return v
+
+
+def _validate_plz_max_8(v: str | None) -> str | None:
+    if v and len(v) > 8:
+        msg = "PLZ maximal 8 Zeichen."
+        raise ValueError(msg)
+    return v
+
+
+def _validate_ort_land_max_32(v: str | None) -> str | None:
+    if v and len(v) > 32:
+        msg = "Maximal 32 Zeichen."
+        raise ValueError(msg)
+    return v
+
+
+def _validate_url(v: str | None) -> str | None:
+    if v and not re.match(r"^https?://", v, re.IGNORECASE):
+        msg = "Muss mit http:// oder https:// beginnen."
+        raise ValueError(msg)
+    return v
+
+
+def _require_nachname_or_couleurname(
+    nachname: str | None, couleurname: str | None
+) -> None:
+    if not nachname and not couleurname:
+        msg = "Nachname oder Couleurname muss angegeben werden."
+        raise ValueError(msg)
 
 
 class MemberSaveRequest(StrictInputModel):
@@ -312,10 +412,7 @@ class MemberSaveRequest(StrictInputModel):
     @field_validator("vortitel", "nachtitel", mode="before")
     @classmethod
     def max_32(cls, v: str | None) -> str | None:
-        if v and len(v) > 32:
-            msg = "Maximal 32 Zeichen."
-            raise ValueError(msg)
-        return v
+        return _validate_max_32(v)
 
     @field_validator(
         "vorname",
@@ -328,10 +425,7 @@ class MemberSaveRequest(StrictInputModel):
     )
     @classmethod
     def max_64(cls, v: str | None) -> str | None:
-        if v and len(v) > 64:
-            msg = "Maximal 64 Zeichen."
-            raise ValueError(msg)
-        return v
+        return _validate_max_64(v)
 
     @field_validator(
         "rufnummer_mobil",
@@ -341,10 +435,7 @@ class MemberSaveRequest(StrictInputModel):
     )
     @classmethod
     def valid_phone(cls, v: str | None) -> str | None:
-        if v and not PHONE_REGEX.match(v):
-            msg = "Ungültiges Telefonnummernformat."
-            raise ValueError(msg)
-        return v
+        return _validate_phone(v)
 
     @field_validator(
         "adresse_privat_plz",
@@ -353,10 +444,7 @@ class MemberSaveRequest(StrictInputModel):
     )
     @classmethod
     def plz_max_8(cls, v: str | None) -> str | None:
-        if v and len(v) > 8:
-            msg = "PLZ maximal 8 Zeichen."
-            raise ValueError(msg)
-        return v
+        return _validate_plz_max_8(v)
 
     @field_validator(
         "adresse_privat_ort",
@@ -367,28 +455,122 @@ class MemberSaveRequest(StrictInputModel):
     )
     @classmethod
     def ort_land_max_32(cls, v: str | None) -> str | None:
-        if v and len(v) > 32:
-            msg = "Maximal 32 Zeichen."
-            raise ValueError(msg)
-        return v
+        return _validate_ort_land_max_32(v)
 
     @field_validator("url", "mkv_ogv_url", mode="before")
     @classmethod
     def valid_url(cls, v: str | None) -> str | None:
-        if v and not re.match(
-            r"^https?://",
-            v,
-            re.IGNORECASE,
-        ):
-            msg = "Muss mit http:// oder https:// beginnen."
-            raise ValueError(msg)
-        return v
+        return _validate_url(v)
 
     @model_validator(mode="after")
     def require_nachname_or_couleurname(self) -> Self:
-        if not self.nachname and not self.couleurname:
-            msg = "Nachname oder Couleurname muss angegeben werden."
-            raise ValueError(msg)
+        _require_nachname_or_couleurname(self.nachname, self.couleurname)
+        return self
+
+
+class MemberSelfServiceSaveRequest(StrictInputModel):
+    """Self-service subset of MemberSaveRequest - "echte Stammdaten" only.
+
+    Deliberately excludes org_id/state_id/gruender/entlassen/verstorben/
+    grabadresse/parent_id/auth_locked/chroniclemail (own dedicated
+    unapproved toggle, see PATCH /members/me/chroniclemail)/anmerkungen
+    (risk of being an admin-internal note, same reasoning as p4x_comment)/
+    roles_history/badges/keys, as well as geburtsdatum(_accuracy) and the
+    membership-milestone dates (aufnahmedatum/branderdatum/
+    burschungsdatum/philistrierungsdatum) - official record, not everyday
+    personal data, and not something that legitimately changes after the
+    fact. All of those stay admin-only via the existing MemberSaveRequest/
+    MemberEditView.vue.
+    """
+
+    vortitel: str | None = None
+    vorname: str | None = None
+    nachname: str | None = None
+    nachname_geburt: str | None = None
+    nachtitel: str | None = None
+    couleurname: str | None = None
+
+    email: EmailStr | None = Field(default=None, max_length=128)
+    url: str | None = Field(default=None, max_length=128)
+    mkv_ogv_url: str | None = Field(default=None, max_length=128)
+    rufnummer_mobil: str | None = None
+    rufnummer_privat: str | None = None
+    rufnummer_beruf: str | None = None
+
+    zustellungen: MemberDeliveryPreference = Field(
+        default=MemberDeliveryPreference.DEAKTIVIERT, strict=False
+    )
+
+    adresse_privat_anschrift: str | None = None
+    adresse_privat_plz: str | None = None
+    adresse_privat_ort: str | None = None
+    adresse_privat_land: str | None = None
+    adresse_beruf_anschrift: str | None = None
+    adresse_beruf_plz: str | None = None
+    adresse_beruf_ort: str | None = None
+    adresse_beruf_land: str | None = None
+
+    arbeitgeber: str | None = None
+    taetigkeit: str | None = None
+    mitgliedschaften: str | None = None
+    verbandchargen: str | None = None
+
+    @field_validator("vortitel", "nachtitel", mode="before")
+    @classmethod
+    def max_32(cls, v: str | None) -> str | None:
+        return _validate_max_32(v)
+
+    @field_validator(
+        "vorname",
+        "nachname",
+        "nachname_geburt",
+        "couleurname",
+        "arbeitgeber",
+        "taetigkeit",
+        mode="before",
+    )
+    @classmethod
+    def max_64(cls, v: str | None) -> str | None:
+        return _validate_max_64(v)
+
+    @field_validator(
+        "rufnummer_mobil",
+        "rufnummer_privat",
+        "rufnummer_beruf",
+        mode="before",
+    )
+    @classmethod
+    def valid_phone(cls, v: str | None) -> str | None:
+        return _validate_phone(v)
+
+    @field_validator(
+        "adresse_privat_plz",
+        "adresse_beruf_plz",
+        mode="before",
+    )
+    @classmethod
+    def plz_max_8(cls, v: str | None) -> str | None:
+        return _validate_plz_max_8(v)
+
+    @field_validator(
+        "adresse_privat_ort",
+        "adresse_privat_land",
+        "adresse_beruf_ort",
+        "adresse_beruf_land",
+        mode="before",
+    )
+    @classmethod
+    def ort_land_max_32(cls, v: str | None) -> str | None:
+        return _validate_ort_land_max_32(v)
+
+    @field_validator("url", "mkv_ogv_url", mode="before")
+    @classmethod
+    def valid_url(cls, v: str | None) -> str | None:
+        return _validate_url(v)
+
+    @model_validator(mode="after")
+    def require_nachname_or_couleurname(self) -> Self:
+        _require_nachname_or_couleurname(self.nachname, self.couleurname)
         return self
 
 
@@ -558,6 +740,53 @@ class MemberAuthActivityResponse(BaseModel):
     auth_lastlogin: UtcDatetime | None = None
     auth_lastsignal: UtcDatetime | None = None
     auth_lastlogout: UtcDatetime | None = None
+
+
+# --- Member Change Requests ---
+
+
+class MemberChangeRequestSummary(BaseModel):
+    id: int
+    member_id: int
+    member_cn: str
+    member_org_id: str | None = None
+    field_count: int
+    created_at: UtcDatetime | None = None
+    updated_at: UtcDatetime | None = None
+
+
+class MemberChangeRequestListResponse(BaseModel):
+    items: list[MemberChangeRequestSummary]
+    total: int
+
+
+class ChangeRequestFieldDiff(BaseModel):
+    field: str
+    old: str | None
+    new: str | None
+
+
+class MemberChangeRequestDetailResponse(BaseModel):
+    id: int
+    member_id: int
+    member_cn: str
+    status: MemberChangeRequestStatus
+    created_at: UtcDatetime | None = None
+    updated_at: UtcDatetime | None = None
+    resolved_at: UtcDatetime | None = None
+    resolved_by_name: str | None = None
+    diff: list[ChangeRequestFieldDiff]
+    field_decisions: dict[str, str] | None = None
+
+
+class MyChangeRequestResponse(BaseModel):
+    id: int
+    created_at: UtcDatetime | None = None
+    proposed_fields: dict[str, object]
+
+
+class MemberChangeRequestDecisionRequest(StrictInputModel):
+    field_decisions: dict[str, Literal["approved", "rejected"]]
 
 
 class ExportRequest(StrictInputModel):
