@@ -326,14 +326,21 @@ class FeeBalanceResponse(BaseModel):
     progress: list[FeeProgressEntry]
 
 
-class FeeMemberResponse(BaseModel):
+class FeeMemberSelfResponse(BaseModel):
+    """Self-service shape of a fee member's account - deliberately omits
+    p4x_comment, which is an admin-internal note not meant for the member
+    to see."""
+
     id: int
     cn: str
     p4x_init_date: str | None
     p4x_init_balance: MoneyOut | None
     p4x_freed: bool | None
-    p4x_comment: str | None
     balance: FeeBalanceResponse | None
+
+
+class FeeMemberResponse(FeeMemberSelfResponse):
+    p4x_comment: str | None
 
 
 class FeeMemberUpdateRequest(StrictInputModel):

@@ -6,6 +6,7 @@ from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.role import Role
+from app.models.state import State
 from app.services import member_service
 from app.services.auth_service import create_user_session
 from app.services.permission_service import calculate_permissions
@@ -113,3 +114,47 @@ class TestToggleChroniclemail:
         assert resp.json() == {"chroniclemail": True}
         db_session.refresh(member)
         assert member.chroniclemail is True
+
+
+class TestReadCurrentUserIsFeeMember:
+    """Regression tests for the is_fee_member flag on GET /members/me, which
+    drives the 'Mein Beitragskonto' nav item's visibility on the frontend."""
+
+    def test_true_for_fee_eligible_member(self, client, db_session):
+        db_session.add(State(id="up", label="UP", order=1))
+        db_session.commit()
+        member = Member(
+            email="fee-eligible@vindobona.at",
+            org_id="vbw",
+            state_id="up",
+            auth_locked=False,
+        )
+        db_session.add(member)
+        db_session.commit()
+        token, _, _ = create_user_session(db_session, member)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.get("/api/members/me", headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["is_fee_member"] is True
+
+    def test_false_for_non_fee_member(self, client, db_session):
+        db_session.add(State(id="up", label="UP", order=1))
+        db_session.commit()
+        member = Member(
+            email="not-fee-eligible@vindobona.at",
+            org_id="vbw",
+            state_id="up",
+            auth_locked=False,
+            entlassen=True,
+        )
+        db_session.add(member)
+        db_session.commit()
+        token, _, _ = create_user_session(db_session, member)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.get("/api/members/me", headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["is_fee_member"] is False

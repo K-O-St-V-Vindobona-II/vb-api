@@ -12,6 +12,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
+from app.api.deps import get_current_user
 from app.db.database import get_db
 from app.models.member import Member
 from app.models.p4x_fee import P4xFee
@@ -30,6 +31,7 @@ from app.schemas.p4x import (
     FeeBalanceSum,
     FeeCreateRequest,
     FeeMemberResponse,
+    FeeMemberSelfResponse,
     FeeMemberUpdateRequest,
     FeeProgressEntry,
     FeeResponse,
@@ -889,6 +891,50 @@ def search_fee_members(
             detail="Suchbegriff muss mindestens 3 Zeichen lang sein.",
         )
     return {"data": p4x_fee_balance_service.search_fee_members(db, q)}
+
+
+# NOTE: these two "me" routes must stay registered before
+# "/fee-members/{member_id}" below. member_id has no explicit int path
+# converter, so Starlette compiles a generic single-segment pattern for it;
+# if {member_id} were registered first, "/fee-members/me" would match THAT
+# route and fail int-conversion with a 422 instead of falling through to
+# these routes. Same technique already used by /fee-members/search above.
+@p4x_router.get("/fee-members/me")
+def get_own_fee_member(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> FeeMemberSelfResponse:
+    """Return the authenticated member's own fee account (self-service).
+
+    No admin permission required - every member may see their own account.
+    p4x_comment (an admin-internal note) is deliberately omitted from the
+    response shape, see FeeMemberSelfResponse.
+    """
+    if not p4x_fee_balance_service.is_fee_member(current_user):
+        raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
+    full = _build_fee_member_response(db, current_user)
+    return FeeMemberSelfResponse.model_validate(full, from_attributes=True)
+
+
+@p4x_router.get("/fee-members/me/export")
+def export_own_fee_member(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> Response:
+    """Export the authenticated member's own fee account statement as XLSX."""
+    if not p4x_fee_balance_service.is_fee_member(current_user):
+        raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
+    full = _build_fee_member_response(db, current_user)
+    if full.balance is None:
+        raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
+    xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(full)
+    safe_name = re.sub(r'[\\/:*?"<>|]', "_", current_user.cn)
+    filename = f"Beitragskonto_{safe_name}_{datetime.now(UTC).date()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @p4x_router.get("/fee-members/{member_id}")

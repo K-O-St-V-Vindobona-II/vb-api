@@ -21,6 +21,7 @@ class MemberResponse(MemberBase):
     permissions: list[str] = []
     google_linked: bool = False
     chroniclemail: bool = False
+    is_fee_member: bool = False
     session_idle_timeout: int = 120
 
     model_config = ConfigDict(from_attributes=True)
