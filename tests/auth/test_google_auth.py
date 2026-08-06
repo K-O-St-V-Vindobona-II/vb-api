@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import bcrypt
 import pytest
+from google.auth.exceptions import TransportError
 
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.services import auth_service
+from app.services.auth_service import _GOOGLE_CERTS_TIMEOUT_SECONDS, _TimeoutHTTPAdapter
 
 
 @pytest.fixture
@@ -99,6 +101,41 @@ def test_google_login_invalid_token(mock_verify, client, monkeypatch):
     resp = client.post("/api/auth/google", json={"credential": "bad"})
     assert resp.status_code == 401
     assert "ungültig" in resp.json()["detail"].lower()
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+def test_google_login_unavailable_returns_503(mock_verify, client, monkeypatch):
+    """Regression test: a network/timeout failure while fetching Google's
+    certs must surface as a clear 503, not as a hang or a generic 500 -
+    the root cause of the prod incident this test guards against."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+    mock_verify.side_effect = TransportError("Connection timed out")
+
+    resp = client.post("/api/auth/google", json={"credential": "token"})
+
+    assert resp.status_code == 503
+    assert "nicht erreichbar" in resp.json()["detail"].lower()
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+def test_google_link_unavailable_returns_503(
+    mock_verify, client, monkeypatch, test_member_unbound
+):
+    """Same regression as above, for the /google/link endpoint."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+    mock_verify.side_effect = TransportError("Connection timed out")
+
+    resp = client.post(
+        "/api/auth/google/link",
+        json={
+            "credential": "token",
+            "email": test_member_unbound.email,
+            "password": "secret",
+        },
+    )
+
+    assert resp.status_code == 503
+    assert "nicht erreichbar" in resp.json()["detail"].lower()
 
 
 @patch("app.services.auth_service.id_token.verify_oauth2_token")
@@ -211,3 +248,31 @@ class TestGoogleLoginAtomicity:
             db_session.query(MembersOauth2Binding).filter_by(member_id=user.id).count()
             == 0
         )
+
+
+class TestTimeoutHTTPAdapter:
+    """Regression tests for the transport-level timeout fix: without it,
+    a stalled connection to Google's certs endpoint blocks for
+    google-auth's own internal default of 120 seconds (per attempted
+    address) instead of failing fast - root cause of the prod Google-Login
+    hang this fix guards against."""
+
+    def test_applies_default_timeout_when_none_given(self):
+        adapter = _TimeoutHTTPAdapter()
+
+        with patch(
+            "requests.adapters.HTTPAdapter.send", return_value=MagicMock()
+        ) as mock_send:
+            adapter.send(MagicMock())
+
+        assert mock_send.call_args.kwargs["timeout"] == _GOOGLE_CERTS_TIMEOUT_SECONDS
+
+    def test_preserves_explicit_timeout(self):
+        adapter = _TimeoutHTTPAdapter()
+
+        with patch(
+            "requests.adapters.HTTPAdapter.send", return_value=MagicMock()
+        ) as mock_send:
+            adapter.send(MagicMock(), timeout=42.0)
+
+        assert mock_send.call_args.kwargs["timeout"] == 42.0

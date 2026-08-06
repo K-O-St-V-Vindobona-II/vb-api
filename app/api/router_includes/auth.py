@@ -21,7 +21,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
 )
 from app.services import auth_service
-from app.services.auth_service import AccountNotLinkedError
+from app.services.auth_service import AccountNotLinkedError, GoogleAuthUnavailableError
 
 auth_router = APIRouter()
 
@@ -139,6 +139,11 @@ def login_with_google(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ACCOUNT_NOT_LINKED",
         ) from None
+    except GoogleAuthUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from None
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -166,6 +171,11 @@ def link_google_account(
         member = auth_service.link_google_account(
             db, data.credential, data.email, data.password
         )
+    except GoogleAuthUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from None
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
