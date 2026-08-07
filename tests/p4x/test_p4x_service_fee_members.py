@@ -1,8 +1,14 @@
 from datetime import UTC, date, datetime
 
+import bcrypt
+
+from app.models.enums import FeeInterval
 from app.models.member import Member
+from app.models.member_role import MemberRole
 from app.models.org import Org
+from app.models.role import Role
 from app.models.state import State
+from app.services.auth_service import create_user_session
 from app.services.p4x_fee_balance_service import (
     get_fee_members,
     search_fee_members,
@@ -24,6 +30,37 @@ def _seed_base(db) -> None:
         ]
     )
     db.commit()
+
+
+def _login_admin(db, _client) -> dict:
+    """Same pattern as test_p4x_categories.py::_login_admin — a "philchc"
+    role grants p4xAdmin."""
+    pw = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+    db.add(Role(id="phil-xxxx", group="philchc", label="Phil-x", order=1))
+    db.commit()
+    m = Member(
+        email="admin@vbw.at",
+        auth_password=pw,
+        auth_locked=False,
+        vorname="Admin",
+        nachname="User",
+        org_id="vbw",
+        state_id="up",
+    )
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    db.add(
+        MemberRole(
+            member_id=m.id,
+            role_id="phil-xxxx",
+            startdate=date(2020, 1, 1),
+            enddate=None,
+        )
+    )
+    db.commit()
+    token, _, _ = create_user_session(db, m)
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _create_member(
@@ -136,6 +173,7 @@ class TestUpdateFeeMember:
                 "p4x_init_balance": 50,
                 "p4x_freed": True,
                 "p4x_comment": "Sondergenehmigung",
+                "p4x_fee_interval": FeeInterval.QUARTERLY,
             },
         )
 
@@ -144,6 +182,28 @@ class TestUpdateFeeMember:
         assert member.p4x_init_balance == 50
         assert member.p4x_freed is True
         assert member.p4x_comment == "Sondergenehmigung"
+        assert member.p4x_fee_interval == FeeInterval.QUARTERLY
+
+    def test_update_accepts_raw_string_interval(self, db_session):
+        """update_fee_member() is also called directly (not just via the
+        HTTP endpoint, see TestUpdateFeeMemberViaHttpEndpoint) — the raw-str
+        branch must work standalone, same as p4x_init_date's str branch."""
+        _seed_base(db_session)
+        member = _create_member(db_session)
+
+        update_fee_member(
+            db_session,
+            member,
+            {
+                "p4x_init_date": "2020-06-15",
+                "p4x_init_balance": 0,
+                "p4x_freed": False,
+                "p4x_fee_interval": "annual",
+            },
+        )
+
+        db_session.refresh(member)
+        assert member.p4x_fee_interval == FeeInterval.ANNUAL
 
     def test_update_with_none_values(self, db_session):
         _seed_base(db_session)
@@ -170,3 +230,64 @@ class TestUpdateFeeMember:
         assert member.p4x_init_balance is None
         assert member.p4x_freed is None
         assert member.p4x_comment is None
+
+
+class TestUpdateFeeMemberViaHttpEndpoint:
+    """Exercises the REAL HTTP endpoint (not update_fee_member() called
+    directly), specifically for p4x_fee_interval — the tests in
+    TestUpdateFeeMember above call the service directly with a hand-built
+    dict, which does NOT catch the exact bug class that already bit
+    p4x_init_date once in production: FeeMemberUpdateRequest.model_dump()
+    hands the service a real FeeInterval enum instance parsed from a raw
+    JSON string, not the string itself — a Pydantic strict=True field
+    without Field(strict=False) would reject that raw string outright, and
+    a service-side isinstance() check written against the wrong type would
+    silently no-op instead of erroring. Only a real request through the
+    router exercises that whole chain."""
+
+    def test_p4x_fee_interval_round_trips_through_real_endpoint(
+        self, db_session, client
+    ):
+        _seed_base(db_session)
+        headers = _login_admin(db_session, client)
+        member = _create_member(db_session, email="target@t.at")
+
+        resp = client.post(
+            f"/api/p4x/admin/fee-members/{member.id}",
+            headers=headers,
+            json={
+                "p4x_init_date": "2020-06-15",
+                "p4x_init_balance": 50,
+                "p4x_freed": False,
+                "p4x_fee_interval": "quarterly",
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["p4x_fee_interval"] == "quarterly"
+
+        db_session.refresh(member)
+        assert member.p4x_fee_interval == FeeInterval.QUARTERLY
+        # Same class of bug as the historical p4x_init_date incident: assert
+        # the OTHER fields also actually persisted, not just interval.
+        assert member.p4x_init_date == date(2020, 6, 15)
+        assert member.p4x_init_balance == 50
+
+    def test_p4x_fee_interval_defaults_to_monthly_when_omitted(
+        self, db_session, client
+    ):
+        _seed_base(db_session)
+        headers = _login_admin(db_session, client)
+        member = _create_member(db_session, email="target2@t.at")
+
+        resp = client.post(
+            f"/api/p4x/admin/fee-members/{member.id}",
+            headers=headers,
+            json={
+                "p4x_init_date": "2020-06-15",
+                "p4x_init_balance": 0,
+                "p4x_freed": False,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["p4x_fee_interval"] == "monthly"

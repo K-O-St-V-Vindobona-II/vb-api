@@ -1,11 +1,11 @@
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
-from app.models.enums import SubjectMode
+from app.models.enums import FeeInterval, SubjectMode
 from app.schemas.base import StrictInputModel
 
 IBAN_REGEX = re.compile(r"^[A-Z]{2}\d{2}\s?[\w\s]{4,}$")
@@ -310,7 +310,7 @@ class FeeBalanceSum(BaseModel):
 
 
 class FeeProgressEntry(BaseModel):
-    type: str
+    type: Literal["fee", "payment", "excess"]
     booking: str
     amount: MoneyOut
     balance: MoneyOut
@@ -324,6 +324,7 @@ class FeeBalanceResponse(BaseModel):
     end_date: str
     end_balance: MoneyOut
     progress: list[FeeProgressEntry]
+    fee_ceiling_cutover_date: str
 
 
 class FeeMemberSelfResponse(BaseModel):
@@ -336,6 +337,7 @@ class FeeMemberSelfResponse(BaseModel):
     p4x_init_date: str | None
     p4x_init_balance: MoneyOut | None
     p4x_freed: bool | None
+    p4x_fee_interval: FeeInterval
     balance: FeeBalanceResponse | None
 
 
@@ -355,6 +357,7 @@ class FeeMemberUpdateRequest(StrictInputModel):
     )
     p4x_freed: bool = False
     p4x_comment: str | None = Field(None, max_length=250)
+    p4x_fee_interval: FeeInterval = Field(FeeInterval.MONTHLY, strict=False)
 
 
 class DebtorResponse(BaseModel):

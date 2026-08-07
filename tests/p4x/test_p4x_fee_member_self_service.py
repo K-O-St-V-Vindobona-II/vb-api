@@ -126,9 +126,9 @@ def _create_fee_eligible_member_without_balance(db) -> Member:
 
 def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     """Records a booked, category-tagged fee payment for the member -
-    _get_fee_payments_sum() only counts transactions that are BOTH linked to
-    the member via P4xPartner AND tagged with the fee category, so both are
-    required for the payment to actually show up in balance.sum.payments."""
+    _fetch_fee_payment_events() only counts transactions that are BOTH linked
+    to the member via P4xPartner AND tagged with the fee category, so both
+    are required for the payment to actually show up in balance.sum.payments."""
     account = db.query(P4xAccount).first()
 
     tx = P4xTransaction(

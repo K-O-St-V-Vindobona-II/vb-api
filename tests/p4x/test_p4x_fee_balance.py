@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
+from app.models.enums import FeeInterval
 from app.models.member import Member
 from app.models.org import Org
 from app.models.p4x_account import P4xAccount
@@ -10,7 +12,7 @@ from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.p4x_fee_balance_service import (
-    _count_months,
+    FEE_INTERVAL_CEILING_CUTOVER,
     calculate_fee_balance,
     get_debtors,
     is_fee_member,
@@ -78,6 +80,7 @@ def _create_fee_member(
     p4x_freed: bool = False,
     org_id: str = "vbw",
     state_id: str = "up",
+    p4x_fee_interval: FeeInterval = FeeInterval.MONTHLY,
 ) -> Member:
     member = Member(
         vorname="Test",
@@ -91,6 +94,7 @@ def _create_fee_member(
         p4x_init_date=p4x_init_date,
         p4x_init_balance=p4x_init_balance,
         p4x_freed=p4x_freed,
+        p4x_fee_interval=p4x_fee_interval,
     )
     db.add(member)
     db.commit()
@@ -146,27 +150,6 @@ def _add_fee_payment(
         )
     )
     db.commit()
-
-
-class TestCountMonths:
-    def test_same_month(self):
-        assert _count_months(date(2026, 1, 1), date(2026, 1, 31)) == 1
-
-    def test_two_months(self):
-        assert _count_months(date(2026, 1, 1), date(2026, 2, 28)) == 2
-
-    def test_full_year(self):
-        assert _count_months(date(2026, 1, 1), date(2026, 12, 31)) == 12
-
-    def test_across_years(self):
-        assert _count_months(date(2017, 1, 1), date(2017, 12, 31)) == 12
-
-    def test_partial_month(self):
-        assert _count_months(date(2026, 1, 1), date(2026, 1, 15)) == 1
-
-    def test_zero_months_when_end_before_start(self):
-        result = _count_months(date(2026, 3, 1), date(2025, 12, 31))
-        assert result <= 0
 
 
 class TestIsFeeMember:
@@ -567,3 +550,295 @@ class TestFeeBalanceEdgeCases:
         assert balance is not None
         assert balance["end_date"] == "2017-12-31"
         assert balance["count"]["fees"] == 1
+
+
+class TestCutoverGuard:
+    """Guards FEE_INTERVAL_CEILING_CUTOVER against being removed or
+    backdated without understanding the consequences — see that constant's
+    docstring in p4x_fee_balance_service.py. If this test class ever fails
+    after touching the cutover constant, re-read that docstring (and the
+    P4x fee/donation redesign plan it references) before "fixing" it: a
+    real analysis found 15 of 61 members would have been retroactively
+    worse off without it, 9 of them without warning."""
+
+    def test_large_overpayment_before_cutover_is_fully_credited(self, db_session):
+        """A payment far exceeding one month's fee, booked BEFORE the
+        cutover, must be credited in full — exactly the historical behavior
+        this feature deliberately never changes."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2017, 1, 1),
+        )
+        _add_fee_payment(db_session, member, date(2017, 1, 15), 200.0)
+
+        balance = calculate_fee_balance(db_session, member, "2017-01-01", "2017-01-31")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        assert balance["end_balance"] == 190.0  # 200 credited - 10 (Jan fee)
+
+    def test_same_overpayment_after_cutover_is_capped(self, db_session):
+        """The identical kind of overpayment, but booked ON/AFTER the
+        cutover, must produce an 'excess' entry — this is the behavior the
+        cutover exists to introduce."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+        )
+        # Booked before the day-10 Soll, so running_balance_before the
+        # payment is exactly 0 — makes the expected ceiling/excess split
+        # trivial to verify by hand.
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 200.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        excess_entries = [e for e in balance["progress"] if e["type"] == "excess"]
+        assert len(excess_entries) == 1
+        assert excess_entries[0]["amount"] == Decimal("185.00")  # 200 - 15 (ceiling)
+        assert balance["end_balance"] == 0.0  # 15 credited - 15 (Sept fee)
+
+    def test_new_member_after_cutover_is_capped_from_first_payment(self, db_session):
+        """A member whose p4x_init_date is entirely after the cutover has,
+        by construction, only payments with booking >= CUTOVER — the
+        capping must apply from their very first payment, no implicit
+        'transition period'."""
+        _seed_base(db_session)
+        assert date(2026, 10, 1) >= FEE_INTERVAL_CEILING_CUTOVER
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 10, 1),
+        )
+        _add_fee_payment(db_session, member, date(2026, 10, 5), 100.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-10-01", "2026-10-31")
+        assert balance is not None
+        excess_entries = [e for e in balance["progress"] if e["type"] == "excess"]
+        assert len(excess_entries) == 1
+        assert excess_entries[0]["amount"] == Decimal("85.00")  # 100 - 15 (ceiling)
+
+
+class TestFeeIntervalCeiling:
+    """Payments booked on/after the cutover, exercising the advance-payment
+    ceiling per FeeInterval tier. All payments below are booked before the
+    day-10 Soll of the same month, so running_balance_before is exactly 0 —
+    makes the expected credited/excess split trivial to verify by hand."""
+
+    def test_quarterly_exact_payment_no_excess(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+            p4x_fee_interval=FeeInterval.QUARTERLY,
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 45.0)  # 3 * 15
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        assert balance["end_balance"] == 30.0  # 45 credited - 15 (Sept fee)
+
+    def test_semiannual_exact_payment_no_excess(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+            p4x_fee_interval=FeeInterval.SEMIANNUAL,
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 90.0)  # 6 * 15
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        assert balance["end_balance"] == 75.0  # 90 credited - 15 (Sept fee)
+
+    def test_annual_exact_payment_no_excess(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+            p4x_fee_interval=FeeInterval.ANNUAL,
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 180.0)  # 12 * 15
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        assert balance["end_balance"] == 165.0  # 180 credited - 15 (Sept fee)
+
+    def test_overpayment_beyond_ceiling_produces_excess(self, db_session):
+        """Monthly (default) member paying far more than one month's fee —
+        the core scenario this whole feature exists to correctly handle."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 45.0)  # 3 months' worth
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        excess = [e for e in balance["progress"] if e["type"] == "excess"]
+        assert len(excess) == 1
+        assert excess[0]["amount"] == Decimal("30.00")
+        payments = [e for e in balance["progress"] if e["type"] == "payment"]
+        assert payments[0]["amount"] == Decimal("15.00")
+
+    def test_arrears_repayment_never_capped(self, db_session):
+        """A member in arrears catching up in one lump sum must be credited
+        in full — the ceiling only limits advancing further INTO credit,
+        never repaying a deficit."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=-500,
+            p4x_init_date=date(2026, 8, 1),
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 400.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+
+    def test_unlimited_never_produces_excess(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+            p4x_fee_interval=FeeInterval.UNLIMITED,
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 10_000.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        assert balance["end_balance"] == 9985.0  # 10000 credited - 15 (Sept fee)
+
+
+class TestFeeRateChangeWithinInterval:
+    def test_ceiling_uses_actual_monthly_rates_not_flat_multiplication(
+        self, db_session
+    ):
+        """An annual payer whose prepayment interval straddles a rate
+        change — the ceiling must be the true blended sum of actual monthly
+        rates, not a flat `interval_months * rate_at_payment_date` in
+        either direction (which would misprice this member either way)."""
+        _seed_base(db_session)
+        # A second rate change on top of _seed_base's 2024-06 one, so the
+        # trailing 12 months ending September 2026 actually straddle it:
+        # Oct 2025 - Feb 2026 at 15€ (5 months), Mar 2026 - Sep 2026 at 20€
+        # (7 months) = 5*15 + 7*20 = 75 + 140 = 215.
+        db_session.add(P4xFee(start=date(2026, 3, 1), fee=20.0, protected=False))
+        db_session.commit()
+
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+            p4x_fee_interval=FeeInterval.ANNUAL,
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 215.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        # A flat `12 * 20` (=240) would have accepted more than paid (no
+        # excess, but wrongly implying headroom for 25 more); a flat
+        # `12 * 15` (=180) would have wrongly flagged 35 as excess. Only the
+        # month-by-month blended sum (215) matches exactly.
+        assert [e for e in balance["progress"] if e["type"] == "excess"] == []
+        payments = [e for e in balance["progress"] if e["type"] == "payment"]
+        assert payments[0]["amount"] == Decimal("215.00")
+        assert balance["end_balance"] == 195.0  # 215 credited - 20 (Sept fee, new rate)
+
+
+class TestFeeIntervalSelfHealing:
+    def test_correcting_interval_retroactively_fixes_balance(self, db_session):
+        """calculate_fee_balance recomputes from scratch on every call — a
+        wrongly-defaulted interval (monthly) that caused an 'excess' entry
+        self-heals the instant the member is retagged, with no data
+        migration or manual cleanup needed."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 45.0)  # 3 months' worth
+
+        before = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert before is not None
+        assert len([e for e in before["progress"] if e["type"] == "excess"]) == 1
+
+        member.p4x_fee_interval = FeeInterval.QUARTERLY
+        db_session.commit()
+
+        after = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert after is not None
+        assert [e for e in after["progress"] if e["type"] == "excess"] == []
+        assert after["end_balance"] == 30.0
+
+
+class TestFreedMemberFeeCategorizedPayment:
+    def test_payment_to_freed_member_lands_entirely_as_excess(self, db_session):
+        """A freed member owes nothing (no Soll entries ever generated for
+        them), so the ceiling is forced to 0 regardless of their tagged
+        interval — any 'Beitrag'-categorized payment they still receive
+        after the cutover is, by construction, a donation."""
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_freed=True,
+            p4x_init_balance=0,
+            p4x_init_date=date(2026, 9, 1),
+        )
+        _add_fee_payment(db_session, member, date(2026, 9, 5), 50.0)
+
+        balance = calculate_fee_balance(db_session, member, "2026-09-01", "2026-09-30")
+        assert balance is not None
+        assert balance["count"]["fees"] == 0  # freed: no Soll entries at all
+        excess = [e for e in balance["progress"] if e["type"] == "excess"]
+        assert len(excess) == 1
+        assert excess[0]["amount"] == Decimal("50.00")
+        assert balance["end_balance"] == 0.0
+
+
+class TestFeeBalanceQueryCount:
+    """Regression test for the N+1 fix: calculate_fee_balance used to call
+    fee_for_month() (one query each) once per month across two separate
+    Soll-generation loops, plus duplicated payment queries — now the whole
+    function issues a fixed, small number of queries regardless of how many
+    months/payments are in the requested range."""
+
+    def test_query_count_does_not_scale_with_time_range(
+        self, db_session, count_queries
+    ):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session,
+            p4x_init_balance=0,
+            p4x_init_date=date(2017, 1, 1),
+        )
+        _add_fee_payment(db_session, member, date(2018, 6, 15), 15.0)
+
+        # Warm-up call, not measured: expire_on_commit=True means the first
+        # attribute access on `member`/`fee` rows after the commits above
+        # triggers a one-time refresh SELECT that has nothing to do with
+        # calculate_fee_balance's own query count — would otherwise pollute
+        # the comparison below with a session-warmup artifact.
+        calculate_fee_balance(db_session, member, "2017-01-01", "2017-01-31")
+
+        with count_queries() as short_range:
+            calculate_fee_balance(db_session, member, "2017-01-01", "2017-12-31")
+
+        with count_queries() as long_range:
+            calculate_fee_balance(db_session, member, "2017-01-01", "2026-07-31")
+
+        assert long_range.count == short_range.count

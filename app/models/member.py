@@ -8,7 +8,7 @@ from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Numeri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.enums import MemberDeliveryPreference, enum_values
+from app.models.enums import FeeInterval, MemberDeliveryPreference, enum_values
 
 if TYPE_CHECKING:
     from app.models.member_badge import MemberBadge
@@ -127,6 +127,16 @@ class Member(Base):
     p4x_init_balance: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     p4x_freed: Mapped[bool | None]
     p4x_comment: Mapped[str | None]
+    p4x_fee_interval: Mapped[FeeInterval] = mapped_column(
+        Enum(
+            FeeInterval,
+            name="p4x_fee_interval",
+            native_enum=True,
+            values_callable=enum_values,
+        ),
+        default=FeeInterval.MONTHLY,
+        server_default=FeeInterval.MONTHLY.value,
+    )
 
     # --- Auth ---
     auth_password: Mapped[str | None]

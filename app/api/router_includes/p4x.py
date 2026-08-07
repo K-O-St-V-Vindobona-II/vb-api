@@ -853,13 +853,14 @@ def _build_fee_member_response(
             end_balance=balance_data["end_balance"],
             progress=[
                 FeeProgressEntry(
-                    type=str(p["type"]),
+                    type=p["type"],
                     booking=str(p["booking"]),
                     amount=Decimal(str(p["amount"])),
                     balance=Decimal(str(p["balance"])),
                 )
                 for p in balance_data["progress"]
             ],
+            fee_ceiling_cutover_date=balance_data["fee_ceiling_cutover_date"],
         )
 
     init_date_raw = member.p4x_init_date or member.philistrierungsdatum
@@ -873,6 +874,7 @@ def _build_fee_member_response(
         p4x_init_date=init_date_str,
         p4x_init_balance=member.p4x_init_balance,
         p4x_freed=bool(member.p4x_freed),
+        p4x_fee_interval=member.p4x_fee_interval,
         p4x_comment=member.p4x_comment,
         balance=balance,
     )
