@@ -269,8 +269,9 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
-            run_restore(storage, backup_name=backup_name)
+            restored = run_restore(storage, backup_name=backup_name)
 
+        assert restored == backup_name
         assert mock_run.call_count == 2
         restore_args = mock_run.call_args_list[1][0][0]
         assert "pg_restore" in restore_args[0]
@@ -320,8 +321,9 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
         ):
             mock_run.return_value = MagicMock(returncode=0)
-            run_restore(storage, backup_name=None)
+            restored = run_restore(storage, backup_name=None)
 
+        assert restored == "test-2026-06-30_03-00-00.dump"
         assert mock_run.call_count == 2
 
     def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
@@ -340,8 +342,9 @@ class TestRunRestore:
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-            run_restore(storage, backup_name=None)
+            restored = run_restore(storage, backup_name=None)
 
+        assert restored == newest
         mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
 
     def test_run_restore_latest_picks_newer_scheduled_over_older_manual(
@@ -360,8 +363,9 @@ class TestRunRestore:
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-            run_restore(storage, backup_name=None)
+            restored = run_restore(storage, backup_name=None)
 
+        assert restored == newest
         mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
 
     def test_run_restore_no_backups(self, backup_bucket):

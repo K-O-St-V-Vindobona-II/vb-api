@@ -53,8 +53,8 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        run_restore(storage, backup_name=args.backup_name, force=args.force)
-        print("Restore complete.")
+        restored = run_restore(storage, backup_name=args.backup_name, force=args.force)
+        print(f"Restore complete. Backup: {restored}")
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -14,11 +14,12 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_fee import P4xFee
+from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.p4x_account_service import get_account_balance
 from app.services.p4x_category_service import set_category_direct
-from app.services.p4x_fee_balance_service import calculate_fee_balance
+from app.services.p4x_fee_balance_service import calculate_fee_balance, get_fee_balances
 
 
 def _now() -> datetime:
@@ -231,3 +232,90 @@ class TestCalculateFeeBalancePrecision:
         # 3 months (Jan-Mar) of 10.10 fee, no payments -> exactly -30.30.
         assert balance["end_balance"] == Decimal("-30.30")
         assert balance["sum"]["fees"] == Decimal("-30.30")
+
+
+class TestGetFeeBalancesPrecision:
+    """Same float-drift risk as TestCalculateFeeBalancePrecision, but for
+    the N+1-safe bulk path (get_fee_balances) - it accumulates payment
+    sums independently via a Decimal running total (_MemberFeeState),
+    which must be equally exact."""
+
+    def test_many_small_payments_sum_exactly(self, db_session):
+        db_session.add_all(
+            [
+                Org(id="vbw", label="VBW", order=1),
+                State(id="up", label="UP", order=1),
+            ]
+        )
+        db_session.commit()
+
+        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
+        category = P4xCategory(
+            id=1,
+            name="eingang.mitgliedsbeitrag",
+            label="Mitgliedsbeitrag",
+            background_color="#336600",
+            text_color="#ffffff",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(category)
+        db_session.commit()
+
+        account = _create_account(db_session)
+
+        # p4x_freed=True: no monthly fee deductions, so the resulting
+        # balance depends only on the exactness of the payment summation.
+        member = Member(
+            vorname="Test",
+            nachname="User",
+            couleurname="PrecisionBulk",
+            email="precision-bulk@test.at",
+            auth_password="x",
+            auth_locked=False,
+            org_id="vbw",
+            state_id="up",
+            p4x_init_date=date(2017, 1, 1),
+            p4x_init_balance=Decimal("0.00"),
+            p4x_freed=True,
+        )
+        db_session.add(member)
+        db_session.commit()
+        db_session.refresh(member)
+
+        db_session.add(
+            P4xPartner(
+                iban="AT001",
+                member_id=member.id,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+        db_session.commit()
+
+        for i in range(10):
+            tx = P4xTransaction(
+                sha256_hash=f"bulk_drift_{i}",
+                booking=date(2017, 1, 15),
+                valuation=date(2017, 1, 15),
+                iban="AT001",
+                amount=Decimal("0.10"),
+                subject="Test",
+                p4x_account_id=account.id,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+            db_session.add(tx)
+            db_session.flush()
+            db_session.add(
+                P4xCategoryDirect(
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=category.id,
+                    amount=Decimal("0.10"),
+                )
+            )
+        db_session.commit()
+
+        entry = next(b for b in get_fee_balances(db_session) if b["id"] == member.id)
+        assert isinstance(entry["end_balance"], Decimal)
+        assert entry["end_balance"] == Decimal("1.00")

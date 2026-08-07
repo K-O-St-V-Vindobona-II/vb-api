@@ -170,12 +170,13 @@ def run_restore(
     backup_name: str | None = None,
     *,
     force: bool = False,
-) -> None:
+) -> str:
     """
     Restore the PostgreSQL database from an S3 backup.
 
     If backup_name is None, restores the latest available backup.
     Requires force=True when APP_ENVIRONMENT == 'production'.
+    Returns the name of the backup that was actually restored.
     """
     database_url = cast("str", get_settings().database_url)
     _require_postgres(database_url)
@@ -225,6 +226,7 @@ def run_restore(
         Path(tmp_path).unlink()
 
     logger.info("DB restore complete from: %s", backup_name)
+    return backup_name
 
 
 def _parse_backup_timestamp(backup_name: str) -> datetime | None:

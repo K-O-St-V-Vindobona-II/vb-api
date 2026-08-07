@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from bisect import bisect_right
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from sqlalchemy import func
 
@@ -536,20 +538,284 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     }
 
 
-def get_debtors(db: Session) -> list[dict[str, int | str | Decimal]]:
-    fee_members = get_fee_members(db)
-    debtors: list[dict[str, int | str | Decimal]] = []
+# ---------------------------------------------------------------------------
+# Bulk fee balance list ("Saldenliste") - N+1-safe equivalent of calling
+# calculate_fee_balance(db, member) for every fee member and reading
+# end_balance. calculate_fee_balance() itself and its helpers
+# (_get_fee_payments_sum/_get_fee_payments_list) are deliberately left
+# untouched here - they back the well-tested single-member views/exports
+# and a related redesign of that function is intentionally on hold (see
+# feature/p4x-fee-interval-cutover). The functions below duplicate a small
+# amount of their logic on purpose to keep that surface completely
+# unaffected, in exchange for a bulk path with a constant query count
+# instead of one that scales with the number of fee members.
+# ---------------------------------------------------------------------------
 
+
+class FeeBalanceListEntry(TypedDict):
+    """One row of the bulk fee-balance list. `end_balance` is
+    mathematically identical to calculate_fee_balance(db, member)
+    ["end_balance"] for the same member with default (no-override) dates
+    - see TestGetFeeBalancesMatchesCalculateFeeBalance."""
+
+    id: int
+    cn: str
+    p4x_freed: bool
+    end_balance: Decimal
+
+
+@dataclass
+class _MemberFeeState:
+    """Per-member working state accumulated during the bulk pass."""
+
+    init_date: date
+    end_date: date
+    fee_sum: Decimal = Decimal(0)
+    payment_sum: Decimal = Decimal(0)
+
+
+class _FeeCategoryTxRow(NamedTuple):
+    """One fee-category transaction row, as needed for bulk payment
+    attribution (see _attribute_payment)."""
+
+    iban: str | None
+    booking: date
+    amount: Decimal
+    delegating_member_id: int | None
+    no_delegation: bool
+
+
+def _end_of_month(target: date) -> date:
+    """Last calendar day of target's month."""
+    if target.month == 12:
+        return date(target.year + 1, 1, 1) - timedelta(days=1)
+    return date(target.year, target.month + 1, 1) - timedelta(days=1)
+
+
+def _sum_fees_for_period(
+    month_starts: list[date],
+    month_fees: list[Decimal],
+    first_month: date,
+    n_months: int,
+) -> Decimal:
+    """Pure-Python replication of the fee_for_month() step function - no
+    DB calls. month_starts/month_fees come from get_all_fees(db), loaded
+    once for the whole bulk run (see get_fee_balances)."""
+    total = Decimal(0)
+    for i in range(n_months):
+        year = first_month.year + (first_month.month - 1 + i) // 12
+        month = (first_month.month - 1 + i) % 12 + 1
+        idx = bisect_right(month_starts, date(year, month, 1)) - 1
+        if idx >= 0:
+            total += month_fees[idx]
+    return total
+
+
+def _build_member_states(
+    fee_members: list[Member],
+    month_starts: list[date],
+    month_fees: list[Decimal],
+    default_end_date: date,
+) -> dict[int, _MemberFeeState]:
+    """One entry per fee-eligible member with a usable init_date. Members
+    without p4x_init_date/philistrierungsdatum are silently skipped
+    (mirrors calculate_fee_balance's `return None` for them)."""
+    states: dict[int, _MemberFeeState] = {}
     for member in fee_members:
-        balance = calculate_fee_balance(db, member)
-        if balance and balance["end_balance"] < 0:
-            debtors.append(
-                {
-                    "id": member.id,
-                    "cn": member.cn,
-                    "balance": balance["end_balance"],
-                }
+        init_date_raw = member.p4x_init_date or member.philistrierungsdatum
+        if init_date_raw is None:
+            continue
+        init_date = init_date_raw.replace(day=1)
+        end_date = (
+            default_end_date
+            if default_end_date >= init_date
+            else _end_of_month(init_date)
+        )
+        fee_sum = Decimal(0)
+        if not member.p4x_freed:
+            n_months = _count_months(init_date, end_date)
+            fee_sum = _sum_fees_for_period(
+                month_starts, month_fees, init_date, n_months
             )
+        states[member.id] = _MemberFeeState(
+            init_date=init_date, end_date=end_date, fee_sum=fee_sum
+        )
+    return states
 
-    debtors.sort(key=lambda d: Decimal(str(d.get("balance", 0))))
-    return debtors
+
+def _fee_category_tx_ids(db: Session) -> set[int]:
+    """Member-independent set of transaction ids in the fee category.
+    Deliberately duplicated from _get_fee_payments_sum/
+    _get_fee_payments_list rather than extracted from them - those
+    helpers back calculate_fee_balance() and are out of scope for
+    refactoring here."""
+    direct_tx_ids = {
+        r[0]
+        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
+        .filter(
+            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.deleted_at.is_(None),
+        )
+        .all()
+    }
+    filter_ids = [
+        r[0]
+        for r in db.query(P4xCategoryFilter.id)
+        .filter(P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID)
+        .all()
+    ]
+    filter_tx_ids = (
+        {
+            r[0]
+            for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
+            .filter(P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids))
+            .all()
+        }
+        if filter_ids
+        else set()
+    )
+    all_direct_tx_ids = {
+        r[0]
+        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
+        .filter(P4xCategoryDirect.deleted_at.is_(None))
+        .distinct()
+        .all()
+    }
+    return direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
+
+
+def _iban_to_member_id_map(db: Session, member_ids: list[int]) -> dict[str, int]:
+    """One query for every fee member's own IBANs, instead of one query
+    per member."""
+    if not member_ids:
+        return {}
+    rows = (
+        db.query(P4xPartner.iban, P4xPartner.member_id)
+        .filter(
+            P4xPartner.member_id.in_(member_ids),
+            P4xPartner.deleted_at.is_(None),
+        )
+        .all()
+    )
+    return {r[0]: r[1] for r in rows if r[0] is not None}
+
+
+def _fetch_fee_category_transactions(
+    db: Session,
+    tx_ids: set[int],
+    booking_from: date,
+    booking_to: date,
+) -> list[_FeeCategoryTxRow]:
+    """One query for every relevant transaction across all members.
+    booking_from/booking_to are the tightest bounds covering every
+    member's [init_date, end_date] window - a correctness-neutral
+    optimization to avoid pulling years of irrelevant transactions; the
+    exact per-member window is still enforced in _attribute_payment."""
+    if not tx_ids:
+        return []
+    rows = (
+        db.query(
+            P4xTransaction.iban,
+            P4xTransaction.booking,
+            P4xTransaction.amount,
+            P4xTransaction.delegating_member_id,
+            p4x_account_service.no_delegation_filter(),
+        )
+        .filter(
+            P4xTransaction.deleted_at.is_(None),
+            P4xTransaction.amount > 0,
+            P4xTransaction.id.in_(tx_ids),
+            P4xTransaction.booking >= booking_from,
+            P4xTransaction.booking <= booking_to,
+        )
+        .all()
+    )
+    return [
+        _FeeCategoryTxRow(
+            iban=r[0],
+            booking=r[1],
+            amount=r[2],
+            delegating_member_id=r[3],
+            no_delegation=bool(r[4]),
+        )
+        for r in rows
+    ]
+
+
+def _attribute_payment(
+    states: dict[int, _MemberFeeState],
+    iban_map: dict[str, int],
+    members_with_own_iban: set[int],
+    row: _FeeCategoryTxRow,
+) -> None:
+    """Same attribution rule as p4x_account_service.no_delegation_filter()
+    plus its call site in get_transactions_by_partner(): an explicit
+    delegation always wins regardless of iban; otherwise iban ownership
+    only applies when no delegation is set at all.
+
+    Deliberate quirk, replicated for exact parity with
+    _get_fee_payments_sum/_get_fee_payments_list: those helpers return
+    early with zero payments for any member with NO P4xPartner row at
+    all, BEFORE even checking delegating_member_id - so a member without
+    a single registered iban of their own never receives credit for a
+    payment, not even one explicitly delegated to them. See
+    TestGetFeeBalancesMatchesCalculateFeeBalance's "T" (delegated_target)
+    case, which caught this."""
+    target_id = row.delegating_member_id
+    if target_id is not None and target_id not in members_with_own_iban:
+        target_id = None
+    if target_id is None and row.no_delegation and row.iban is not None:
+        target_id = iban_map.get(row.iban)
+    if target_id is None:
+        return
+    state = states.get(target_id)
+    if state is None:
+        return
+    if not (state.init_date <= row.booking <= state.end_date):
+        return
+    state.payment_sum += row.amount
+
+
+def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
+    """Bulk equivalent of calling calculate_fee_balance(db, member) for
+    every fee member and reading end_balance - with a constant number of
+    queries regardless of member count (see TestGetFeeBalancesQueryCount
+    and TestGetFeeBalancesMatchesCalculateFeeBalance)."""
+    fee_members = get_fee_members(db)
+    fees = get_all_fees(db)
+    month_starts = [f.start.replace(day=1) for f in fees]
+    month_fees = [f.fee for f in fees]
+    default_end_date = datetime.now(UTC).date().replace(day=1) - timedelta(days=1)
+
+    states = _build_member_states(
+        fee_members, month_starts, month_fees, default_end_date
+    )
+    if not states:
+        return []
+
+    iban_map = _iban_to_member_id_map(db, list(states.keys()))
+    members_with_own_iban = set(iban_map.values())
+    booking_from = min(s.init_date for s in states.values())
+    booking_to = max(s.end_date for s in states.values())
+    tx_rows = _fetch_fee_category_transactions(
+        db, _fee_category_tx_ids(db), booking_from, booking_to
+    )
+    for row in tx_rows:
+        _attribute_payment(states, iban_map, members_with_own_iban, row)
+
+    entries: list[FeeBalanceListEntry] = [
+        {
+            "id": member.id,
+            "cn": member.cn,
+            "p4x_freed": bool(member.p4x_freed),
+            "end_balance": (
+                (member.p4x_init_balance or Decimal(0))
+                - states[member.id].fee_sum
+                + states[member.id].payment_sum
+            ),
+        }
+        for member in fee_members
+        if member.id in states
+    ]
+    entries.sort(key=lambda e: e["end_balance"])
+    return entries

@@ -63,7 +63,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
             "Financial accounting module (AH-Kassen). "
             "Bank account management, transaction import/browse, "
             "category assignment (filter-based and direct), "
-            "partner management, fee configuration, debtor tracking, "
+            "partner management, fee configuration, fee balance overview, "
             "SumUp balance, and PDF summary reports."
         ),
     },

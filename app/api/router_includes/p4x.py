@@ -25,8 +25,8 @@ from app.schemas.p4x import (
     CategorySaveRequest,
     CategoryWithUsageResponse,
     DashboardResponse,
-    DebtorResponse,
     FeeBalanceCount,
+    FeeBalanceListItem,
     FeeBalanceResponse,
     FeeBalanceSum,
     FeeCreateRequest,
@@ -987,20 +987,22 @@ def update_fee_member(
     return _build_fee_member_response(db, member)
 
 
-@p4x_router.get("/fee-debtors")
-def get_fee_debtors(
+@p4x_router.get("/fee-balances")
+def get_fee_balances(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-) -> list[DebtorResponse]:
-    """List all members with outstanding fee debts."""
-    debtors = p4x_fee_balance_service.get_debtors(db)
+) -> list[FeeBalanceListItem]:
+    """List the current fee balance for every fee-liable member (not
+    just debtors)."""
+    balances = p4x_fee_balance_service.get_fee_balances(db)
     return [
-        DebtorResponse(
-            id=int(d["id"]),
-            cn=str(d["cn"]),
-            balance=Decimal(str(d["balance"])),
+        FeeBalanceListItem(
+            id=b["id"],
+            cn=b["cn"],
+            p4x_freed=b["p4x_freed"],
+            balance=b["end_balance"],
         )
-        for d in debtors
+        for b in balances
     ]
 
 

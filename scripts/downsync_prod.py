@@ -97,11 +97,11 @@ def _run_db_restore(local_storage: StorageClient, dry_run: bool) -> None:
         return
 
     try:
-        run_restore(local_storage)
+        restored = run_restore(local_storage)
     except RuntimeError as exc:
         print(f"ERROR: DB restore failed: {exc}", file=sys.stderr)
         sys.exit(1)
-    print("  DB restore complete.")
+    print(f"  DB restore complete: {restored}")
 
     print("  Running alembic upgrade head...")
     result = subprocess.run(

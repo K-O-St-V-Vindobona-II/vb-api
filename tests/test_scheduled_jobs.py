@@ -435,6 +435,7 @@ class TestJobDownsync:
             patch("app.core.scheduler.run_restore") as mock_restore,
             patch("app.core.scheduler.command.upgrade") as mock_upgrade,
         ):
+            mock_restore.return_value = "production-2026-08-08_03-00-00.dump"
             job_downsync()
 
         mock_load_env.assert_called_once()
@@ -443,7 +444,13 @@ class TestJobDownsync:
         mock_restore.assert_called_once()
         mock_upgrade.assert_called_once()
         mock_record_job_run.assert_called_once_with(
-            "downsync", ANY, exit_code=0, output=ANY
+            "downsync",
+            ANY,
+            exit_code=0,
+            output=(
+                "S3-Files: 1 synced, 0 skipped, 0 deleted; DB: restored from "
+                "production-2026-08-08_03-00-00.dump."
+            ),
         )
 
     def test_mirror_errors_skip_restore_and_migration(self, mock_record_job_run):

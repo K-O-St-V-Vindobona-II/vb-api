@@ -791,7 +791,7 @@ def job_downsync() -> None:
     )
 
     try:
-        run_restore(local_storage)
+        restored_backup_name = run_restore(local_storage)
         command.upgrade(Config("alembic.ini"), "head")
     except Exception as exc:
         logger.exception("Downsync DB restore/migration failed.")
@@ -803,14 +803,15 @@ def job_downsync() -> None:
         )
         return
 
-    logger.info("Downsync complete: local DB restored from latest prod backup.")
+    logger.info("Downsync complete: local DB restored from %s.", restored_backup_name)
     record_job_run(
         "downsync",
         started,
         exit_code=0,
         output=(
             f"S3-Files: {len(result.synced)} synced, {result.skipped} skipped, "
-            f"{len(result.deleted)} deleted; DB: restored from latest prod backup."
+            f"{len(result.deleted)} deleted; DB: restored from "
+            f"{restored_backup_name}."
         ),
     )
 

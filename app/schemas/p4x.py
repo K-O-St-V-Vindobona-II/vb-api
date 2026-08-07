@@ -357,9 +357,10 @@ class FeeMemberUpdateRequest(StrictInputModel):
     p4x_comment: str | None = Field(None, max_length=250)
 
 
-class DebtorResponse(BaseModel):
+class FeeBalanceListItem(BaseModel):
     id: int
     cn: str
+    p4x_freed: bool
     balance: MoneyOut
 
 
