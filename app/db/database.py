@@ -16,6 +16,20 @@ engine = create_engine(
     max_overflow=20,
     pool_timeout=10,
     pool_recycle=3600,
+    # A restore/downsync (see backup_service.py's _wipe_public_schema())
+    # deliberately pg_terminate_backend()s every other session on this
+    # database right before it wipes the schema - including whatever of
+    # this pool's own connections happen to be idle at that moment.
+    # Without pre_ping, the pool hands one of those out on the next
+    # checkout exactly as-is, and the first query against it fails with an
+    # OperationalError (server closed the connection unexpectedly) -
+    # observed in practice: this is what silently ate job_downsync()'s own
+    # scheduled_task_runs completion write immediately after a restore.
+    # pre_ping cheaply tests each connection with a lightweight round trip
+    # before handing it out and transparently discards+reconnects on
+    # failure - the standard fix for any out-of-band connection loss, not
+    # just this one.
+    pool_pre_ping=True,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

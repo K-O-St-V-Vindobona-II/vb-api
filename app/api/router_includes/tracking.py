@@ -74,6 +74,11 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
         },
         "format_value": _format_preview_value,
     },
+    "own-image-changed": {
+        "member_cn": "Franz Beispiel v/o Musterknabe",
+        "action_label": "ein neues Profilbild hochgeladen",
+        "action": "upload",
+    },
     "birthday": {
         "name": "Max Mustermann v/o Testikus",
         "age": 25,

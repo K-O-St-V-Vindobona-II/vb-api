@@ -387,3 +387,38 @@ def send_member_change_request_resolved_email(
         html_content,
         template_key="member-change-request-resolved",
     )
+
+
+def send_own_image_changed_email(
+    to_emails: list[str],
+    member_cn: str,
+    action: str,
+) -> None:
+    """Notifies a member's org standesdb admins that the member changed one
+    of their own profile images via self-service (upload/update/delete).
+    Purely informational - self-service image changes need no admin
+    approval, this is not a gate."""
+    if not to_emails:
+        return
+
+    action_label = {
+        "upload": "ein neues Profilbild hochgeladen",
+        "update": "ein Profilbild bearbeitet",
+        "delete": "ein Profilbild gelöscht",
+    }.get(action, "ein Profilbild geändert")
+
+    subject = f"Profilbild geändert: {member_cn}"
+
+    template = _jinja_env.get_template("own_image_changed.html")
+    html_content = template.render(
+        member_cn=member_cn,
+        action_label=action_label,
+        action=action,
+    )
+
+    send_to_recipients(
+        to_emails,
+        subject,
+        html_content,
+        template_key="own-image-changed",
+    )

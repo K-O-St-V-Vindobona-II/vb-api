@@ -23,6 +23,7 @@ from app.core.scheduler import (
     _format_next_run,
     _parse_month_day,
     _parse_year,
+    _run_alembic_upgrade_head,
     _send_debtor_reminders,
     get_scheduled_jobs,
     job_archive_health_check,
@@ -419,6 +420,31 @@ class TestGetScheduledJobs:
         assert result[0]["next_run"] is None
 
 
+class TestRunAlembicUpgradeHead:
+    """alembic upgrade head must run as a subprocess, never in-process -
+    see _run_alembic_upgrade_head()'s docstring for why (alembic/env.py's
+    fileConfig() call silently disables this module's own logger after
+    the first in-process invocation, observed to also swallow this job's
+    own scheduled_task_runs completion write)."""
+
+    def test_success_runs_expected_command(self):
+        with patch("app.core.scheduler.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            _run_alembic_upgrade_head()
+
+        mock_run.assert_called_once_with(
+            ["alembic", "upgrade", "head"], capture_output=True, check=False
+        )
+
+    def test_failure_raises_with_stderr(self):
+        with patch("app.core.scheduler.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stderr=b"FAILED: could not connect to database"
+            )
+            with pytest.raises(RuntimeError, match="could not connect to database"):
+                _run_alembic_upgrade_head()
+
+
 class TestJobDownsync:
     def test_happy_path_calls_steps_in_order(self, mock_record_job_run):
         with (
@@ -433,7 +459,7 @@ class TestJobDownsync:
                 return_value=MirrorResult(synced=["a"]),
             ) as mock_mirror,
             patch("app.core.scheduler.run_restore") as mock_restore,
-            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+            patch("app.core.scheduler._run_alembic_upgrade_head") as mock_upgrade,
         ):
             mock_restore.return_value = "production-2026-08-08_03-00-00.dump"
             job_downsync()
@@ -462,7 +488,7 @@ class TestJobDownsync:
                 return_value=MirrorResult(errors=["archive/store/x"]),
             ),
             patch("app.core.scheduler.run_restore") as mock_restore,
-            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+            patch("app.core.scheduler._run_alembic_upgrade_head") as mock_upgrade,
         ):
             job_downsync()
 
@@ -493,7 +519,7 @@ class TestJobDownsync:
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
             patch("app.core.scheduler.mirror_prefix", return_value=MirrorResult()),
             patch("app.core.scheduler.run_restore", side_effect=RuntimeError("boom")),
-            patch("app.core.scheduler.command.upgrade") as mock_upgrade,
+            patch("app.core.scheduler._run_alembic_upgrade_head") as mock_upgrade,
         ):
             job_downsync()  # must not raise
 

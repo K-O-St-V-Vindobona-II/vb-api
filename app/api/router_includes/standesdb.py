@@ -21,6 +21,7 @@ from app.core.mailer import (
     send_entry_changed_email,
     send_member_change_request_resolved_email,
     send_member_change_request_submitted_email,
+    send_own_image_changed_email,
 )
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
@@ -622,7 +623,110 @@ def delete_contact(
     standesdb_service.soft_delete_contact(db, contact, current_user)
 
 
-# --- Member Images ---
+# --- Member Images: Self-service (own images, no admin permission required) ---
+#
+# NOTE: these four "me" routes must stay registered before their
+# "/members/{member_id}/images..." counterparts below. member_id has no
+# explicit int path converter, so Starlette compiles a generic
+# single-segment pattern for it; if {member_id} were registered first, a
+# GET/POST/PUT/DELETE to "/members/me/images..." would match THAT route
+# instead and fail int-conversion with a 422 instead of falling through
+# to these routes. Same technique already used by /fee-members/me in
+# p4x.py.
+
+
+@standesdb_router.get("/members/me/images")
+def list_own_member_images(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> ImageListResponse:
+    """List the authenticated member's own profile images, plus which one
+    (if any) is the default. No admin permission required - identical data
+    to GET /members/{member_id}/images (already open to any authenticated
+    caller), just without needing to know/pass your own id."""
+    images = image_service.get_images_for_owner(db, "member", current_user.id)
+    return ImageListResponse.model_validate(
+        {
+            "owner": {
+                "type": "member",
+                "id": current_user.id,
+                "cn": current_user.cn,
+                "org_id": current_user.org_id,
+                "default_image": current_user.default_image,
+            },
+            "images": [
+                {
+                    "id": i.id,
+                    "type": i.type,
+                    "height": i.height,
+                    "width": i.width,
+                    "size": i.size,
+                    "description": i.description,
+                    "default": i.default,
+                }
+                for i in images
+            ],
+        }
+    )
+
+
+@standesdb_router.post("/members/me/images", status_code=status.HTTP_201_CREATED)
+def upload_own_member_image(
+    file: Annotated[UploadFile, File()],
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+    storage: Annotated[StorageClient, Depends(get_storage)],
+    description: Annotated[str | None, Form()] = None,
+) -> StatusIdResponse:
+    """Upload a new profile image for the authenticated member's own
+    account. No admin permission required - every member may manage their
+    own profile images; org admins are notified by email afterward,
+    purely informational (no approval gate)."""
+    img = image_service.upload_image(
+        db, "member", current_user.id, file, description, current_user.id, storage
+    )
+    _notify_own_image_changed(db, background_tasks, current_user, "upload")
+    return StatusIdResponse(status="ok", id=img.id)
+
+
+@standesdb_router.put("/members/me/images/{image_id}")
+def update_own_member_image(
+    image_id: int,
+    data: ImageUpdateRequest,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> StatusResponse:
+    """Update the description or default-flag of one of the authenticated
+    member's own profile images. No admin permission required - every
+    member may manage their own profile images; org admins are notified
+    by email afterward, purely informational (no approval gate)."""
+    img = image_service.get_image_record(db, "member", current_user.id, image_id)
+    image_service.update_image(db, img, data.description, data.default)
+    _notify_own_image_changed(db, background_tasks, current_user, "update")
+    return StatusResponse(status="ok")
+
+
+@standesdb_router.delete(
+    "/members/me/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_own_member_image(
+    image_id: int,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> None:
+    """Delete one of the authenticated member's own profile images from
+    storage. No admin permission required - every member may manage their
+    own profile images; org admins are notified by email afterward,
+    purely informational (no approval gate)."""
+    img = image_service.get_image_record(db, "member", current_user.id, image_id)
+    image_service.delete_image(db, img)
+    _notify_own_image_changed(db, background_tasks, current_user, "delete")
+
+
+# --- Member Images: Admin / shared reads ---
 
 
 @standesdb_router.get("/members/{member_id}/images")
@@ -1082,3 +1186,23 @@ def _require_any_standesdb_admin(user: Member) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Fehlende Berechtigung.",
         )
+
+
+def _notify_own_image_changed(
+    db: Session,
+    background_tasks: BackgroundTasks,
+    member: Member,
+    action: str,
+) -> None:
+    """Fire-and-forget info mail to the member's own org's standesdb
+    admins after a self-service image change. Purely informational -
+    there is no approval gate, the change is already applied by the time
+    this runs. Silently skipped if the member has no org (nobody to
+    notify), the image action itself is never blocked by this."""
+    if not member.org_id:
+        return
+    perm = f"standesdb{member.org_id.capitalize()}Admin"
+    recipients = get_emails_with_permission(db, perm)
+    background_tasks.add_task(
+        send_own_image_changed_email, recipients, member.cn, action
+    )

@@ -268,13 +268,61 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             restored = run_restore(storage, backup_name=backup_name)
 
         assert restored == backup_name
-        assert mock_run.call_count == 2
-        restore_args = mock_run.call_args_list[1][0][0]
+        assert mock_run.call_count == 4
+        restore_args = mock_run.call_args_list[2][0][0]
         assert "pg_restore" in restore_args[0]
+
+    def test_run_restore_snapshots_and_restores_local_job_history(self, backup_bucket):
+        """scheduled_task_runs is stage-local (see run_backup()'s
+        --exclude-table-data) - a restore must not silently discard this
+        stage's own job-run history just because the schema gets wiped.
+        Regression guard for the 2026-08-09 finding: the table used to come
+        back empty after every restore/downsync."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+        local_snapshot = b"FAKE_LOCAL_JOB_HISTORY_DUMP"
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=local_snapshot),  # snapshot dump
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # local history restore
+            ]
+            run_restore(storage, backup_name=backup_name)
+
+        assert mock_run.call_count == 4
+        snapshot_args = mock_run.call_args_list[0][0][0]
+        wipe_args = mock_run.call_args_list[1][0][0]
+        main_restore_args = mock_run.call_args_list[2][0][0]
+        history_restore_args = mock_run.call_args_list[3][0][0]
+
+        # Snapshot must run BEFORE the wipe, against the still-live table.
+        assert snapshot_args[0] == FAKE_PG_DUMP
+        assert "--data-only" in snapshot_args
+        assert "--table=public.scheduled_task_runs" in snapshot_args
+        assert wipe_args[0] == FAKE_PSQL
+
+        # Local history is re-applied AFTER the main restore, data-only
+        # (the table structure already exists from the main restore).
+        assert main_restore_args[0] == FAKE_PG_RESTORE
+        assert "--data-only" not in main_restore_args
+        assert history_restore_args[0] == FAKE_PG_RESTORE
+        assert "--data-only" in history_restore_args
+
+        # The snapshot bytes actually flow into the local-restore temp file.
+        history_tmp_path = history_restore_args[-1]
+        assert Path(history_tmp_path).read_bytes() == local_snapshot
 
     def test_run_restore_wipes_schema_before_restoring(self, backup_bucket):
         """Regression guard for the pg_restore --clean drop-order bug: a
@@ -295,16 +343,29 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 2
-        wipe_args = mock_run.call_args_list[0][0][0]
-        restore_args = mock_run.call_args_list[1][0][0]
+        assert mock_run.call_count == 4
+        wipe_args = mock_run.call_args_list[1][0][0]
+        restore_args = mock_run.call_args_list[2][0][0]
 
         assert wipe_args[0] == FAKE_PSQL
         assert "-c" in wipe_args
-        assert "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" in wipe_args
+        wipe_sql = wipe_args[wipe_args.index("-c") + 1]
+        assert "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" in wipe_sql
+        # Regression guard for the 2026-08-08 incident: an unbounded wait
+        # for a conflicting lock froze an entire dev stage (including
+        # login) for 20+ minutes with no self-recovery.
+        assert "lock_timeout" in wipe_sql
+        # Regression guard for the follow-up: a lock_timeout alone still
+        # raced against this app's own ambient traffic (session-refresh
+        # polling etc.) and lost often enough to be unreliable. Other
+        # sessions on this database must be terminated deterministically
+        # before the wipe, not just waited out - except the scheduler's
+        # advisory-lock connection, which never conflicts and must survive.
+        assert "pg_terminate_backend" in wipe_sql
+        assert "pg_try_advisory_lock" in wipe_sql
         assert restore_args[0] == FAKE_PG_RESTORE
         assert "--clean" not in restore_args
         assert "--if-exists" not in restore_args
@@ -320,11 +381,11 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == "test-2026-06-30_03-00-00.dump"
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 4
 
     def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
         self, backup_bucket
@@ -341,7 +402,7 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == newest
@@ -362,7 +423,7 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == newest
@@ -409,10 +470,31 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
             run_restore(storage, backup_name=backup_name, force=True)
 
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 4
+
+    def test_run_restore_snapshot_dump_fails_cleans_up_tempfile(self, backup_bucket):
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=CalledProcessError(
+                    1, "pg_dump", stderr=b"pg_dump: error: could not connect"
+                ),
+            ),
+            patch.object(Path, "unlink") as mock_unlink,
+            pytest.raises(RuntimeError, match="could not connect"),
+        ):
+            run_restore(storage, backup_name=backup_name)
+
+        mock_unlink.assert_called_once()
 
     def test_run_restore_psql_wipe_fails_cleans_up_tempfile(self, backup_bucket):
         storage = _make_storage()
@@ -424,9 +506,12 @@ class TestRunRestore:
             patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch(
                 "subprocess.run",
-                side_effect=CalledProcessError(
-                    1, "psql", stderr=b"psql: error: could not connect"
-                ),
+                side_effect=[
+                    MagicMock(returncode=0, stdout=b"local-history-snapshot"),
+                    CalledProcessError(
+                        1, "psql", stderr=b"psql: error: could not connect"
+                    ),
+                ],
             ),
             patch.object(Path, "unlink") as mock_unlink,
             pytest.raises(RuntimeError, match="could not connect"),
@@ -446,6 +531,7 @@ class TestRunRestore:
             patch(
                 "subprocess.run",
                 side_effect=[
+                    MagicMock(returncode=0, stdout=b"local-history-snapshot"),
                     MagicMock(returncode=0),
                     CalledProcessError(
                         1, "pg_restore", stderr=b"pg_restore: error: could not connect"
@@ -458,6 +544,37 @@ class TestRunRestore:
             run_restore(storage, backup_name=backup_name)
 
         mock_unlink.assert_called_once()
+
+    def test_run_restore_local_history_restore_fails_cleans_up_both_tempfiles(
+        self, backup_bucket
+    ):
+        """The local-history re-insert (4th subprocess call) has its own
+        temp file, separate from the main backup's temp file - both must
+        be cleaned up even if only the later one fails."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=b"local-history-snapshot"),
+                    MagicMock(returncode=0),
+                    MagicMock(returncode=0),
+                    CalledProcessError(
+                        1, "pg_restore", stderr=b"pg_restore: error: could not connect"
+                    ),
+                ],
+            ),
+            patch.object(Path, "unlink") as mock_unlink,
+            pytest.raises(RuntimeError, match="could not connect"),
+        ):
+            run_restore(storage, backup_name=backup_name)
+
+        assert mock_unlink.call_count == 2
 
 
 class TestCleanupOldBackups:
