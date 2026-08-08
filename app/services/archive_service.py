@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import Text, cast, func, literal, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -30,6 +30,7 @@ from app.models.state import State
 from app.services.permission_service import (
     calculate_permissions,
 )
+from app.services.search_utils import build_prefix_tsquery_text
 
 THUMB_SIZES = {"xs": 16, "sm": 128, "md": 256, "lg": 550}
 
@@ -1141,33 +1142,6 @@ def dir_path_string(
     return " / ".join(parts) if parts else ""
 
 
-def _build_prefix_tsquery_text(db: Session, query: str) -> str:
-    """Turns a raw, untrusted user search string into Postgres prefix-
-    tsquery syntax, e.g. "Kassa Vorstand" -> "'kassa':* & 'vorstand':*".
-
-    Plain word-form matching (websearch_to_tsquery() alone) would miss
-    "Kassa" -> "Kassabericht": Postgres's 'german' text search config
-    stems suffixes but never splits compound words, so a bare word never
-    matches as a substring of a longer one the way the previous ILIKE
-    implementation did. Appending :* (prefix match) to every lexeme
-    recovers exactly that case - and also "BC"/"MC"/"FC"/"DC" committee
-    abbreviations, verified empirically to tokenize and prefix-match fine
-    even at 2 characters (see search_archive()'s min_length=2).
-
-    websearch_to_tsquery() does the actual parsing of the raw string - it
-    never raises on malformed input (unlike to_tsquery()), so building the
-    prefix query from its already-safely-parsed text representation stays
-    safe against arbitrary user text (quotes, &/|/! operators, ...).
-    Returns "" for input with no real lexemes (stop words only, or empty
-    after Postgres's own tokenizing) - the caller treats that as "no
-    results", matching plain ILIKE's behavior for a query that matches
-    nothing.
-    """
-    safe_query_text = cast(func.websearch_to_tsquery("german", query), Text)
-    prefixed_text = func.regexp_replace(safe_query_text, r"'(\w+)'", r"'\1':*", "g")
-    return db.execute(select(cast(prefixed_text, Text))).scalar() or ""
-
-
 def _collect_dir_hits(
     db: Session,
     user: Member,
@@ -1404,7 +1378,7 @@ def search_archive(
 ) -> list[dict[str, object]]:
     """Ranked full-text search across directories and files.
 
-    Stage 1 (exact/prefix): see _build_prefix_tsquery_text() for the
+    Stage 1 (exact/prefix): see build_prefix_tsquery_text() (search_utils.py) for the
     query-construction reasoning. Ranking weights (highest to lowest,
     shared across all four searched tables): name (A) > description (B) >
     extension (C) > comment content (D) - a name match ranks above an
@@ -1431,7 +1405,7 @@ def search_archive(
     admin = is_archive_admin(user)
     perm_sets = _load_perm_sets(db)
 
-    tsquery_text = _build_prefix_tsquery_text(db, query)
+    tsquery_text = build_prefix_tsquery_text(db, query)
     ranked_results: list[tuple[float, dict[str, object]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)

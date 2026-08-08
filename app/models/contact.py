@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Computed,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -37,6 +47,21 @@ class Contact(Base):
     couleurname: Mapped[str | None]
     org_id: Mapped[str | None] = mapped_column(
         ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+    )
+    # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
+    # 9618c2de197f) - name weighted above couleurname, org_id weighted
+    # lowest (lets a query mix a name with an org qualifier in one search
+    # string, same reasoning as Member.search_vector). Never written from
+    # Python, only read via full-text @@/ts_rank() in
+    # standesdb_service.search_members_and_contacts().
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('german', coalesce(name, '')), 'A') || "
+            "setweight(to_tsvector('german', coalesce(couleurname, '')), 'B') || "
+            "setweight(to_tsvector('german', coalesce(org_id, '')), 'C')",
+            persisted=True,
+        ),
     )
 
     adresse_anschrift: Mapped[str | None]

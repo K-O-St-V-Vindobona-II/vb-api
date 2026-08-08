@@ -1226,11 +1226,12 @@ class TestSearch:
     ):
         """Full-text search (Stage 1): "Kassa" must find a dir named
         "Kassabericht 2024" via prefix matching (search_vector's ':*'
-        suffix, see _build_prefix_tsquery_text) - Postgres's 'german' text
-        search config stems suffixes but never splits compound words, so
-        without prefix matching this dir would be unreachable by a plain
-        websearch_to_tsquery("Kassa") the same way it already was
-        unreachable before Stage 1's tsvector search even existed."""
+        suffix, see build_prefix_tsquery_text in search_utils.py) -
+        Postgres's 'german' text search config stems suffixes but never
+        splits compound words, so without prefix matching this dir would
+        be unreachable by a plain websearch_to_tsquery("Kassa") the same
+        way it already was unreachable before Stage 1's tsvector search
+        even existed."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         _make_dir(db_session, "Kassabericht 2024")
@@ -1307,8 +1308,9 @@ class TestSearch:
         """A query consisting only of German stop words (e.g. "im") passes
         the 2-char length check but produces no real lexemes at all -
         websearch_to_tsquery() reduces it to an empty tsquery, and
-        _build_prefix_tsquery_text() must treat that the same as "no
-        results" instead of erroring or (worse) matching everything.
+        build_prefix_tsquery_text() (search_utils.py) must treat that the
+        same as "no results" instead of erroring or (worse) matching
+        everything.
 
         This also locks in the Stage 2 (pg_trgm) length gate
         (_FUZZY_MIN_QUERY_LENGTH): the seeded dir literally contains "im"

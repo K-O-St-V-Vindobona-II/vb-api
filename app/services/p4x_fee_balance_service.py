@@ -6,9 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
-from sqlalchemy import func
+from sqlalchemy import func, literal
 
 if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
     from sqlalchemy.orm import Session
 
 from app.models.member import Member
@@ -19,6 +20,7 @@ from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.services import p4x_account_service
+from app.services.search_utils import build_prefix_tsquery_text
 
 FEE_CATEGORY_ID = 1
 
@@ -134,25 +136,83 @@ def get_fee_members(db: Session) -> list[Member]:
     )
 
 
+# Every fee-member query below shares this exact filter set - fee tracking
+# only ever applies to vbw/up (Altherrenschaft), and exempts departed
+# (entlassen) or deceased (verstorben) members, regardless of match stage.
+def _fee_member_base_filter() -> tuple[ColumnElement[bool], ...]:
+    return (
+        Member.org_id == "vbw",
+        Member.state_id == "up",
+        Member.entlassen == False,  # noqa: E712
+        Member.verstorben == False,  # noqa: E712
+    )
+
+
+def _search_fee_members_exact(
+    db: Session, tsquery: object
+) -> list[tuple[Member, float]]:
+    rank = func.ts_rank(Member.search_vector, tsquery)
+    rows = (
+        db.query(Member, rank)
+        .filter(*_fee_member_base_filter(), Member.search_vector.op("@@")(tsquery))
+        .order_by(rank.desc())
+        .all()
+    )
+    return [(m, float(r)) for m, r in rows]
+
+
+def _search_fee_members_fuzzy(db: Session, term: str) -> list[tuple[Member, float]]:
+    """Typo-tolerant fallback (pg_trgm), name fields only - org/state are
+    already a hard filter below, not part of the query text, so the
+    org-code fuzzy-matching concern from standesdb_service's equivalent
+    doesn't apply here."""
+    q = literal(term)
+    rank = func.greatest(
+        func.word_similarity(term, func.coalesce(Member.vorname, "")),
+        func.word_similarity(term, func.coalesce(Member.nachname, "")),
+        func.word_similarity(term, func.coalesce(Member.couleurname, "")),
+    )
+    rows = (
+        db.query(Member, rank)
+        .filter(
+            *_fee_member_base_filter(),
+            (
+                q.op("<%")(func.coalesce(Member.vorname, ""))
+                | q.op("<%")(func.coalesce(Member.nachname, ""))
+                | q.op("<%")(func.coalesce(Member.couleurname, ""))
+            ),
+        )
+        .order_by(rank.desc())
+        .all()
+    )
+    return [(m, float(r)) for m, r in rows]
+
+
 def search_fee_members(db: Session, term: str) -> list[FeeMemberSearchResult]:
+    """Search fee-liable (vbw/up) members by name, minimum 3 characters.
+    Same two-stage exact/prefix + pg_trgm-fuzzy shape as
+    standesdb_service.search_members_and_contacts(), see its docstring.
+    """
     if len(term) < 3:
         return []
 
-    pattern = f"%{term}%"
-    members = (
-        db.query(Member)
-        .filter(
-            Member.org_id == "vbw",
-            Member.state_id == "up",
-            Member.entlassen == False,  # noqa: E712
-            Member.verstorben == False,  # noqa: E712
-            (Member.vorname.ilike(pattern))
-            | (Member.nachname.ilike(pattern))
-            | (Member.couleurname.ilike(pattern)),
-        )
-        .all()
-    )
-    return [{"id": m.id, "label": m.cn} for m in members]
+    tsquery_text = build_prefix_tsquery_text(db, term)
+    ranked: list[tuple[float, FeeMemberSearchResult]] = []
+    if tsquery_text:
+        tsquery = func.to_tsquery("german", tsquery_text)
+        ranked = [
+            (r, {"id": m.id, "label": m.cn})
+            for m, r in _search_fee_members_exact(db, tsquery)
+        ]
+
+    if not ranked:
+        ranked = [
+            (r, {"id": m.id, "label": m.cn})
+            for m, r in _search_fee_members_fuzzy(db, term)
+        ]
+
+    ranked.sort(key=lambda entry: entry[0], reverse=True)
+    return [result for _, result in ranked]
 
 
 def update_fee_member(
