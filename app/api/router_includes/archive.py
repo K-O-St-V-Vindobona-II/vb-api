@@ -51,7 +51,9 @@ def get_root(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Return the root directory listing with subdirectories and files."""
+    """Return the root directory listing - only subdirectories/files the caller has
+    insight permission into (everything, for archiveAdmin) - plus archive-wide
+    aggregate stats (file/dir counts, total size, breakdown by extension)."""
     return archive_service.get_root_content(db, user)
 
 
@@ -61,7 +63,9 @@ def get_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Return a directory by ID with its contents, path breadcrumbs, and permissions."""
+    """Return a directory by ID with its contents, path breadcrumbs, and
+    effective permissions. Requires insight permission for the
+    directory's org/state, or archiveAdmin."""
     return archive_service.get_dir_detail(db, dir_id, user)
 
 
@@ -71,7 +75,8 @@ def create_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str | int]:
-    """Create a new subdirectory within an existing directory."""
+    """Create a new subdirectory within an existing directory (or the root, if parentId
+    is omitted). Requires archiveAdmin."""
     d = archive_service.create_dir(db, data.model_dump(), user)
     return {"status": "ok", "id": d.id}
 
@@ -83,7 +88,8 @@ def update_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Update a directory's name or description."""
+    """Update a directory's name, description, permissions, or recursive-permissions
+    flag. Requires archiveAdmin."""
     archive_service.update_dir(db, dir_id, data.model_dump(), user)
     return {"status": "ok"}
 
@@ -94,7 +100,8 @@ def delete_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Soft-delete a directory (moves to trash)."""
+    """Soft-delete a directory (moves to trash) - hard-deletes instead if it's already
+    empty. Requires archiveAdmin."""
     archive_service.delete_dir(db, dir_id, user)
 
 
@@ -104,7 +111,7 @@ def restore_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Restore a soft-deleted directory from trash."""
+    """Restore a soft-deleted directory from trash. Requires archiveAdmin."""
     archive_service.restore_dir(db, dir_id, user)
     return {"status": "ok"}
 
@@ -115,7 +122,8 @@ def purge_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Permanently delete an empty, soft-deleted directory. Irreversible."""
+    """Permanently delete an already-trashed, empty directory. 409 if it isn't currently
+    in the trash or still has content. Irreversible. Requires archiveAdmin."""
     archive_service.purge_dir(db, dir_id, user)
 
 
@@ -126,7 +134,8 @@ def receive_in_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Move files or directories into this directory (clipboard paste)."""
+    """Move files or directories (clipboard paste) into this directory.
+    Requires archiveAdmin."""
     archive_service.receive_items(db, dir_id, data.type, data.ids, user)
     return {"status": "ok"}
 
@@ -137,7 +146,8 @@ def receive_in_root(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Move files or directories into the root directory."""
+    """Move files or directories (clipboard paste) into the root
+    directory. Requires archiveAdmin."""
     archive_service.receive_items(db, 0, data.type, data.ids, user)
     return {"status": "ok"}
 
@@ -151,7 +161,9 @@ def get_file(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Return file metadata including versions and comments."""
+    """Return file metadata including versions and comments. Requires insight permission
+    for the file's directory, or archiveAdmin - admin-only for unfiled uploads, which
+    have no directory to check permissions against."""
     return archive_service.get_file_detail(db, file_id, user)
 
 
@@ -162,7 +174,7 @@ def update_file(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Update a file's name, description, or directory assignment."""
+    """Update a file's description. Requires archiveAdmin."""
     archive_service.update_file(db, file_id, data.model_dump(), user)
     return {"status": "ok"}
 
@@ -173,7 +185,7 @@ def delete_file(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Soft-delete a file (moves to trash)."""
+    """Soft-delete a file (moves to trash). Requires archiveAdmin."""
     archive_service.delete_file(db, file_id, user)
 
 
@@ -183,7 +195,7 @@ def restore_file(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Restore a soft-deleted file from trash."""
+    """Restore a soft-deleted file from trash. Requires archiveAdmin."""
     archive_service.restore_file(db, file_id, user)
     return {"status": "ok"}
 
@@ -198,7 +210,8 @@ def file_url(
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> dict[str, str]:
-    """Generate a presigned S3 URL for the original file."""
+    """Generate a time-limited presigned S3 URL for a file's original version. Requires
+    insight permission for the file's directory, or archiveAdmin."""
     url = archive_service.get_presigned_url(
         db,
         file_id,
@@ -219,7 +232,8 @@ def file_thumb_url(
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> dict[str, str]:
-    """Generate a presigned S3 URL for an image thumbnail."""
+    """Generate a time-limited presigned S3 URL for an image thumbnail at a given size.
+    Requires insight permission for the file's directory, or archiveAdmin."""
     url = archive_service.get_presigned_url(
         db,
         file_id,
@@ -240,7 +254,8 @@ def create_comment(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Add a comment to a file."""
+    """Add a comment to a file. Requires insight permission for the file's directory, or
+    archiveAdmin - admin-only for unfiled uploads."""
     comment = archive_service.create_comment(db, file_id, data.content, user)
     return {"status": "ok", "comment": comment}
 
@@ -255,7 +270,8 @@ def delete_comment(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Delete a comment from a file."""
+    """Delete a comment from a file. The comment's own author or
+    archiveAdmin may delete it."""
     archive_service.delete_comment(db, file_id, comment_id, user)
 
 
@@ -266,7 +282,8 @@ def delete_comment(
 def get_upload_config(
     _user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """Return upload constraints (max file size, allowed extensions)."""
+    """Return upload constraints (allowed extensions, min/max file size, description
+    length). No special permission - any authenticated member."""
     return archive_service.get_upload_config()
 
 
@@ -275,7 +292,9 @@ def get_unfiled(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """List uploaded files that have not yet been assigned to a directory."""
+    """List the caller's own uploaded files that have not yet been filed into a
+    directory - not everyone's, just the current user's (see
+    get_unsorted_upload_count() in archive_service.py for the org-wide total)."""
     return {"files": archive_service.get_unfiled_uploads(db, user.id)}
 
 
@@ -287,7 +306,9 @@ def upload(
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> dict[str, object]:
-    """Upload one or more files to the archive."""
+    """Upload a file to the archive. No special permission - any authenticated member
+    may upload; the file lands unfiled (visible only to its uploader and
+    archiveAdmin, see GET /upload/unfiled) until an admin files it into a directory."""
     result = archive_service.upload_file(
         db,
         file,
