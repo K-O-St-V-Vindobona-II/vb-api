@@ -16,6 +16,8 @@ from app.core.mailer import (
     _send_message,
     render_template,
     send_entry_changed_email,
+    send_member_change_request_resolved_email,
+    send_member_change_request_submitted_email,
     send_to_recipients,
 )
 from app.core.mailer import _send_to_multiple as _real_send_to_multiple
@@ -435,3 +437,38 @@ class TestRenderTemplate:
             "password_reset.html", reset_link="https://example.at/reset"
         )
         assert "https://example.at/reset" in html
+
+
+class TestMemberChangeRequestEmailsEscapeUserInput:
+    """Regression test for _jinja_env's autoescape fix: self-service
+    Stammdaten fields (e.g. taetigkeit, arbeitgeber) are member-submitted
+    free text with no character-level sanitization, only a length limit
+    (see MemberSelfServiceSaveRequest). Without autoescape, a value like
+    this would inject raw HTML into the email an org admin/the member
+    opens in their mail client."""
+
+    _PAYLOAD = "<img src=x onerror=alert(1)>"
+
+    @patch("app.core.mailer.send_to_recipients")
+    def test_submitted_email_escapes_field_value(self, mock_send):
+        send_member_change_request_submitted_email(
+            ["admin@test.at"],
+            "Test User",
+            {"taetigkeit": {"old": "Alt", "new": self._PAYLOAD}},
+        )
+
+        html = mock_send.call_args[0][2]
+        assert self._PAYLOAD not in html
+        assert "&lt;img src=x onerror=alert(1)&gt;" in html
+
+    @patch("app.core.mailer.send_to_recipients")
+    def test_resolved_email_escapes_field_value(self, mock_send):
+        send_member_change_request_resolved_email(
+            "member@test.at",
+            {"taetigkeit": {"old": "Alt", "new": self._PAYLOAD}},
+            {"taetigkeit": "approved"},
+        )
+
+        html = mock_send.call_args[0][2]
+        assert self._PAYLOAD not in html
+        assert "&lt;img src=x onerror=alert(1)&gt;" in html

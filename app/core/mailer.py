@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings, require_setting
@@ -18,7 +18,15 @@ logger = logging.getLogger(__name__)
 
 _current_dir = Path(__file__).resolve().parent
 _templates_dir = _current_dir.parent / "templates" / "email"
-_jinja_env = Environment(loader=FileSystemLoader(str(_templates_dir)))  # noqa: S701
+# Autoescaping is mandatory here: several templates render member-submitted
+# free text (e.g. member_change_request_submitted.html renders self-service
+# Stammdaten fields), and public_contact_form.html renders anonymous website
+# visitor input. Without it, any of those fields could inject raw HTML into
+# an email an admin opens in their mail client.
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(_templates_dir)),
+    autoescape=select_autoescape(["html"]),
+)
 
 
 def _build_from_header() -> tuple[str, str]:
