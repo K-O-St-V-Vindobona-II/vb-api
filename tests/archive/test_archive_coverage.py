@@ -1308,12 +1308,79 @@ class TestSearch:
         the 2-char length check but produces no real lexemes at all -
         websearch_to_tsquery() reduces it to an empty tsquery, and
         _build_prefix_tsquery_text() must treat that the same as "no
-        results" instead of erroring or (worse) matching everything."""
+        results" instead of erroring or (worse) matching everything.
+
+        This also locks in the Stage 2 (pg_trgm) length gate
+        (_FUZZY_MIN_QUERY_LENGTH): the seeded dir literally contains "im"
+        as an isolated word, so word_similarity('im', ...) scores a
+        coincidental 1.0 (verified empirically) - without the length
+        gate, this exact scenario would start matching via the fuzzy
+        fallback despite "im" not being a typo of anything."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         _make_dir(db_session, "Irgendein Verzeichnis im Archiv")
 
         resp = client.get("/api/archive/search?q=im", headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_search_fuzzy_fallback_finds_typo(
+        self,
+        client,
+        db_session,
+    ):
+        """Full-text search (Stage 2, pg_trgm): a typo'd query that Stage 1
+        cannot match via prefix search at all - "Festkomers" is not a
+        prefix of the lexeme "festkommers" (mismatch at the 8th
+        character) - is still found via word_similarity()'s substring
+        fuzzy matching once Stage 1 returns nothing."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "TypoDir")
+        _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="Einladung zum Festkommers",
+            hash_suffix="fuzzy-typo",
+        )
+
+        resp = client.get(
+            "/api/archive/search?q=Festkomers",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        assert len(file_results) >= 1
+        assert file_results[0]["description"] == "Einladung zum Festkommers"
+
+    def test_search_fuzzy_fallback_respects_permissions(
+        self,
+        client,
+        db_session,
+    ):
+        """The Stage 2 (pg_trgm) fallback shares _collect_file_hits() with
+        Stage 1 - a normal user without insight permission must not see a
+        fuzzy/typo match either, same as an exact one."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        restricted = _make_dir(
+            db_session,
+            "RestrictedTypoDir",
+            perms=["vbn_bi"],
+        )
+        _make_file(
+            db_session,
+            dir_id=restricted.id,
+            desc="Einladung zum Festkommers",
+            hash_suffix="fuzzy-typo-perm",
+        )
+
+        resp = client.get(
+            "/api/archive/search?q=Festkomers",
+            headers=headers,
+        )
 
         assert resp.status_code == 200
         assert resp.json() == []

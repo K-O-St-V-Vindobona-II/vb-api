@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import Text, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -1168,48 +1168,21 @@ def _build_prefix_tsquery_text(db: Session, query: str) -> str:
     return db.execute(select(cast(prefixed_text, Text))).scalar() or ""
 
 
-def search_archive(
+def _collect_dir_hits(
     db: Session,
     user: Member,
-    query: str,
-) -> list[dict[str, object]]:
-    """Ranked full-text search across directories and files - see
-    _build_prefix_tsquery_text() for the query-construction reasoning.
-
-    Ranking weights (highest to lowest, shared across all four searched
-    tables): name (A) > description (B) > extension (C) > comment content
-    (D) - a name match ranks above an incidental comment mention. Dirs and
-    files are merged into one relevance-sorted list; SEARCH_LIMIT is
-    applied per source table before permission filtering and again to the
-    final merged list, same two-stage shape as the previous
-    implementation (a heavily filtered top-SEARCH_LIMIT window can still
-    return fewer than SEARCH_LIMIT results - an accepted, pre-existing
-    trade-off, not something Stage 1 changes).
-    """
-    tsquery_text = _build_prefix_tsquery_text(db, query)
-    if not tsquery_text:
-        return []
-    tsquery = func.to_tsquery("german", tsquery_text)
-
-    admin = is_archive_admin(user)
-    perm_sets = _load_perm_sets(db)
-    ranked_results: list[tuple[float, dict[str, object]]] = []
-
-    dir_rank = func.ts_rank(ArchiveDir.search_vector, tsquery)
-    dir_hits = (
-        db.query(ArchiveDir, dir_rank)
-        .filter(
-            ArchiveDir.deleted_at.is_(None),
-            ArchiveDir.search_vector.op("@@")(tsquery),
-        )
-        .order_by(dir_rank.desc())
-        .limit(SEARCH_LIMIT)
-        .all()
-    )
-    for d, rank in dir_hits:
+    hits: list[tuple[ArchiveDir, float]],
+    admin: bool,  # noqa: FBT001
+    perm_sets: _PermSets,
+) -> list[tuple[float, dict[str, object]]]:
+    """Applies the same insight-permission check to a ranked list of dir
+    hits and shapes each into the search result dict - shared between the
+    exact (Stage 1) and fuzzy (Stage 2) search paths below."""
+    collected: list[tuple[float, dict[str, object]]] = []
+    for d, rank in hits:
         if not admin and not can_insight(user, db, d, perm_sets):
             continue
-        ranked_results.append(
+        collected.append(
             (
                 rank,
                 {
@@ -1221,11 +1194,75 @@ def search_archive(
                 },
             )
         )
+    return collected
 
+
+def _collect_file_hits(
+    db: Session,
+    user: Member,
+    hits: list[tuple[ArchiveFile, float]],
+    admin: bool,  # noqa: FBT001
+    perm_sets: _PermSets,
+) -> list[tuple[float, dict[str, object]]]:
+    """Same as _collect_dir_hits(), for files - including the unsorted-
+    upload (archive_dir_id 0, no resolvable parent) admin-only rule."""
+    collected: list[tuple[float, dict[str, object]]] = []
+    for f, rank in hits:
+        parent = db.get(ArchiveDir, f.archive_dir_id)
+        # No resolvable parent means an unsorted upload sitting directly at
+        # the root (archive_dir_id 0, which is a sentinel, not a real row —
+        # see get_root_content()) — those are archiveAdmin-only, same as in
+        # regular directory browsing, so a missing parent must NOT skip the
+        # permission check (that would silently show unsorted uploads to
+        # every authenticated user, admin or not).
+        if not admin and (
+            parent is None or not can_insight(user, db, parent, perm_sets)
+        ):
+            continue
+        item = f.store_item
+        path = dir_path_string(db, parent) if parent else "Archiv"
+        collected.append(
+            (
+                rank,
+                {
+                    "type": "file",
+                    "id": f.id,
+                    "name": item.name,
+                    "description": f.description,
+                    "extension": item.extension,
+                    "is_image": item.is_image,
+                    "path": path,
+                },
+            )
+        )
+    return collected
+
+
+def _search_dirs_exact(db: Session, tsquery: object) -> list[tuple[ArchiveDir, float]]:
+    rank = func.ts_rank(ArchiveDir.search_vector, tsquery)
+    rows = (
+        db.query(ArchiveDir, rank)
+        .filter(
+            ArchiveDir.deleted_at.is_(None),
+            ArchiveDir.search_vector.op("@@")(tsquery),
+        )
+        .order_by(rank.desc())
+        .limit(SEARCH_LIMIT)
+        .all()
+    )
+    # SQLAlchemy's Row type doesn't carry the SQL-side float type of a
+    # func.ts_rank() expression into Python - the explicit float() cast
+    # here is what keeps the return type free of Any, not a runtime need.
+    return [(d, float(r)) for d, r in rows]
+
+
+def _search_files_exact(
+    db: Session, tsquery: object
+) -> list[tuple[ArchiveFile, float]]:
     # EXISTS (not a join) - a file with several matching comments must
-    # still only appear once in file_hits. The paired MAX(ts_rank(...))
-    # subquery feeds the same "at least one comment matched" signal into
-    # ranking, weighted lowest (D) of the three possible match sources.
+    # still only appear once. The paired MAX(ts_rank(...)) subquery feeds
+    # the same "at least one comment matched" signal into ranking,
+    # weighted lowest (D) of the three possible match sources.
     comment_match_exists = (
         db.query(ArchiveFileComment.id)
         .filter(
@@ -1246,14 +1283,13 @@ def search_archive(
         .correlate(ArchiveFile)
         .scalar_subquery()
     )
-    file_rank = func.greatest(
+    rank = func.greatest(
         func.ts_rank(ArchiveStoreItem.search_vector, tsquery),
         func.ts_rank(ArchiveFile.search_vector, tsquery),
         func.coalesce(comment_rank, 0.0),
     )
-
-    file_hits = (
-        db.query(ArchiveFile, file_rank)
+    rows = (
+        db.query(ArchiveFile, rank)
         .join(
             ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
         )
@@ -1265,40 +1301,153 @@ def search_archive(
                 | comment_match_exists
             ),
         )
-        .order_by(file_rank.desc())
+        .order_by(rank.desc())
         .limit(SEARCH_LIMIT)
         .all()
     )
-    for f, rank in file_hits:
-        parent = db.get(
-            ArchiveDir,
-            f.archive_dir_id,
-        )
-        # No resolvable parent means an unsorted upload sitting directly at
-        # the root (archive_dir_id 0, which is a sentinel, not a real row —
-        # see get_root_content()) — those are archiveAdmin-only, same as in
-        # regular directory browsing, so a missing parent must NOT skip the
-        # permission check the way it did before (that silently showed
-        # unsorted uploads to every authenticated user, admin or not).
-        if not admin and (
-            parent is None or not can_insight(user, db, parent, perm_sets)
-        ):
-            continue
-        item = f.store_item
-        path = dir_path_string(db, parent) if parent else "Archiv"
-        ranked_results.append(
+    return [(f, float(r)) for f, r in rows]
+
+
+def _search_dirs_fuzzy(db: Session, query: str) -> list[tuple[ArchiveDir, float]]:
+    """Typo-tolerant fallback (pg_trgm Stage 2) - only ever called when
+    _search_dirs_exact()/_search_files_exact() found nothing at all, see
+    search_archive(). word_similarity() (not similarity()) is deliberate:
+    it finds the best-matching *substring*, so a short, typo'd query still
+    scores well against a long description - plain similarity() compares
+    whole strings and would score a real typo match far too low to pass
+    the threshold. The `<%` operator applies Postgres's own configured
+    pg_trgm.word_similarity_threshold (0.6 by default) and is the
+    GIN-trgm-indexable form of that same check.
+    """
+    q = literal(query)
+    rank = func.greatest(
+        func.word_similarity(query, ArchiveDir.name),
+        func.word_similarity(query, func.coalesce(ArchiveDir.description, "")),
+    )
+    rows = (
+        db.query(ArchiveDir, rank)
+        .filter(
+            ArchiveDir.deleted_at.is_(None),
             (
-                rank,
-                {
-                    "type": "file",
-                    "id": f.id,
-                    "name": item.name,
-                    "description": f.description,
-                    "extension": item.extension,
-                    "is_image": item.is_image,
-                    "path": path,
-                },
-            )
+                q.op("<%")(ArchiveDir.name)
+                | q.op("<%")(func.coalesce(ArchiveDir.description, ""))
+            ),
+        )
+        .order_by(rank.desc())
+        .limit(SEARCH_LIMIT)
+        .all()
+    )
+    return [(d, float(r)) for d, r in rows]
+
+
+def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, float]]:
+    """Typo-tolerant fallback (pg_trgm Stage 2) for files - see
+    _search_dirs_fuzzy() for the word_similarity()-vs-similarity()
+    reasoning. Same EXISTS + MAX(word_similarity(...)) shape as
+    _search_files_exact()'s comment handling, just swapping the matching
+    primitive."""
+    q = literal(query)
+    comment_match = (
+        db.query(ArchiveFileComment.id)
+        .filter(
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.deleted_at.is_(None),
+            q.op("<%")(ArchiveFileComment.content),
+        )
+        .correlate(ArchiveFile)
+        .exists()
+    )
+    comment_rank = (
+        db.query(func.max(func.word_similarity(query, ArchiveFileComment.content)))
+        .filter(
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.deleted_at.is_(None),
+            q.op("<%")(ArchiveFileComment.content),
+        )
+        .correlate(ArchiveFile)
+        .scalar_subquery()
+    )
+    rank = func.greatest(
+        func.word_similarity(query, ArchiveStoreItem.name),
+        func.word_similarity(query, ArchiveStoreItem.extension),
+        func.word_similarity(query, func.coalesce(ArchiveFile.description, "")),
+        func.coalesce(comment_rank, 0.0),
+    )
+    rows = (
+        db.query(ArchiveFile, rank)
+        .join(
+            ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
+        )
+        .filter(
+            ArchiveFile.deleted_at.is_(None),
+            (
+                q.op("<%")(ArchiveStoreItem.name)
+                | q.op("<%")(ArchiveStoreItem.extension)
+                | q.op("<%")(func.coalesce(ArchiveFile.description, ""))
+                | comment_match
+            ),
+        )
+        .order_by(rank.desc())
+        .limit(SEARCH_LIMIT)
+        .all()
+    )
+    return [(f, float(r)) for f, r in rows]
+
+
+_FUZZY_MIN_QUERY_LENGTH = 3
+
+
+def search_archive(
+    db: Session,
+    user: Member,
+    query: str,
+) -> list[dict[str, object]]:
+    """Ranked full-text search across directories and files.
+
+    Stage 1 (exact/prefix): see _build_prefix_tsquery_text() for the
+    query-construction reasoning. Ranking weights (highest to lowest,
+    shared across all four searched tables): name (A) > description (B) >
+    extension (C) > comment content (D) - a name match ranks above an
+    incidental comment mention.
+
+    Stage 2 (pg_trgm typo tolerance): only runs when Stage 1 finds
+    nothing at all - an exact/prefix hit never gets displaced by a fuzzier
+    match, see _search_dirs_fuzzy()/_search_files_fuzzy(). Gated to
+    queries of at least _FUZZY_MIN_QUERY_LENGTH characters: trigram
+    similarity on a 1-2 character query is not meaningfully "fuzzy" - it
+    coincidentally scores a perfect 1.0 against any text merely containing
+    that short fragment as an isolated word (verified empirically:
+    word_similarity('im', 'Irgendein Verzeichnis im Archiv') = 1.0, purely
+    because "im" is itself a common German preposition, not a typo of
+    anything). Without this gate, the router's min_length=2 would let
+    every short stopword flood Stage 2 with coincidental matches.
+
+    Dirs and files are merged into one relevance-sorted list; SEARCH_LIMIT
+    is applied per source table before permission filtering and again to
+    the final merged list (a heavily filtered top-SEARCH_LIMIT window can
+    still return fewer than SEARCH_LIMIT results - an accepted,
+    pre-existing trade-off).
+    """
+    admin = is_archive_admin(user)
+    perm_sets = _load_perm_sets(db)
+
+    tsquery_text = _build_prefix_tsquery_text(db, query)
+    ranked_results: list[tuple[float, dict[str, object]]] = []
+    if tsquery_text:
+        tsquery = func.to_tsquery("german", tsquery_text)
+        ranked_results = _collect_dir_hits(
+            db, user, _search_dirs_exact(db, tsquery), admin, perm_sets
+        )
+        ranked_results += _collect_file_hits(
+            db, user, _search_files_exact(db, tsquery), admin, perm_sets
+        )
+
+    if not ranked_results and len(query.strip()) >= _FUZZY_MIN_QUERY_LENGTH:
+        ranked_results = _collect_dir_hits(
+            db, user, _search_dirs_fuzzy(db, query), admin, perm_sets
+        )
+        ranked_results += _collect_file_hits(
+            db, user, _search_files_fuzzy(db, query), admin, perm_sets
         )
 
     ranked_results.sort(key=lambda entry: entry[0], reverse=True)
