@@ -19,7 +19,7 @@ from app.models.enums import (
     MemberDeliveryPreference,
     RoleGroup,
 )
-from app.schemas.base import StrictInputModel
+from app.schemas.base import IdLabelOption, StrictInputModel
 
 
 def _ensure_utc(v: datetime | None) -> datetime | None:
@@ -31,6 +31,14 @@ def _ensure_utc(v: datetime | None) -> datetime | None:
 UtcDatetime = Annotated[datetime, BeforeValidator(_ensure_utc)]
 
 PHONE_REGEX = re.compile(r"^\+?[\d\s/\- ]+$")
+
+# Shared across every *_accuracy field below (see _format_date_by_accuracy in
+# app/core/mailer.py, the canonical implementation of this scale): how
+# precisely the paired date is actually known, not a data-quality score.
+_DATE_ACCURACY_DESCRIPTION = (
+    "How precisely the paired date is known: 0 = unknown (date value is "
+    "meaningless), 1 = year only, 2 = month+year, 3 = full date."
+)
 
 
 # --- Reference Data ---
@@ -163,10 +171,19 @@ class TreeNodeResponse(BaseModel):
 
 
 class MemberDismissedResponse(BaseModel):
+    """Data-minimized response for a member with entlassen=True (has left
+    the fraternity) - returned by GET /members/{id} instead of the full
+    MemberDetailResponse, which stops being disclosed once someone is no
+    longer a member (see get_member_detail() in standesdb_service.py)."""
+
     id: int
     cn: str
     org_id: str | None = None
-    dataprotection: str = "dismissed"
+    dataprotection: str = Field(
+        default="dismissed",
+        description="Always 'dismissed' - a fixed marker for the frontend to "
+        "distinguish this shape from MemberDetailResponse.",
+    )
 
 
 class MemberDetailResponse(BaseModel):
@@ -182,11 +199,23 @@ class MemberDetailResponse(BaseModel):
     org_label: str | None = None
     state_id: str | None = None
     state_label: str | None = None
-    gruender: bool = False
-    entlassen: bool = False
-    verstorben: bool = False
-    grabadresse: str | None = None
-    parent_id: int = 0
+    gruender: bool = Field(
+        default=False, description="Founding member of the fraternity."
+    )
+    entlassen: bool = Field(
+        default=False,
+        description="Has formally left the fraternity - triggers "
+        "MemberDismissedResponse instead of this shape on future lookups.",
+    )
+    verstorben: bool = Field(default=False, description="Deceased.")
+    grabadresse: str | None = Field(
+        default=None,
+        description="Grave/burial site address, recorded for deceased members.",
+    )
+    parent_id: int = Field(
+        default=0,
+        description="id of the member who sponsored this member's admission, or 0.",
+    )
     parent_cn: str = ""
     default_image: int | None = None
 
@@ -218,19 +247,31 @@ class MemberDetailResponse(BaseModel):
     anmerkungen: str | None = None
 
     geburtsdatum: str | None = None
-    geburtsdatum_accuracy: int = 0
+    geburtsdatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     aufnahmedatum: str | None = None
-    aufnahmedatum_accuracy: int = 0
+    aufnahmedatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     branderdatum: str | None = None
-    branderdatum_accuracy: int = 0
+    branderdatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     burschungsdatum: str | None = None
-    burschungsdatum_accuracy: int = 0
+    burschungsdatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     philistrierungsdatum: str | None = None
-    philistrierungsdatum_accuracy: int = 0
+    philistrierungsdatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     entlassungsdatum: str | None = None
-    entlassungsdatum_accuracy: int = 0
+    entlassungsdatum_accuracy: int = Field(
+        default=0, description=_DATE_ACCURACY_DESCRIPTION
+    )
     sterbedatum: str | None = None
-    sterbedatum_accuracy: int = 0
+    sterbedatum_accuracy: int = Field(default=0, description=_DATE_ACCURACY_DESCRIPTION)
 
     roles_history: list[RoleHistoryResponse] = []
     badges: list[BadgeDetailResponse] = []
@@ -359,19 +400,33 @@ class MemberSaveRequest(StrictInputModel):
     # ISO strings — the model-level strict=True would otherwise reject
     # them outright (it requires an actual `date` object, not a string).
     geburtsdatum: date | None = Field(default=None, strict=False)
-    geburtsdatum_accuracy: int = Field(default=0, ge=0, le=3)
+    geburtsdatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     aufnahmedatum: date | None = Field(default=None, strict=False)
-    aufnahmedatum_accuracy: int = Field(default=0, ge=0, le=3)
+    aufnahmedatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     branderdatum: date | None = Field(default=None, strict=False)
-    branderdatum_accuracy: int = Field(default=0, ge=0, le=3)
+    branderdatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     burschungsdatum: date | None = Field(default=None, strict=False)
-    burschungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
+    burschungsdatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     philistrierungsdatum: date | None = Field(default=None, strict=False)
-    philistrierungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
+    philistrierungsdatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     entlassungsdatum: date | None = Field(default=None, strict=False)
-    entlassungsdatum_accuracy: int = Field(default=0, ge=0, le=3)
+    entlassungsdatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     sterbedatum: date | None = Field(default=None, strict=False)
-    sterbedatum_accuracy: int = Field(default=0, ge=0, le=3)
+    sterbedatum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
 
     email: EmailStr | None = Field(default=None, max_length=128)
     url: str | None = Field(default=None, max_length=128)
@@ -594,7 +649,7 @@ class ContactDetailResponse(BaseModel):
     email: str | None = None
     rufnummer: str | None = None
     datum: str | None = None
-    datum_accuracy: int = 0
+    datum_accuracy: int = Field(default=0, description=_DATE_ACCURACY_DESCRIPTION)
     default_image: int | None = None
     anmerkungen: str | None = None
 
@@ -615,7 +670,9 @@ class ContactSaveRequest(StrictInputModel):
     email: EmailStr | None = Field(default=None, max_length=128)
     rufnummer: str | None = None
     datum: date | None = Field(default=None, strict=False)
-    datum_accuracy: int = Field(default=0, ge=0, le=3)
+    datum_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
     anmerkungen: str | None = None
 
     @field_validator("name", "couleurname", mode="before")
@@ -787,6 +844,55 @@ class MyChangeRequestResponse(BaseModel):
 
 class MemberChangeRequestDecisionRequest(StrictInputModel):
     field_decisions: dict[str, Literal["approved", "rejected"]]
+
+
+class SearchResultItem(BaseModel):
+    type: Literal["member", "contact"]
+    id: int
+    label: str
+
+
+class SearchResponse(BaseModel):
+    data: list[SearchResultItem]
+
+
+class ParentSearchResultItem(BaseModel):
+    id: int
+    cn: str
+
+
+class ParentSearchResponse(BaseModel):
+    data: list[ParentSearchResultItem]
+
+
+class ImageOwnerResponse(BaseModel):
+    type: Literal["member", "contact"]
+    id: int
+    cn: str
+    org_id: str | None
+    default_image: int | None
+
+
+class ImageListItem(BaseModel):
+    id: int
+    type: str | None
+    height: int | None
+    width: int | None
+    size: int | None
+    description: str | None
+    default: bool
+
+
+class ImageListResponse(BaseModel):
+    owner: ImageOwnerResponse
+    images: list[ImageListItem]
+
+
+class ExportConfigResponse(BaseModel):
+    modules: list[IdLabelOption]
+    orgs: list[IdLabelOption]
+    states: list[IdLabelOption]
+    flags: dict[str, str]
 
 
 class ExportRequest(StrictInputModel):

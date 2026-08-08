@@ -21,3 +21,44 @@ class MoveRequest(StrictInputModel):
     """
 
     direction: Literal["up", "down"]
+
+
+class StatusResponse(BaseModel):
+    """Generic acknowledgement for write endpoints that have nothing more
+    specific to return. `status` is a plain str, not a fixed Literal,
+    since its value differs by endpoint ("ok", "submitted", "resolved",
+    ...) - see each endpoint's own docstring for its actual values."""
+
+    status: str
+
+
+class IdLabelOption(BaseModel):
+    """Shared {id, label} shape for dropdown/reference-data options (orgs,
+    states, export modules, ...) across multiple schemas."""
+
+    id: str
+    label: str
+
+
+class StatusIdResponse(BaseModel):
+    """Generic acknowledgement for create endpoints that only need to
+    report the new row's id alongside the status."""
+
+    status: str
+    id: int
+
+
+class PaginatedResponse[T](BaseModel):
+    """Generic items/total/page/page_size envelope, shared by every
+    paginated list endpoint that doesn't need extra fields beyond that.
+
+    Not used by PaginatedTransactions in app/schemas/p4x.py, which
+    predates this and uses `per_page` instead of `page_size` on the
+    wire - kept as its own class rather than retrofitted onto this one,
+    to avoid a breaking field-rename for existing p4x.py consumers.
+    """
+
+    items: list[T]
+    total: int
+    page: int
+    page_size: int

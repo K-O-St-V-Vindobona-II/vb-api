@@ -12,6 +12,7 @@ from app.core.scheduler import get_scheduled_jobs
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
+from app.schemas.base import PaginatedResponse
 from app.services import system_service
 from app.services.backup_service import run_backup
 from app.services.permission_service import (
@@ -62,6 +63,28 @@ class ScheduledJobRunSummary(BaseModel):
 class ScheduledJobRunListItem(ScheduledJobRunSummary):
     id: int
     job_id: str
+
+
+class TableColumn(BaseModel):
+    name: str
+    type: str
+    nullable: bool
+    primary_key: bool
+
+
+class TableDataResponse(BaseModel):
+    """Response shape for the generic SQL table browser (GET
+    /tables/{table_name}). `rows` deliberately stays dict[str, object] -
+    this endpoint reflects on arbitrary tables via SQLAlchemy inspection,
+    so each row's actual keys/types differ per table; that's the point of
+    the tool, not a typing gap to close."""
+
+    table_name: str
+    columns: list[TableColumn]
+    rows: list[dict[str, object]]
+    total: int
+    page: int
+    page_size: int
 
 
 class ScheduledJobResponse(BaseModel):
@@ -159,27 +182,27 @@ def list_scheduled_jobs(
     return jobs
 
 
-@system_router.get("/scheduled-jobs/{job_id}/history", response_model=dict)
+@system_router.get("/scheduled-jobs/{job_id}/history")
 def get_scheduled_job_history(
     job_id: str,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> dict[str, list[ScheduledJobRunListItem] | int]:
+) -> PaginatedResponse[ScheduledJobRunListItem]:
     """List the recorded run history for one job, newest first (paginated).
 
     Requires systemAdmin.
     """
     result = list_job_runs(db, job_id, page, page_size)
-    return {
-        "items": [
+    return PaginatedResponse[ScheduledJobRunListItem](
+        items=[
             ScheduledJobRunListItem.model_validate(item) for item in result["items"]
         ],
-        "total": result["total"],
-        "page": result["page"],
-        "page_size": result["page_size"],
-    }
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+    )
 
 
 @system_router.get("/tables")
@@ -198,9 +221,11 @@ def get_table_data(
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> dict[str, object]:
+) -> TableDataResponse:
     """Browse a database table with paginated rows and column metadata.
 
     Requires systemAdmin.
     """
-    return system_service.get_table_data(db, table_name, page, page_size)
+    return TableDataResponse.model_validate(
+        system_service.get_table_data(db, table_name, page, page_size)
+    )

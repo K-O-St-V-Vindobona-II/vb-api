@@ -7,7 +7,7 @@ from app.api.deps import get_current_user
 from app.core.security import SESSION_IDLE_TIMEOUT_MINUTES
 from app.db.database import get_db
 from app.models.member import Member
-from app.schemas.member import MemberResponse
+from app.schemas.member import ChroniclemailToggleResponse, MemberResponse
 from app.services import member_service, p4x_fee_balance_service
 from app.services.permission_service import calculate_permissions
 
@@ -41,6 +41,8 @@ def read_current_user(
 def toggle_chroniclemail(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, bool]:
+) -> ChroniclemailToggleResponse:
     """Toggle the weekly chronicle email subscription for the current user."""
-    return {"chroniclemail": member_service.toggle_chroniclemail(db, current_user)}
+    return ChroniclemailToggleResponse(
+        chroniclemail=member_service.toggle_chroniclemail(db, current_user)
+    )

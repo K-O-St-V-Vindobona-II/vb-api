@@ -28,13 +28,16 @@ from app.models.contact import Contact
 from app.models.enums import MemberDeliveryPreference
 from app.models.member import Member
 from app.schemas.archive import PresignedUrlResponse
+from app.schemas.base import PaginatedResponse, StatusIdResponse, StatusResponse
 from app.schemas.standesdb import (
     ChangeLogEntry,
     ChangeRequestFieldDiff,
     ContactDetailResponse,
     ContactSaveRequest,
     ContactStatsResponse,
+    ExportConfigResponse,
     ExportRequest,
+    ImageListResponse,
     ImageUpdateRequest,
     KeysListResponse,
     MemberAuthActivityResponse,
@@ -49,8 +52,10 @@ from app.schemas.standesdb import (
     MemberSelfServiceSaveRequest,
     MemberStatsResponse,
     MyChangeRequestResponse,
+    ParentSearchResponse,
     ReferenceDataResponse,
     RolesListResponse,
+    SearchResponse,
     StatsResponse,
 )
 from app.services import (
@@ -85,10 +90,12 @@ def search(
     q: Annotated[str, Query(min_length=3)],
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, list[dict[str, str | int]]]:
+) -> SearchResponse:
     """Full-text search across members and contacts by name/couleurname, minimum 3
     characters. No special permission - any authenticated member."""
-    return {"data": (standesdb_service.search_members_and_contacts(db, q))}
+    return SearchResponse.model_validate(
+        {"data": standesdb_service.search_members_and_contacts(db, q)}
+    )
 
 
 @standesdb_router.get("/reference-data")
@@ -109,10 +116,10 @@ def get_reference_data(
 def get_export_config(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(require_permission("standesdbExport"))],
-) -> dict[str, object]:
+) -> ExportConfigResponse:
     """Return export configuration options (available formats/fields) for the export
     module. Requires standesdbExport."""
-    return export_service.get_export_config(db)
+    return ExportConfigResponse.model_validate(export_service.get_export_config(db))
 
 
 @standesdb_router.post("/export")
@@ -202,16 +209,13 @@ def do_export(
 # --- Keys List ---
 
 
-@standesdb_router.get(
-    "/keys",
-    response_model=KeysListResponse,
-)
+@standesdb_router.get("/keys")
 def get_keys_list(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(require_permission("keylist"))],
-) -> dict[str, object]:
+) -> KeysListResponse:
     """Return the list of key holders with their assigned keys. Requires keylist."""
-    return standesdb_service.get_keys_list(db)
+    return KeysListResponse.model_validate(standesdb_service.get_keys_list(db))
 
 
 @standesdb_router.get("/keys/download")
@@ -234,16 +238,13 @@ def download_keys_list(
 # --- Roles List ---
 
 
-@standesdb_router.get(
-    "/roles",
-    response_model=RolesListResponse,
-)
+@standesdb_router.get("/roles")
 def get_roles_list(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
     year: Annotated[int | None, Query(ge=1928, lt=2100)] = None,
     semester: Annotated[str | None, Query(pattern="^(ss|ws)$")] = None,
-) -> dict[str, object]:
+) -> RolesListResponse:
     """Return members grouped by their current active roles, or by role membership
     during a specific year+semester if both are given (422 if only one of the two is
     given). No special permission - any authenticated member."""
@@ -254,7 +255,9 @@ def get_roles_list(
                 "year und semester müssen beide angegeben werden oder beide fehlen."
             ),
         )
-    return standesdb_service.get_roles_list(db, year, semester)
+    return RolesListResponse.model_validate(
+        standesdb_service.get_roles_list(db, year, semester)
+    )
 
 
 # --- Members ---
@@ -304,7 +307,7 @@ def create_member(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Create a new member record. Requires the standesdb admin permission for the
     target org (data.org_id) - checked at runtime, not via a route dependency."""
     _require_standesdb_admin(current_user, data.org_id)
@@ -329,7 +332,7 @@ def create_member(
             current_user.cn,
         )
 
-    return {"status": "ok", "id": member.id}
+    return StatusIdResponse(status="ok", id=member.id)
 
 
 @standesdb_router.put("/members/{member_id}")
@@ -339,7 +342,7 @@ def update_member(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Update an existing member's data and notify the org's standesdb admins by email
     if anything actually changed. Requires the standesdb admin permission for the
     member's own org - checked at runtime, not via a route dependency."""
@@ -376,7 +379,7 @@ def update_member(
             current_user.cn,
         )
 
-    return {"status": "ok", "id": member.id}
+    return StatusIdResponse(status="ok", id=member.id)
 
 
 @standesdb_router.get("/members/{member_id}/searchparent")
@@ -385,7 +388,7 @@ def search_parent(
     q: Annotated[str, Query(min_length=3)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, list[dict[str, str | int]]]:
+) -> ParentSearchResponse:
     """Search for potential parent members (e.g. for the sponsoring 'Bürge'
     relationship) by name, minimum 3 characters. Requires the standesdb admin
     permission for the member's own org."""
@@ -402,7 +405,9 @@ def search_parent(
         )
     _require_standesdb_admin(current_user, member.org_id)
 
-    return {"data": standesdb_service.search_parent(db, member_id, q)}
+    return ParentSearchResponse.model_validate(
+        {"data": standesdb_service.search_parent(db, member_id, q)}
+    )
 
 
 # --- Self-service Stammdaten (own account, no admin permission required) ---
@@ -480,7 +485,7 @@ def submit_own_change_request(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> StatusResponse:
     """Submit (or update, if one is already pending) a self-service
     Stammdaten change request. No admin permission required - every member
     may propose changes to their own account.
@@ -499,7 +504,7 @@ def submit_own_change_request(
     )
 
     if request is None:
-        return {"status": "no_changes"}
+        return StatusResponse(status="no_changes")
 
     perm = f"standesdb{current_user.org_id.capitalize()}Admin"
     recipients = get_emails_with_permission(db, perm)
@@ -509,7 +514,7 @@ def submit_own_change_request(
         current_user.cn,
         cast("dict[str, dict[str, object]]", request.proposed_data),
     )
-    return {"status": "submitted"}
+    return StatusResponse(status="submitted")
 
 
 # --- Contacts ---
@@ -534,7 +539,7 @@ def create_contact(
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Create a new contact record. Requires standesdbContactAdmin."""
     standesdb_service.validate_contact_uniqueness(db, data.name)
 
@@ -554,7 +559,7 @@ def create_contact(
             current_user.cn,
         )
 
-    return {"status": "ok", "id": contact.id}
+    return StatusIdResponse(status="ok", id=contact.id)
 
 
 @standesdb_router.put("/contacts/{contact_id}")
@@ -566,7 +571,7 @@ def update_contact(
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Update an existing contact's data and notify subscribers by email if anything
     actually changed. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
@@ -593,7 +598,7 @@ def update_contact(
             current_user.cn,
         )
 
-    return {"status": "ok", "id": contact.id}
+    return StatusIdResponse(status="ok", id=contact.id)
 
 
 @standesdb_router.delete(
@@ -625,7 +630,7 @@ def list_member_images(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
+) -> ImageListResponse:
     """List all profile images for a member, plus which one (if any) is the default. No
     special permission - any authenticated member."""
     member = db.get(Member, member_id)
@@ -635,27 +640,29 @@ def list_member_images(
             detail="Mitglied nicht gefunden.",
         )
     images = image_service.get_images_for_owner(db, "member", member_id)
-    return {
-        "owner": {
-            "type": "member",
-            "id": member.id,
-            "cn": member.cn,
-            "org_id": member.org_id,
-            "default_image": member.default_image,
-        },
-        "images": [
-            {
-                "id": i.id,
-                "type": i.type,
-                "height": i.height,
-                "width": i.width,
-                "size": i.size,
-                "description": i.description,
-                "default": i.default,
-            }
-            for i in images
-        ],
-    }
+    return ImageListResponse.model_validate(
+        {
+            "owner": {
+                "type": "member",
+                "id": member.id,
+                "cn": member.cn,
+                "org_id": member.org_id,
+                "default_image": member.default_image,
+            },
+            "images": [
+                {
+                    "id": i.id,
+                    "type": i.type,
+                    "height": i.height,
+                    "width": i.width,
+                    "size": i.size,
+                    "description": i.description,
+                    "default": i.default,
+                }
+                for i in images
+            ],
+        }
+    )
 
 
 @standesdb_router.get("/members/{member_id}/images/{image_id}/download")
@@ -672,10 +679,7 @@ def download_member_image(
     return image_service.serve_download(img, storage)
 
 
-@standesdb_router.get(
-    "/members/{member_id}/images/{image_id}/url",
-    response_model=PresignedUrlResponse,
-)
+@standesdb_router.get("/members/{member_id}/images/{image_id}/url")
 def member_image_url(
     member_id: int,
     image_id: int,
@@ -683,7 +687,7 @@ def member_image_url(
     _current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
-) -> dict[str, str]:
+) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for a member's profile image (original
     or thumbnail via thumb=true). No special permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
@@ -692,7 +696,7 @@ def member_image_url(
         storage,
         thumb=thumb,
     )
-    return {"url": url}
+    return PresignedUrlResponse(url=url)
 
 
 @standesdb_router.post(
@@ -705,7 +709,7 @@ def upload_member_image(
     current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Upload a new profile image for a member. Requires the standesdb admin permission
     for the member's own org."""
     member = db.get(Member, member_id)
@@ -724,7 +728,7 @@ def upload_member_image(
         current_user.id,
         storage,
     )
-    return {"status": "ok", "id": img.id}
+    return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/members/{member_id}/images/{image_id}")
@@ -734,7 +738,7 @@ def update_member_image(
     data: ImageUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> StatusResponse:
     """Update a member image's description or set it as the default. Requires the
     standesdb admin permission for the member's own org."""
     member = db.get(Member, member_id)
@@ -746,7 +750,7 @@ def update_member_image(
     _require_standesdb_admin(current_user, member.org_id)
     img = image_service.get_image_record(db, "member", member_id, image_id)
     image_service.update_image(db, img, data.description, data.default)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @standesdb_router.delete(
@@ -779,7 +783,7 @@ def list_contact_images(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
+) -> ImageListResponse:
     """List all profile images for a contact, plus which one (if any) is the default. No
     special permission - any authenticated member."""
     contact = db.get(Contact, contact_id)
@@ -789,27 +793,29 @@ def list_contact_images(
             detail="Kontakt nicht gefunden.",
         )
     images = image_service.get_images_for_owner(db, "contact", contact_id)
-    return {
-        "owner": {
-            "type": "contact",
-            "id": contact.id,
-            "cn": contact.cn,
-            "org_id": contact.org_id,
-            "default_image": contact.default_image,
-        },
-        "images": [
-            {
-                "id": i.id,
-                "type": i.type,
-                "height": i.height,
-                "width": i.width,
-                "size": i.size,
-                "description": i.description,
-                "default": i.default,
-            }
-            for i in images
-        ],
-    }
+    return ImageListResponse.model_validate(
+        {
+            "owner": {
+                "type": "contact",
+                "id": contact.id,
+                "cn": contact.cn,
+                "org_id": contact.org_id,
+                "default_image": contact.default_image,
+            },
+            "images": [
+                {
+                    "id": i.id,
+                    "type": i.type,
+                    "height": i.height,
+                    "width": i.width,
+                    "size": i.size,
+                    "description": i.description,
+                    "default": i.default,
+                }
+                for i in images
+            ],
+        }
+    )
 
 
 @standesdb_router.get("/contacts/{contact_id}/images/{image_id}/download")
@@ -826,10 +832,7 @@ def download_contact_image(
     return image_service.serve_download(img, storage)
 
 
-@standesdb_router.get(
-    "/contacts/{contact_id}/images/{image_id}/url",
-    response_model=PresignedUrlResponse,
-)
+@standesdb_router.get("/contacts/{contact_id}/images/{image_id}/url")
 def contact_image_url(
     contact_id: int,
     image_id: int,
@@ -837,7 +840,7 @@ def contact_image_url(
     _current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
-) -> dict[str, str]:
+) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for a contact's profile image (original
     or thumbnail via thumb=true). No special permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "contact", contact_id, image_id)
@@ -846,7 +849,7 @@ def contact_image_url(
         storage,
         thumb=thumb,
     )
-    return {"url": url}
+    return PresignedUrlResponse(url=url)
 
 
 @standesdb_router.post(
@@ -861,7 +864,7 @@ def upload_contact_image(
     ],
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
-) -> dict[str, str | int]:
+) -> StatusIdResponse:
     """Upload a new profile image for a contact. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
@@ -878,7 +881,7 @@ def upload_contact_image(
         current_user.id,
         storage,
     )
-    return {"status": "ok", "id": img.id}
+    return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/contacts/{contact_id}/images/{image_id}")
@@ -890,12 +893,12 @@ def update_contact_image(
     _current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
-) -> dict[str, str]:
+) -> StatusResponse:
     """Update a contact image's description or set it as the default.
     Requires standesdbContactAdmin."""
     img = image_service.get_image_record(db, "contact", contact_id, image_id)
     image_service.update_image(db, img, data.description, data.default)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @standesdb_router.delete(
@@ -918,14 +921,14 @@ def delete_contact_image(
 # --- Changelog ---
 
 
-@standesdb_router.get("/members/{member_id}/changelog", response_model=dict)
+@standesdb_router.get("/members/{member_id}/changelog")
 def list_member_changelog(
     member_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> dict[str, list[ChangeLogEntry] | int]:
+) -> PaginatedResponse[ChangeLogEntry]:
     """Return the change history for a member, paginated.
 
     Requires the standesdb admin permission for the member's own org.
@@ -937,20 +940,24 @@ def list_member_changelog(
             detail="Mitglied nicht gefunden.",
         )
     _require_standesdb_admin(current_user, member.org_id)
-    return standesdb_service.get_member_changelog(db, member_id, page, page_size)
+    return PaginatedResponse[ChangeLogEntry].model_validate(
+        standesdb_service.get_member_changelog(db, member_id, page, page_size)
+    )
 
 
-@standesdb_router.get("/contacts/{contact_id}/changelog", response_model=dict)
+@standesdb_router.get("/contacts/{contact_id}/changelog")
 def list_contact_changelog(
     contact_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("standesdbContactAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> dict[str, list[ChangeLogEntry] | int]:
+) -> PaginatedResponse[ChangeLogEntry]:
     """Return the change history for a contact, paginated.
     Requires standesdbContactAdmin."""
-    return standesdb_service.get_contact_changelog(db, contact_id, page, page_size)
+    return PaginatedResponse[ChangeLogEntry].model_validate(
+        standesdb_service.get_contact_changelog(db, contact_id, page, page_size)
+    )
 
 
 # --- Member Change Requests (admin review) ---
@@ -1024,7 +1031,7 @@ def decide_member_change_request(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> StatusResponse:
     """Atomically resolve a change request: every proposed field must have
     a decision in one submission (enforced in the service layer) - there is
     no partially-decided state to save and resume later."""
@@ -1044,7 +1051,7 @@ def decide_member_change_request(
             diff_snapshot,
             decisions_snapshot,
         )
-    return {"status": "resolved"}
+    return StatusResponse(status="resolved")
 
 
 # --- Helper ---

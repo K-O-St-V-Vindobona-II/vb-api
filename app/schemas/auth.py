@@ -1,7 +1,18 @@
-from pydantic import EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 
 from app.core.config import get_settings
 from app.schemas.base import StrictInputModel
+
+
+class StatusMessageResponse(BaseModel):
+    """Shared {status, message} shape for the auth endpoints that return a
+    plain acknowledgement with a user-facing message - see
+    forgot_password/reset_password/unlink_google_account in
+    app/api/router_includes/auth.py. Distinct from the plain
+    StatusResponse in app/schemas/base.py, which has no message field."""
+
+    status: str
+    message: str
 
 
 class ForgotPasswordRequest(StrictInputModel):

@@ -31,10 +31,13 @@ from app.schemas.p4x import (
     FeeBalanceSum,
     FeeCreateRequest,
     FeeMemberResponse,
+    FeeMemberSearchResponse,
     FeeMemberSelfResponse,
     FeeMemberUpdateRequest,
     FeeProgressEntry,
     FeeResponse,
+    Filter2DirectPreviewResponse,
+    Filter2DirectResultResponse,
     FilterHitResponse,
     ImportGiven,
     ImportResult,
@@ -45,6 +48,7 @@ from app.schemas.p4x import (
     SumUpBalanceResponse,
     TransactionRawResponse,
     TransactionResponse,
+    TransactionsByMonthResponse,
     WarningsResponse,
 )
 from app.services import (
@@ -222,7 +226,7 @@ async def import_transactions(
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> ImportResult | dict[str, object]:
+) -> ImportResult:
     """Import bank transactions from a George-Bank JSON export (despite the CSV-sounding
     endpoint name - see p4x_import_service.parse_george_json). The uploaded filename
     must contain the account's IBAN as a sanity check, max 3 MB. Already existing
@@ -263,11 +267,11 @@ async def import_transactions(
     db.refresh(account)
     account_data = p4x_response_builders.build_account_response(db, account)
 
-    return {
-        "given": {"p4x_account_id": account.id, "parsed": True},
-        "summary": summary,
-        "account": account_data.model_dump(),
-    }
+    return ImportResult(
+        given=ImportGiven(p4x_account_id=account.id, parsed=True),
+        summary=summary,
+        account=account_data,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +289,7 @@ def get_transactions_by_month(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
-) -> dict[str, list[TransactionResponse] | int | Decimal]:
+) -> TransactionsByMonthResponse:
     """List transactions for a specific month, paginated, with the account's start/end
     balance for that month attached. Requires p4xView."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
@@ -304,20 +308,16 @@ def get_transactions_by_month(
     else:
         last_of_month = date(year, month + 1, 1) - timedelta(days=1)
 
-    return {
-        "items": [
+    return TransactionsByMonthResponse(
+        items=[
             p4x_response_builders.build_transaction_response(tx, db) for tx in items
         ],
-        "total": total,
-        "page": page,
-        "per_page": p4x_account_service.PAGINATION_SIZE,
-        "startbalance": p4x_account_service.get_account_balance(
-            db, account, last_of_prev
-        ),
-        "endbalance": p4x_account_service.get_account_balance(
-            db, account, last_of_month
-        ),
-    }
+        total=total,
+        page=page,
+        per_page=p4x_account_service.PAGINATION_SIZE,
+        startbalance=p4x_account_service.get_account_balance(db, account, last_of_prev),
+        endbalance=p4x_account_service.get_account_balance(db, account, last_of_month),
+    )
 
 
 @p4x_router.get(
@@ -653,9 +653,7 @@ def get_filter2direct_preview(
     filter_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> dict[
-    str, int | CategoryFilterResponse | CategoryResponse | list[FilterHitResponse]
-]:
+) -> Filter2DirectPreviewResponse:
     """Preview which currently-unmatched transactions a filter rule would convert to
     permanent direct category assignments, without applying anything yet.
     Requires p4xAdmin."""
@@ -664,10 +662,10 @@ def get_filter2direct_preview(
     _, category_count = p4x_account_service.get_warnings_category(db)
     hits = p4x_category_service.get_filter_hits(db, f)
 
-    return {
-        "warningsCount": partner_count + category_count,
-        "filter": p4x_response_builders.build_filter_response(db, f),
-        "category": CategoryResponse(
+    return Filter2DirectPreviewResponse(
+        warningsCount=partner_count + category_count,
+        filter=p4x_response_builders.build_filter_response(db, f),
+        category=CategoryResponse(
             id=f.category.id,
             name=f.category.name,
             label=f.category.label,
@@ -675,7 +673,7 @@ def get_filter2direct_preview(
             text_color=f.category.text_color,
             protected=f.category.protected,
         ),
-        "hits": [
+        hits=[
             FilterHitResponse(
                 booking=str(tx.booking) if tx.booking else None,
                 amount=tx.amount,
@@ -684,7 +682,7 @@ def get_filter2direct_preview(
             )
             for tx in hits
         ],
-    }
+    )
 
 
 @p4x_router.post("/admin/category-filters/{filter_id}/filter2direct")
@@ -692,7 +690,7 @@ def process_filter2direct(
     filter_id: int,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-) -> dict[str, list[FilterHitResponse]]:
+) -> Filter2DirectResultResponse:
     """Apply a filter rule: convert every transaction it currently matches into a
     permanent direct category assignment - a one-time snapshot, not a live rule going
     forward. Requires p4xAdmin."""
@@ -704,8 +702,8 @@ def process_filter2direct(
             detail=error,
         )
     remaining_hits = p4x_category_service.get_filter_hits(db, f)
-    return {
-        "hits": [
+    return Filter2DirectResultResponse(
+        hits=[
             FilterHitResponse(
                 booking=str(tx.booking) if tx.booking else None,
                 amount=tx.amount,
@@ -714,7 +712,7 @@ def process_filter2direct(
             )
             for tx in remaining_hits
         ],
-    }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -908,7 +906,7 @@ def search_fee_members(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     q: str = "",
-) -> dict[str, list[p4x_fee_balance_service.FeeMemberSearchResult]]:
+) -> FeeMemberSearchResponse:
     """Search fee-liable members by name, with each result's current payment status.
     Minimum 3 characters. Requires p4xView."""
     if len(q) < 3:
@@ -916,7 +914,9 @@ def search_fee_members(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suchbegriff muss mindestens 3 Zeichen lang sein.",
         )
-    return {"data": p4x_fee_balance_service.search_fee_members(db, q)}
+    return FeeMemberSearchResponse.model_validate(
+        {"data": p4x_fee_balance_service.search_fee_members(db, q)}
+    )
 
 
 # NOTE: these two "me" routes must stay registered before

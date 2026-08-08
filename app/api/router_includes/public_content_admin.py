@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.auth_guards import require_permission
 from app.db.database import get_db
 from app.models.member import Member
-from app.schemas.base import MoveRequest
+from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_content import (
     AboutTabAdminResponse,
     AboutTabUpdateRequest,
@@ -157,13 +157,13 @@ def move_programm_hint(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
     """Move a Programm hint one position up or down, swapping sort_order
     with its immediate neighbor. A no-op (still 200) if the hint is
     already at that end of the list."""
     hint = programm_hints_service.get_hint_or_404(db, hint_id)
     programm_hints_service.move_hint(db, hint, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(
@@ -226,13 +226,13 @@ def move_quote(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
     """Move a quote one position up or down, swapping sort_order with its
     immediate neighbor. A no-op (still 200) if the quote is already at
     that end of the list."""
     quote = quotes_service.get_quote_or_404(db, quote_id)
     quotes_service.move_quote(db, quote, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(
@@ -303,13 +303,13 @@ def move_social_link(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
     """Move a social media link one position up or down, swapping
     sort_order with its immediate neighbor. A no-op (still 200) if the
     link is already at that end of the list."""
     link = social_links_service.get_link_or_404(db, link_id)
     social_links_service.move_link(db, link, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(

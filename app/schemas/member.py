@@ -25,3 +25,7 @@ class MemberResponse(MemberBase):
     session_idle_timeout: int = 120
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ChroniclemailToggleResponse(BaseModel):
+    chroniclemail: bool
