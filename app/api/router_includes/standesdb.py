@@ -72,7 +72,8 @@ def get_stats(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> StatsResponse:
-    """Return aggregate statistics (member/contact counts by org and state)."""
+    """Return aggregate statistics (member/contact counts by org and state). No special
+    permission - any authenticated member."""
     return StatsResponse(
         member=MemberStatsResponse(**standesdb_service.get_member_stats(db)),
         contact=ContactStatsResponse(**standesdb_service.get_contact_stats(db)),
@@ -85,7 +86,8 @@ def search(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, list[dict[str, str | int]]]:
-    """Full-text search across members and contacts."""
+    """Full-text search across members and contacts by name/couleurname, minimum 3
+    characters. No special permission - any authenticated member."""
     return {"data": (standesdb_service.search_members_and_contacts(db, q))}
 
 
@@ -94,7 +96,8 @@ def get_reference_data(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> ReferenceDataResponse:
-    """Return reference data (orgs, states, roles, badges) for form dropdowns."""
+    """Return reference data (orgs, states, roles, badges) for form dropdowns. No
+    special permission - any authenticated member."""
     data = standesdb_service.get_reference_data(db)
     return ReferenceDataResponse.model_validate(data, from_attributes=True)
 
@@ -107,7 +110,8 @@ def get_export_config(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(require_permission("standesdbExport"))],
 ) -> dict[str, object]:
-    """Return export configuration options (formats, available fields)."""
+    """Return export configuration options (available formats/fields) for the export
+    module. Requires standesdbExport."""
     return export_service.get_export_config(db)
 
 
@@ -118,7 +122,10 @@ def do_export(
     current_user: Annotated[Member, Depends(require_permission("standesdbExport"))],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
-    """Generate and download an export file (booklet, labels, etc.)."""
+    """Generate and download an export file - one of 4 modules (mailing-liste/excel-
+    liste-komplett/mitgliederverzeichnis/adress-etiketten-zweckform-3490),
+    each returning a different file format. 422 for an unrecognized module.
+    Requires standesdbExport."""
     module = data.module
     filter_data: dict[str, object] = {
         **data.selections,
@@ -203,7 +210,7 @@ def get_keys_list(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(require_permission("keylist"))],
 ) -> dict[str, object]:
-    """Return the list of key holders with their assigned keys."""
+    """Return the list of key holders with their assigned keys. Requires keylist."""
     return standesdb_service.get_keys_list(db)
 
 
@@ -212,7 +219,7 @@ def download_keys_list(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(require_permission("keylist"))],
 ) -> Response:
-    """Download the key holders list as a plain-text file."""
+    """Download the key holders list as a plain-text file. Requires keylist."""
     today = datetime.now(UTC).date().isoformat()
     content = standesdb_service.generate_keys_download(db)
     return Response(
@@ -237,7 +244,9 @@ def get_roles_list(
     year: Annotated[int | None, Query(ge=1928, lt=2100)] = None,
     semester: Annotated[str | None, Query(pattern="^(ss|ws)$")] = None,
 ) -> dict[str, object]:
-    """Return members grouped by their current active roles."""
+    """Return members grouped by their current active roles, or by role membership
+    during a specific year+semester if both are given (422 if only one of the two is
+    given). No special permission - any authenticated member."""
     if (year is None) != (semester is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -257,7 +266,9 @@ def get_member(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberDetailResponse | MemberDismissedResponse:
-    """Retrieve a single member by ID with all related data."""
+    """Retrieve a single member by ID with all related data (roles, badges, keys,
+    contact info). No special permission - any authenticated member; write operations
+    enforce org-scoped admin permission separately."""
     return standesdb_service.get_member_detail(db, member_id)
 
 
@@ -294,7 +305,8 @@ def create_member(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str | int]:
-    """Create a new member record."""
+    """Create a new member record. Requires the standesdb admin permission for the
+    target org (data.org_id) - checked at runtime, not via a route dependency."""
     _require_standesdb_admin(current_user, data.org_id)
     standesdb_service.validate_member_org(data, current_user)
     standesdb_service.validate_member_uniqueness(db, data)
@@ -328,7 +340,9 @@ def update_member(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str | int]:
-    """Update an existing member's data and notify change subscribers."""
+    """Update an existing member's data and notify the org's standesdb admins by email
+    if anything actually changed. Requires the standesdb admin permission for the
+    member's own org - checked at runtime, not via a route dependency."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -372,7 +386,9 @@ def search_parent(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, list[dict[str, str | int]]]:
-    """Search for potential parent members by name."""
+    """Search for potential parent members (e.g. for the sponsoring 'Bürge'
+    relationship) by name, minimum 3 characters. Requires the standesdb admin
+    permission for the member's own org."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -505,7 +521,8 @@ def get_contact(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> ContactDetailResponse:
-    """Retrieve a single contact by ID with all related data."""
+    """Retrieve a single contact by ID with all related data. No special permission -
+    any authenticated member."""
     return standesdb_service.get_contact_detail(db, contact_id)
 
 
@@ -518,7 +535,7 @@ def create_contact(
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
 ) -> dict[str, str | int]:
-    """Create a new contact record."""
+    """Create a new contact record. Requires standesdbContactAdmin."""
     standesdb_service.validate_contact_uniqueness(db, data.name)
 
     contact = Contact()
@@ -550,7 +567,8 @@ def update_contact(
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
 ) -> dict[str, str | int]:
-    """Update an existing contact's data and notify change subscribers."""
+    """Update an existing contact's data and notify subscribers by email if anything
+    actually changed. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -588,7 +606,8 @@ def delete_contact(
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
 ) -> None:
-    """Soft-delete a contact record."""
+    """Soft-delete a contact record - sets deleted_at, does not remove
+    the row. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -607,7 +626,8 @@ def list_member_images(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """List all profile images for a member."""
+    """List all profile images for a member, plus which one (if any) is the default. No
+    special permission - any authenticated member."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -646,7 +666,8 @@ def download_member_image(
     _current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
-    """Download a member's profile image (original or thumbnail)."""
+    """Download a member's profile image file (original or thumbnail). No special
+    permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     return image_service.serve_download(img, storage)
 
@@ -663,7 +684,8 @@ def member_image_url(
     storage: Annotated[StorageClient, Depends(get_storage)],
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
 ) -> dict[str, str]:
-    """Generate a presigned S3 URL for a member's profile image."""
+    """Generate a time-limited presigned S3 URL for a member's profile image (original
+    or thumbnail via thumb=true). No special permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     url = image_service.get_presigned_url(
         img,
@@ -684,7 +706,8 @@ def upload_member_image(
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
 ) -> dict[str, str | int]:
-    """Upload a new profile image for a member."""
+    """Upload a new profile image for a member. Requires the standesdb admin permission
+    for the member's own org."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -712,7 +735,8 @@ def update_member_image(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Update image metadata (description, set as default)."""
+    """Update a member image's description or set it as the default. Requires the
+    standesdb admin permission for the member's own org."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -734,7 +758,8 @@ def delete_member_image(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Delete a member's profile image from storage."""
+    """Delete a member's profile image from storage. Requires the standesdb admin
+    permission for the member's own org."""
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -755,7 +780,8 @@ def list_contact_images(
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> dict[str, object]:
-    """List all profile images for a contact."""
+    """List all profile images for a contact, plus which one (if any) is the default. No
+    special permission - any authenticated member."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -794,7 +820,8 @@ def download_contact_image(
     _current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
-    """Download a contact's profile image (original or thumbnail)."""
+    """Download a contact's profile image file (original or thumbnail). No special
+    permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "contact", contact_id, image_id)
     return image_service.serve_download(img, storage)
 
@@ -811,7 +838,8 @@ def contact_image_url(
     storage: Annotated[StorageClient, Depends(get_storage)],
     thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
 ) -> dict[str, str]:
-    """Generate a presigned S3 URL for a contact's profile image."""
+    """Generate a time-limited presigned S3 URL for a contact's profile image (original
+    or thumbnail via thumb=true). No special permission - any authenticated member."""
     img = image_service.get_image_for_serving(db, "contact", contact_id, image_id)
     url = image_service.get_presigned_url(
         img,
@@ -834,7 +862,7 @@ def upload_contact_image(
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
 ) -> dict[str, str | int]:
-    """Upload a new profile image for a contact."""
+    """Upload a new profile image for a contact. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -863,7 +891,8 @@ def update_contact_image(
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
 ) -> dict[str, str]:
-    """Update contact image metadata (description, set as default)."""
+    """Update a contact image's description or set it as the default.
+    Requires standesdbContactAdmin."""
     img = image_service.get_image_record(db, "contact", contact_id, image_id)
     image_service.update_image(db, img, data.description, data.default)
     return {"status": "ok"}
@@ -881,7 +910,7 @@ def delete_contact_image(
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
 ) -> None:
-    """Delete a contact's profile image from storage."""
+    """Delete a contact's profile image from storage. Requires standesdbContactAdmin."""
     img = image_service.get_image_record(db, "contact", contact_id, image_id)
     image_service.delete_image(db, img)
 
@@ -919,7 +948,8 @@ def list_contact_changelog(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> dict[str, list[ChangeLogEntry] | int]:
-    """Return the change history for a contact, paginated."""
+    """Return the change history for a contact, paginated.
+    Requires standesdbContactAdmin."""
     return standesdb_service.get_contact_changelog(db, contact_id, page, page_size)
 
 
