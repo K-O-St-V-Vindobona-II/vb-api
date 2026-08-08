@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import Text, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.core.storage import (
@@ -1141,75 +1141,135 @@ def dir_path_string(
     return " / ".join(parts) if parts else ""
 
 
+def _build_prefix_tsquery_text(db: Session, query: str) -> str:
+    """Turns a raw, untrusted user search string into Postgres prefix-
+    tsquery syntax, e.g. "Kassa Vorstand" -> "'kassa':* & 'vorstand':*".
+
+    Plain word-form matching (websearch_to_tsquery() alone) would miss
+    "Kassa" -> "Kassabericht": Postgres's 'german' text search config
+    stems suffixes but never splits compound words, so a bare word never
+    matches as a substring of a longer one the way the previous ILIKE
+    implementation did. Appending :* (prefix match) to every lexeme
+    recovers exactly that case - and also "BC"/"MC"/"FC"/"DC" committee
+    abbreviations, verified empirically to tokenize and prefix-match fine
+    even at 2 characters (see search_archive()'s min_length=2).
+
+    websearch_to_tsquery() does the actual parsing of the raw string - it
+    never raises on malformed input (unlike to_tsquery()), so building the
+    prefix query from its already-safely-parsed text representation stays
+    safe against arbitrary user text (quotes, &/|/! operators, ...).
+    Returns "" for input with no real lexemes (stop words only, or empty
+    after Postgres's own tokenizing) - the caller treats that as "no
+    results", matching plain ILIKE's behavior for a query that matches
+    nothing.
+    """
+    safe_query_text = cast(func.websearch_to_tsquery("german", query), Text)
+    prefixed_text = func.regexp_replace(safe_query_text, r"'(\w+)'", r"'\1':*", "g")
+    return db.execute(select(cast(prefixed_text, Text))).scalar() or ""
+
+
 def search_archive(
     db: Session,
     user: Member,
     query: str,
 ) -> list[dict[str, object]]:
-    term = f"%{query}%"
+    """Ranked full-text search across directories and files - see
+    _build_prefix_tsquery_text() for the query-construction reasoning.
+
+    Ranking weights (highest to lowest, shared across all four searched
+    tables): name (A) > description (B) > extension (C) > comment content
+    (D) - a name match ranks above an incidental comment mention. Dirs and
+    files are merged into one relevance-sorted list; SEARCH_LIMIT is
+    applied per source table before permission filtering and again to the
+    final merged list, same two-stage shape as the previous
+    implementation (a heavily filtered top-SEARCH_LIMIT window can still
+    return fewer than SEARCH_LIMIT results - an accepted, pre-existing
+    trade-off, not something Stage 1 changes).
+    """
+    tsquery_text = _build_prefix_tsquery_text(db, query)
+    if not tsquery_text:
+        return []
+    tsquery = func.to_tsquery("german", tsquery_text)
+
     admin = is_archive_admin(user)
     perm_sets = _load_perm_sets(db)
-    results: list[dict[str, object]] = []
+    ranked_results: list[tuple[float, dict[str, object]]] = []
 
+    dir_rank = func.ts_rank(ArchiveDir.search_vector, tsquery)
     dir_hits = (
-        db.query(ArchiveDir)
+        db.query(ArchiveDir, dir_rank)
         .filter(
             ArchiveDir.deleted_at.is_(None),
-            ArchiveDir.name.ilike(term),
+            ArchiveDir.search_vector.op("@@")(tsquery),
         )
+        .order_by(dir_rank.desc())
         .limit(SEARCH_LIMIT)
         .all()
     )
-    for d in dir_hits:
+    for d, rank in dir_hits:
         if not admin and not can_insight(user, db, d, perm_sets):
             continue
-        results.append(
-            {
-                "type": "dir",
-                "id": d.id,
-                "name": d.name,
-                "description": d.description,
-                "path": dir_path_string(db, d),
-            }
+        ranked_results.append(
+            (
+                rank,
+                {
+                    "type": "dir",
+                    "id": d.id,
+                    "name": d.name,
+                    "description": d.description,
+                    "path": dir_path_string(db, d),
+                },
+            )
         )
 
-    remaining = SEARCH_LIMIT - len(results)
-    if remaining <= 0:
-        return results
-
-    # EXISTS rather than a join to ArchiveFileComment - a file with several
-    # matching comments must still only appear once in file_hits.
+    # EXISTS (not a join) - a file with several matching comments must
+    # still only appear once in file_hits. The paired MAX(ts_rank(...))
+    # subquery feeds the same "at least one comment matched" signal into
+    # ranking, weighted lowest (D) of the three possible match sources.
     comment_match_exists = (
         db.query(ArchiveFileComment.id)
         .filter(
             ArchiveFileComment.archive_file_id == ArchiveFile.id,
             ArchiveFileComment.deleted_at.is_(None),
-            ArchiveFileComment.content.ilike(term),
+            ArchiveFileComment.search_vector.op("@@")(tsquery),
         )
         .correlate(ArchiveFile)
         .exists()
     )
+    comment_rank = (
+        db.query(func.max(func.ts_rank(ArchiveFileComment.search_vector, tsquery)))
+        .filter(
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.deleted_at.is_(None),
+            ArchiveFileComment.search_vector.op("@@")(tsquery),
+        )
+        .correlate(ArchiveFile)
+        .scalar_subquery()
+    )
+    file_rank = func.greatest(
+        func.ts_rank(ArchiveStoreItem.search_vector, tsquery),
+        func.ts_rank(ArchiveFile.search_vector, tsquery),
+        func.coalesce(comment_rank, 0.0),
+    )
 
     file_hits = (
-        db.query(ArchiveFile)
+        db.query(ArchiveFile, file_rank)
         .join(
             ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),
             (
-                ArchiveStoreItem.name.ilike(term)
-                | ArchiveFile.description.ilike(term)
-                | ArchiveStoreItem.extension.ilike(term)
+                ArchiveStoreItem.search_vector.op("@@")(tsquery)
+                | ArchiveFile.search_vector.op("@@")(tsquery)
                 | comment_match_exists
             ),
         )
+        .order_by(file_rank.desc())
         .limit(SEARCH_LIMIT)
         .all()
     )
-    for f in file_hits:
-        if len(results) >= SEARCH_LIMIT:
-            break
+    for f, rank in file_hits:
         parent = db.get(
             ArchiveDir,
             f.archive_dir_id,
@@ -1226,16 +1286,20 @@ def search_archive(
             continue
         item = f.store_item
         path = dir_path_string(db, parent) if parent else "Archiv"
-        results.append(
-            {
-                "type": "file",
-                "id": f.id,
-                "name": item.name,
-                "description": f.description,
-                "extension": item.extension,
-                "is_image": item.is_image,
-                "path": path,
-            }
+        ranked_results.append(
+            (
+                rank,
+                {
+                    "type": "file",
+                    "id": f.id,
+                    "name": item.name,
+                    "description": f.description,
+                    "extension": item.extension,
+                    "is_image": item.is_image,
+                    "path": path,
+                },
+            )
         )
 
-    return results
+    ranked_results.sort(key=lambda entry: entry[0], reverse=True)
+    return [result for _, result in ranked_results[:SEARCH_LIMIT]]

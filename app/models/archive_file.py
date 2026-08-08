@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -32,6 +33,18 @@ class ArchiveFile(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
+    # 10efdd07c37e) - the file's name/extension live on ArchiveStoreItem
+    # instead, which has its own search_vector. Never written from Python,
+    # only read via full-text @@/ts_rank() in
+    # archive_service.search_archive().
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('german', coalesce(description, '')), 'B')",
+            persisted=True,
+        ),
+    )
 
     archive_dir: Mapped[ArchiveDir | None] = relationship(
         foreign_keys="ArchiveFile.archive_dir_id",
