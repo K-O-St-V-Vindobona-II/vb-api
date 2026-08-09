@@ -19,9 +19,10 @@ from app.schemas.auth import (
     GoogleLinkRequest,
     GoogleLoginRequest,
     ResetPasswordRequest,
+    StatusMessageResponse,
 )
 from app.services import auth_service
-from app.services.auth_service import AccountNotLinkedError
+from app.services.auth_service import AccountNotLinkedError, GoogleAuthUnavailableError
 
 auth_router = APIRouter()
 
@@ -93,25 +94,25 @@ def forgot_password(
     data: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
-) -> dict[str, str]:
+) -> StatusMessageResponse:
     """Request a password reset email.
 
     Always returns 200 to prevent email enumeration.
     Rate limit: 3/min.
     """
     auth_service.process_forgot_password(db, background_tasks, data.email)
-    return {
-        "status": "ok",
-        "message": (
+    return StatusMessageResponse(
+        status="ok",
+        message=(
             "Falls die E-Mail-Adresse registriert ist, wurde ein Reset-Link versendet."
         ),
-    }
+    )
 
 
 @auth_router.post("/reset-password")
 def reset_password(
     data: ResetPasswordRequest, db: Annotated[Session, Depends(get_db)]
-) -> dict[str, str]:
+) -> StatusMessageResponse:
     """Set a new password using a time-limited reset token (20 min TTL)."""
     try:
         auth_service.execute_password_reset(db, data.email, data.token, data.password)
@@ -121,10 +122,10 @@ def reset_password(
             detail=str(e),
         ) from None
 
-    return {
-        "status": "ok",
-        "message": "Passwort wurde erfolgreich aktualisiert.",
-    }
+    return StatusMessageResponse(
+        status="ok",
+        message="Passwort wurde erfolgreich aktualisiert.",
+    )
 
 
 @auth_router.post("/google")
@@ -138,6 +139,11 @@ def login_with_google(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ACCOUNT_NOT_LINKED",
+        ) from None
+    except GoogleAuthUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
         ) from None
     except ValueError as e:
         raise HTTPException(
@@ -166,6 +172,11 @@ def link_google_account(
         member = auth_service.link_google_account(
             db, data.credential, data.email, data.password
         )
+    except GoogleAuthUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from None
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -182,10 +193,12 @@ def link_google_account(
 def unlink_google_account(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
+) -> StatusMessageResponse:
     """Remove the Google OAuth link from the current user's account."""
     auth_service.unlink_google_account(db, current_user.id)
-    return {"status": "ok", "message": "Google-Verknüpfung wurde erfolgreich gelöst."}
+    return StatusMessageResponse(
+        status="ok", message="Google-Verknüpfung wurde erfolgreich gelöst."
+    )
 
 
 @auth_router.post("/refresh")

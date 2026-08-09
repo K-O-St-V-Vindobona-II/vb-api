@@ -119,6 +119,24 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
         "file": "entry_changed.html",
     },
     {
+        "key": "member-change-request-submitted",
+        "name": "Neuer Änderungsantrag (an Admin)",
+        "source": "mailer.py → send_member_change_request_submitted_email()",
+        "file": "member_change_request_submitted.html",
+    },
+    {
+        "key": "member-change-request-resolved",
+        "name": "Änderungsantrag entschieden (an Mitglied)",
+        "source": "mailer.py → send_member_change_request_resolved_email()",
+        "file": "member_change_request_resolved.html",
+    },
+    {
+        "key": "own-image-changed",
+        "name": "Profilbild-Selbstverwaltung (an Org-Admin)",
+        "source": "mailer.py → send_own_image_changed_email()",
+        "file": "own_image_changed.html",
+    },
+    {
         "key": "birthday",
         "name": "Geburtstagsgrüße",
         "source": "scheduler.py → job_birthday_mails()",

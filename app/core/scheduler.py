@@ -10,16 +10,14 @@ silently swallowing it.
 """
 
 import logging
+import subprocess
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from alembic.config import Config
 from apscheduler.job import Job
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import text
-
-from alembic import command
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
@@ -738,6 +736,36 @@ async def job_db_backup() -> None:
 # -------------------------------------------------------------------
 
 
+def _run_alembic_upgrade_head() -> None:
+    """Run `alembic upgrade head` as a subprocess, never in-process.
+
+    docker-entrypoint.sh and scripts/downsync_prod.py already run alembic
+    this way - this matches them rather than calling alembic's own
+    command.upgrade() Python API directly, which is what this job used to
+    do. That in-process call runs alembic/env.py, which calls
+    logging.config.fileConfig(alembic.ini) on every invocation -
+    alembic.ini's [loggers] section only lists root/sqlalchemy/alembic,
+    so fileConfig's default disable_existing_loggers=True silently
+    disables every other already-configured logger (this module's
+    included) for the rest of the worker process's lifetime. Observed in
+    practice: after the first successful downsync, this job's own
+    completion log line - and its own record_job_run() call right after
+    it - silently stopped happening on every later run in the same
+    process, with no exception and no trace. A subprocess is a disposable
+    interpreter; whatever logging state it reconfigures for itself can
+    never leak back into this process.
+    """
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"],  # noqa: S607
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        msg = f"alembic upgrade head failed (exit {result.returncode}): {stderr}"
+        raise RuntimeError(msg)
+
+
 def job_downsync() -> None:
     # Belt-and-suspenders: this job is only ever registered in
     # non-production (see start_scheduler()), but a future registration
@@ -791,8 +819,8 @@ def job_downsync() -> None:
     )
 
     try:
-        run_restore(local_storage)
-        command.upgrade(Config("alembic.ini"), "head")
+        restored_backup_name = run_restore(local_storage)
+        _run_alembic_upgrade_head()
     except Exception as exc:
         logger.exception("Downsync DB restore/migration failed.")
         record_job_run(
@@ -803,14 +831,15 @@ def job_downsync() -> None:
         )
         return
 
-    logger.info("Downsync complete: local DB restored from latest prod backup.")
+    logger.info("Downsync complete: local DB restored from %s.", restored_backup_name)
     record_job_run(
         "downsync",
         started,
         exit_code=0,
         output=(
             f"S3-Files: {len(result.synced)} synced, {result.skipped} skipped, "
-            f"{len(result.deleted)} deleted; DB: restored from latest prod backup."
+            f"{len(result.deleted)} deleted; DB: restored from "
+            f"{restored_backup_name}."
         ),
     )
 

@@ -148,6 +148,32 @@ def _wipe_public_schema(
     happened with). Wiping the schema upfront and restoring without
     --clean sidesteps the ordering problem entirely - there is nothing
     left to drop, so no DROP order can ever be wrong.
+
+    This runs against the *live* app database (this is what makes
+    restore/downsync work in the first place) - DROP SCHEMA needs an
+    ACCESS EXCLUSIVE lock, which any other session with an open
+    transaction on this database can block. Racing that with a
+    lock_timeout alone is unreliable in practice: this app's own
+    background session-refresh timer (see useSessionManager.ts) keeps a
+    steady trickle of ordinary requests arriving, so a fixed wait can
+    lose to ambient traffic even when nothing is actually wrong (observed
+    in practice after adding a first lock_timeout=5s fix). Terminating
+    every other session on this database first makes lock acquisition
+    deterministic instead of a timing race - any session still using the
+    *old* schema is about to get errors the instant it's dropped anyway,
+    so disconnecting it cleanly now is strictly better than letting it
+    fail later with a confusing "relation does not exist". The
+    scheduler's own advisory-lock-holding connection (see
+    _acquire_scheduler_lock() in scheduler.py) is deliberately spared -
+    it never touches a table, so it can never conflict with DROP SCHEMA,
+    and terminating it would silently stop this worker's scheduled jobs
+    until the next restart. lock_timeout stays as a safety net for the
+    unlikely case of a new connection arriving in the brief window
+    between the terminate and the DROP SCHEMA - a fast, clearly logged
+    failure instead of the unbounded hang from before this function had
+    any timeout at all (observed in practice: an idle-in-transaction
+    session froze an entire dev stage, including login, for 20+ minutes
+    with no self-recovery).
     """
     psql = _resolve_pg_tool("psql")
     _run_pg_subprocess(
@@ -158,11 +184,81 @@ def _wipe_public_schema(
             f"--username={user}",
             f"--dbname={dbname}",
             "-c",
-            "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
+            (
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = current_database() "
+                "AND pid != pg_backend_pid() "
+                "AND query NOT ILIKE '%pg_try_advisory_lock%'; "
+                "SET lock_timeout = '5s'; DROP SCHEMA public CASCADE; "
+                "CREATE SCHEMA public;"
+            ),
         ],
         env=_build_pg_env(password),
         tool_name="psql",
     )
+
+
+def _snapshot_local_job_history(
+    host: str, user: str, password: str, port: int, dbname: str
+) -> bytes:
+    """Dump this stage's own scheduled_task_runs rows before a restore
+    wipes them.
+
+    scheduled_task_runs is stage-local by design (see run_backup()'s
+    --exclude-table-data) - a restore/downsync must not let it come back
+    empty just because the schema got wiped first. Data-only, single-table
+    dump so this stays a cheap, non-blocking MVCC snapshot of the live
+    table, taken before _wipe_public_schema() terminates any other
+    session.
+    """
+    pg_dump = _resolve_pg_tool("pg_dump")
+    result = _run_pg_subprocess(
+        [
+            pg_dump,
+            "--format=custom",
+            "--data-only",
+            "--table=public.scheduled_task_runs",
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={dbname}",
+        ],
+        env=_build_pg_env(password),
+        tool_name="pg_dump",
+    )
+    return result.stdout
+
+
+def _restore_local_job_history(
+    snapshot: bytes, host: str, user: str, password: str, port: int, dbname: str
+) -> None:
+    """Re-insert this stage's own pre-restore scheduled_task_runs rows.
+
+    Runs after the main pg_restore, once the (now-empty, since the
+    restored dump excludes this table's data) table structure exists
+    again. --data-only against an empty snapshot is a harmless no-op, so
+    this needs no special-casing for a fresh stage with no prior history.
+    """
+    pg_restore = _resolve_pg_tool("pg_restore")
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
+        tmp.write(snapshot)
+        tmp_path = tmp.name
+    try:
+        _run_pg_subprocess(
+            [
+                pg_restore,
+                "--data-only",
+                f"--host={host}",
+                f"--port={port}",
+                f"--username={user}",
+                f"--dbname={dbname}",
+                tmp_path,
+            ],
+            env=_build_pg_env(password),
+            tool_name="pg_restore",
+        )
+    finally:
+        Path(tmp_path).unlink()
 
 
 def run_restore(
@@ -170,12 +266,19 @@ def run_restore(
     backup_name: str | None = None,
     *,
     force: bool = False,
-) -> None:
+) -> str:
     """
     Restore the PostgreSQL database from an S3 backup.
 
     If backup_name is None, restores the latest available backup.
     Requires force=True when APP_ENVIRONMENT == 'production'.
+    Returns the name of the backup that was actually restored.
+
+    This stage's own scheduled_task_runs history survives the restore
+    (snapshotted before the wipe, re-inserted after) - the restored dump
+    itself never carries scheduled_task_runs data across stages (see
+    run_backup()'s --exclude-table-data), only this stage's pre-restore
+    rows are ever re-applied here.
     """
     database_url = cast("str", get_settings().database_url)
     _require_postgres(database_url)
@@ -208,6 +311,9 @@ def run_restore(
     logger.info("Restoring DB from backup: %s", backup_name)
     pg_restore = _resolve_pg_tool("pg_restore")
     try:
+        local_job_history = _snapshot_local_job_history(
+            host, user, password, port, dbname
+        )
         _wipe_public_schema(host, user, password, port, dbname)
         _run_pg_subprocess(
             [
@@ -221,10 +327,14 @@ def run_restore(
             env=_build_pg_env(password),
             tool_name="pg_restore",
         )
+        _restore_local_job_history(
+            local_job_history, host, user, password, port, dbname
+        )
     finally:
         Path(tmp_path).unlink()
 
     logger.info("DB restore complete from: %s", backup_name)
+    return backup_name
 
 
 def _parse_backup_timestamp(backup_name: str) -> datetime | None:

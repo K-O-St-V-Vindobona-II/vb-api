@@ -7,6 +7,7 @@ from app.core.mailer import render_template, send_to_recipients
 from app.core.rate_limit import limiter
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
+from app.schemas.base import StatusResponse
 from app.schemas.public_content import (
     AboutTabContent,
     AboutTabsResponse,
@@ -92,7 +93,7 @@ def get_site_content(
 def submit_contact_form(
     request: Request,  # noqa: ARG001
     data: ContactFormRequest,
-) -> dict[str, str]:
+) -> StatusResponse:
     """Contact form submission from the public site.
 
     Rate limit: 5/min per IP. Spam protection is a honeypot field
@@ -112,4 +113,4 @@ def submit_contact_form(
         template_key="public-contact-form",
         reply_to=data.email,
     )
-    return {"status": "ok"}
+    return StatusResponse(status="ok")

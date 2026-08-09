@@ -16,12 +16,21 @@ from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
 from app.schemas.archive import (
+    ArchiveDirDetailResponse,
+    ArchiveFileDetailResponse,
+    ArchiveSearchDirResult,
+    ArchiveSearchFileResult,
     CommentCreateRequest,
+    CommentCreateResponse,
     DirReceiveRequest,
     DirSaveRequest,
     FileUpdateRequest,
     PresignedUrlResponse,
+    UnfiledUploadsResponse,
+    UploadConfigResponse,
+    UploadResponse,
 )
+from app.schemas.base import StatusIdResponse, StatusResponse
 from app.services import archive_service
 
 archive_router = APIRouter()
@@ -35,12 +44,18 @@ def search_archive(
     q: Annotated[str, Query(min_length=2)],
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> list[dict[str, object]]:
+) -> list[ArchiveSearchDirResult | ArchiveSearchFileResult]:
     """Search files and directories by name or description (min 2
     characters - lower than most other searches in this app since the
     archive has many meaningful 2-letter abbreviations, e.g. "BC"/"MC"/
     "FC"/"DC" committee protocol directories)."""
-    return archive_service.search_archive(db, user, q)
+    results = archive_service.search_archive(db, user, q)
+    return [
+        ArchiveSearchDirResult.model_validate(r)
+        if r["type"] == "dir"
+        else ArchiveSearchFileResult.model_validate(r)
+        for r in results
+    ]
 
 
 # --- Dirs ---
@@ -50,9 +65,13 @@ def search_archive(
 def get_root(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """Return the root directory listing with subdirectories and files."""
-    return archive_service.get_root_content(db, user)
+) -> ArchiveDirDetailResponse:
+    """Return the root directory listing - only subdirectories/files the caller has
+    insight permission into (everything, for archiveAdmin) - plus archive-wide
+    aggregate stats (file/dir counts, total size, breakdown by extension)."""
+    return ArchiveDirDetailResponse.model_validate(
+        archive_service.get_root_content(db, user)
+    )
 
 
 @archive_router.get("/dirs/{dir_id}")
@@ -60,9 +79,13 @@ def get_dir(
     dir_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """Return a directory by ID with its contents, path breadcrumbs, and permissions."""
-    return archive_service.get_dir_detail(db, dir_id, user)
+) -> ArchiveDirDetailResponse:
+    """Return a directory by ID with its contents, path breadcrumbs, and
+    effective permissions. Requires insight permission for the
+    directory's org/state, or archiveAdmin."""
+    return ArchiveDirDetailResponse.model_validate(
+        archive_service.get_dir_detail(db, dir_id, user)
+    )
 
 
 @archive_router.post("/dirs", status_code=status.HTTP_201_CREATED)
@@ -70,10 +93,11 @@ def create_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str | int]:
-    """Create a new subdirectory within an existing directory."""
+) -> StatusIdResponse:
+    """Create a new subdirectory within an existing directory (or the root, if parentId
+    is omitted). Requires archiveAdmin."""
     d = archive_service.create_dir(db, data.model_dump(), user)
-    return {"status": "ok", "id": d.id}
+    return StatusIdResponse(status="ok", id=d.id)
 
 
 @archive_router.put("/dirs/{dir_id}")
@@ -82,10 +106,11 @@ def update_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Update a directory's name or description."""
+) -> StatusResponse:
+    """Update a directory's name, description, permissions, or recursive-permissions
+    flag. Requires archiveAdmin."""
     archive_service.update_dir(db, dir_id, data.model_dump(), user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @archive_router.delete("/dirs/{dir_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -94,7 +119,8 @@ def delete_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Soft-delete a directory (moves to trash)."""
+    """Soft-delete a directory (moves to trash) - hard-deletes instead if it's already
+    empty. Requires archiveAdmin."""
     archive_service.delete_dir(db, dir_id, user)
 
 
@@ -103,10 +129,10 @@ def restore_dir(
     dir_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Restore a soft-deleted directory from trash."""
+) -> StatusResponse:
+    """Restore a soft-deleted directory from trash. Requires archiveAdmin."""
     archive_service.restore_dir(db, dir_id, user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @archive_router.delete("/dirs/{dir_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
@@ -115,7 +141,8 @@ def purge_dir(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Permanently delete an empty, soft-deleted directory. Irreversible."""
+    """Permanently delete an already-trashed, empty directory. 409 if it isn't currently
+    in the trash or still has content. Irreversible. Requires archiveAdmin."""
     archive_service.purge_dir(db, dir_id, user)
 
 
@@ -125,10 +152,11 @@ def receive_in_dir(
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Move files or directories into this directory (clipboard paste)."""
+) -> StatusResponse:
+    """Move files or directories (clipboard paste) into this directory.
+    Requires archiveAdmin."""
     archive_service.receive_items(db, dir_id, data.type, data.ids, user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @archive_router.post("/dirs/receive")
@@ -136,10 +164,11 @@ def receive_in_root(
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Move files or directories into the root directory."""
+) -> StatusResponse:
+    """Move files or directories (clipboard paste) into the root
+    directory. Requires archiveAdmin."""
     archive_service.receive_items(db, 0, data.type, data.ids, user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 # --- Files ---
@@ -150,9 +179,13 @@ def get_file(
     file_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """Return file metadata including versions and comments."""
-    return archive_service.get_file_detail(db, file_id, user)
+) -> ArchiveFileDetailResponse:
+    """Return file metadata including versions and comments. Requires insight permission
+    for the file's directory, or archiveAdmin - admin-only for unfiled uploads, which
+    have no directory to check permissions against."""
+    return ArchiveFileDetailResponse.model_validate(
+        archive_service.get_file_detail(db, file_id, user)
+    )
 
 
 @archive_router.put("/files/{file_id}")
@@ -161,10 +194,10 @@ def update_file(
     data: FileUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Update a file's name, description, or directory assignment."""
+) -> StatusResponse:
+    """Update a file's description. Requires archiveAdmin."""
     archive_service.update_file(db, file_id, data.model_dump(), user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @archive_router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -173,7 +206,7 @@ def delete_file(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Soft-delete a file (moves to trash)."""
+    """Soft-delete a file (moves to trash). Requires archiveAdmin."""
     archive_service.delete_file(db, file_id, user)
 
 
@@ -182,44 +215,40 @@ def restore_file(
     file_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, str]:
-    """Restore a soft-deleted file from trash."""
+) -> StatusResponse:
+    """Restore a soft-deleted file from trash. Requires archiveAdmin."""
     archive_service.restore_file(db, file_id, user)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
-@archive_router.get(
-    "/files/{file_id}/url",
-    response_model=PresignedUrlResponse,
-)
+@archive_router.get("/files/{file_id}/url")
 def file_url(
     file_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
-) -> dict[str, str]:
-    """Generate a presigned S3 URL for the original file."""
+) -> PresignedUrlResponse:
+    """Generate a time-limited presigned S3 URL for a file's original version. Requires
+    insight permission for the file's directory, or archiveAdmin."""
     url = archive_service.get_presigned_url(
         db,
         file_id,
         user,
         storage,
     )
-    return {"url": url}
+    return PresignedUrlResponse(url=url)
 
 
-@archive_router.get(
-    "/files/{file_id}/url/{size}",
-    response_model=PresignedUrlResponse,
-)
+@archive_router.get("/files/{file_id}/url/{size}")
 def file_thumb_url(
     file_id: int,
     size: str,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
-) -> dict[str, str]:
-    """Generate a presigned S3 URL for an image thumbnail."""
+) -> PresignedUrlResponse:
+    """Generate a time-limited presigned S3 URL for an image thumbnail at a given size.
+    Requires insight permission for the file's directory, or archiveAdmin."""
     url = archive_service.get_presigned_url(
         db,
         file_id,
@@ -227,7 +256,7 @@ def file_thumb_url(
         storage,
         size,
     )
-    return {"url": url}
+    return PresignedUrlResponse(url=url)
 
 
 # --- Comments ---
@@ -239,10 +268,11 @@ def create_comment(
     data: CommentCreateRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """Add a comment to a file."""
+) -> CommentCreateResponse:
+    """Add a comment to a file. Requires insight permission for the file's directory, or
+    archiveAdmin - admin-only for unfiled uploads."""
     comment = archive_service.create_comment(db, file_id, data.content, user)
-    return {"status": "ok", "comment": comment}
+    return CommentCreateResponse.model_validate({"status": "ok", "comment": comment})
 
 
 @archive_router.delete(
@@ -255,7 +285,8 @@ def delete_comment(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
-    """Delete a comment from a file."""
+    """Delete a comment from a file. The comment's own author or
+    archiveAdmin may delete it."""
     archive_service.delete_comment(db, file_id, comment_id, user)
 
 
@@ -265,18 +296,23 @@ def delete_comment(
 @archive_router.get("/upload/config")
 def get_upload_config(
     _user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """Return upload constraints (max file size, allowed extensions)."""
-    return archive_service.get_upload_config()
+) -> UploadConfigResponse:
+    """Return upload constraints (allowed extensions, min/max file size, description
+    length). No special permission - any authenticated member."""
+    return UploadConfigResponse.model_validate(archive_service.get_upload_config())
 
 
 @archive_router.get("/upload/unfiled")
 def get_unfiled(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> dict[str, object]:
-    """List uploaded files that have not yet been assigned to a directory."""
-    return {"files": archive_service.get_unfiled_uploads(db, user.id)}
+) -> UnfiledUploadsResponse:
+    """List the caller's own uploaded files that have not yet been filed into a
+    directory - not everyone's, just the current user's (see
+    get_unsorted_upload_count() in archive_service.py for the org-wide total)."""
+    return UnfiledUploadsResponse.model_validate(
+        {"files": archive_service.get_unfiled_uploads(db, user.id)}
+    )
 
 
 @archive_router.post("/upload", status_code=status.HTTP_201_CREATED)
@@ -286,8 +322,10 @@ def upload(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
-) -> dict[str, object]:
-    """Upload one or more files to the archive."""
+) -> UploadResponse:
+    """Upload a file to the archive. No special permission - any authenticated member
+    may upload; the file lands unfiled (visible only to its uploader and
+    archiveAdmin, see GET /upload/unfiled) until an admin files it into a directory."""
     result = archive_service.upload_file(
         db,
         file,
@@ -295,4 +333,4 @@ def upload(
         user.id,
         storage,
     )
-    return {"status": "ok", "file": result}
+    return UploadResponse.model_validate({"status": "ok", "file": result})

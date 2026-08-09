@@ -3,9 +3,12 @@ from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
 import jwt
+import requests
 from fastapi import BackgroundTasks
-from google.auth.transport import requests
+from google.auth.exceptions import TransportError
+from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
+from requests.adapters import HTTPAdapter
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -28,11 +31,69 @@ from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
 
+_GOOGLE_CERTS_TIMEOUT_SECONDS = 5
+_GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (
+    "Google-Anmeldung ist gerade nicht erreichbar. Bitte versuch es später erneut."
+)
+
+
+class _TimeoutHTTPAdapter(HTTPAdapter):
+    """Applies a default timeout to every request unless the caller already set one.
+
+    id_token.verify_oauth2_token() fetches Google's public certs internally
+    and exposes no way to pass a timeout through to that call - without this
+    adapter, a stalled connection blocks for google-auth's own internal
+    default of 120 seconds (per attempted address) instead of failing fast.
+    Mounting a custom adapter on the session is the transport-level hook
+    google-auth's own docs recommend for bounding this call.
+    """
+
+    def send(
+        self,
+        request: requests.PreparedRequest,
+        stream: bool = False,  # noqa: FBT001, FBT002 - matches base class signature
+        timeout: float | tuple[float | None, float | None] | None = None,
+        verify: bool | str = True,  # noqa: FBT001, FBT002 - matches base class signature
+        cert: str | tuple[str, str] | None = None,
+        proxies: dict[str, str] | None = None,
+    ) -> requests.Response:
+        if timeout is None:
+            timeout = _GOOGLE_CERTS_TIMEOUT_SECONDS
+        return super().send(
+            request,
+            stream=stream,
+            timeout=timeout,
+            verify=verify,
+            cert=cert,
+            proxies=proxies,
+        )
+
+
+def _build_google_auth_request() -> google_auth_requests.Request:
+    session = requests.Session()
+    adapter = _TimeoutHTTPAdapter()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return google_auth_requests.Request(session=session)
+
+
+# Module-level singleton, reused across calls for connection pooling instead
+# of building a fresh session on every single login/link attempt.
+_google_auth_request = _build_google_auth_request()
+
 
 class AccountNotLinkedError(Exception):
     """
     Signals the router that the Google token is valid,
     but not yet linked to an account.
+    """
+
+
+class GoogleAuthUnavailableError(Exception):
+    """
+    Signals the router that Google's token verification service could not be
+    reached (network error/timeout), as opposed to the token itself being
+    invalid.
     """
 
 
@@ -246,9 +307,11 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     try:
         id_info = id_token.verify_oauth2_token(
             credential_token,
-            requests.Request(),
+            _google_auth_request,
             client_id,
         )
+    except TransportError as e:
+        raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
     except ValueError:
         msg = "Ungültiger Google-Token."
         raise ValueError(msg) from None
@@ -303,9 +366,11 @@ def link_google_account(
     try:
         id_info = id_token.verify_oauth2_token(
             credential_token,
-            requests.Request(),
+            _google_auth_request,
             client_id,
         )
+    except TransportError as e:
+        raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
     except ValueError:
         msg = "Der Google-Token ist ungültig oder abgelaufen."
         raise ValueError(msg) from None

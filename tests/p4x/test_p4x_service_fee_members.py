@@ -122,6 +122,44 @@ class TestSearchFeeMembers:
         results = search_fee_members(db_session, "Wolf")
         assert results == []
 
+    def test_search_combines_vorname_and_nachname(self, db_session):
+        """Regression: a plain per-field OR (the pre-tsvector implementation)
+        could never match "Wolfgang Schneider" - only vorname+nachname
+        combined satisfies the whole query string."""
+        _seed_base(db_session)
+        member = _create_member(
+            db_session, vorname="Wolfgang", nachname="Schneider", email="ws@t.at"
+        )
+
+        results = search_fee_members(db_session, "Wolfgang Schneider")
+        assert [r["id"] for r in results] == [member.id]
+
+    def test_search_fuzzy_fallback_finds_typo(self, db_session):
+        """Stage 2 (pg_trgm): a typo'd name that Stage 1's exact/prefix
+        match cannot reach is still found via typo-tolerant matching."""
+        _seed_base(db_session)
+        member = _create_member(
+            db_session, vorname="Alexander", nachname="Schimpl", email="az@t.at"
+        )
+
+        results = search_fee_members(db_session, "Schimpel")
+        assert [r["id"] for r in results] == [member.id]
+
+    def test_search_fuzzy_fallback_still_excludes_non_fee_members(self, db_session):
+        """The org/state/entlassen/verstorben filter must apply to the
+        fuzzy fallback too, not just the exact stage."""
+        _seed_base(db_session)
+        _create_member(
+            db_session,
+            vorname="Alexander",
+            nachname="Schimpl",
+            org_id="vbn",
+            email="az2@t.at",
+        )
+
+        results = search_fee_members(db_session, "Schimpel")
+        assert results == []
+
 
 class TestUpdateFeeMember:
     def test_update_all_fields(self, db_session):

@@ -1219,6 +1219,174 @@ class TestSearch:
         names = [r["name"] for r in resp.json()]
         assert "BC-Protokolle" in names
 
+    def test_search_prefix_matches_compound_word(
+        self,
+        client,
+        db_session,
+    ):
+        """Full-text search (Stage 1): "Kassa" must find a dir named
+        "Kassabericht 2024" via prefix matching (search_vector's ':*'
+        suffix, see build_prefix_tsquery_text in search_utils.py) -
+        Postgres's 'german' text search config stems suffixes but never
+        splits compound words, so without prefix matching this dir would
+        be unreachable by a plain websearch_to_tsquery("Kassa") the same
+        way it already was unreachable before Stage 1's tsvector search
+        even existed."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        _make_dir(db_session, "Kassabericht 2024")
+
+        resp = client.get("/api/archive/search?q=Kassa", headers=headers)
+
+        assert resp.status_code == 200
+        names = [r["name"] for r in resp.json()]
+        assert "Kassabericht 2024" in names
+
+    def test_search_ranks_name_match_above_comment_match(
+        self,
+        client,
+        db_session,
+    ):
+        """Full-text search (Stage 1): a file whose *name* matches the
+        query ranks above one that only matches via an incidental comment
+        mention - name is weight 'A', comment content is the lowest
+        weight 'D' (see the migration/model docstrings)."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "RankDir")
+
+        comment_only_hit = _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="vollkommen unrelated",
+            hash_suffix="rank-comment-only",
+        )
+        now = _now()
+        db_session.add(
+            ArchiveFileComment(
+                archive_file_id=comment_only_hit.id,
+                content="Vindstoff wird hier nur beiläufig im Kommentar erwähnt",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db_session.commit()
+
+        name_hit_item = ArchiveStoreItem(
+            name="Vindstoff_Uebersicht",
+            extension="pdf",
+            mime_type="application/pdf",
+            size=1000,
+            sha256_hash=f"hash_{now.timestamp()}_rank-name-match",
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(name_hit_item)
+        db_session.flush()
+        name_hit = ArchiveFile(
+            archive_dir_id=d.id,
+            description="unrelated too",
+            archive_store_item_id=name_hit_item.id,
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(name_hit)
+        db_session.commit()
+
+        resp = client.get("/api/archive/search?q=Vindstoff", headers=headers)
+
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        ids_in_order = [r["id"] for r in file_results]
+        assert ids_in_order.index(name_hit.id) < ids_in_order.index(comment_only_hit.id)
+
+    def test_search_stopword_only_query_returns_empty(
+        self,
+        client,
+        db_session,
+    ):
+        """A query consisting only of German stop words (e.g. "im") passes
+        the 2-char length check but produces no real lexemes at all -
+        websearch_to_tsquery() reduces it to an empty tsquery, and
+        build_prefix_tsquery_text() (search_utils.py) must treat that the
+        same as "no results" instead of erroring or (worse) matching
+        everything.
+
+        This also locks in the Stage 2 (pg_trgm) length gate
+        (_FUZZY_MIN_QUERY_LENGTH): the seeded dir literally contains "im"
+        as an isolated word, so word_similarity('im', ...) scores a
+        coincidental 1.0 (verified empirically) - without the length
+        gate, this exact scenario would start matching via the fuzzy
+        fallback despite "im" not being a typo of anything."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        _make_dir(db_session, "Irgendein Verzeichnis im Archiv")
+
+        resp = client.get("/api/archive/search?q=im", headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_search_fuzzy_fallback_finds_typo(
+        self,
+        client,
+        db_session,
+    ):
+        """Full-text search (Stage 2, pg_trgm): a typo'd query that Stage 1
+        cannot match via prefix search at all - "Festkomers" is not a
+        prefix of the lexeme "festkommers" (mismatch at the 8th
+        character) - is still found via word_similarity()'s substring
+        fuzzy matching once Stage 1 returns nothing."""
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "TypoDir")
+        _make_file(
+            db_session,
+            dir_id=d.id,
+            desc="Einladung zum Festkommers",
+            hash_suffix="fuzzy-typo",
+        )
+
+        resp = client.get(
+            "/api/archive/search?q=Festkomers",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        file_results = [r for r in resp.json() if r["type"] == "file"]
+        assert len(file_results) >= 1
+        assert file_results[0]["description"] == "Einladung zum Festkommers"
+
+    def test_search_fuzzy_fallback_respects_permissions(
+        self,
+        client,
+        db_session,
+    ):
+        """The Stage 2 (pg_trgm) fallback shares _collect_file_hits() with
+        Stage 1 - a normal user without insight permission must not see a
+        fuzzy/typo match either, same as an exact one."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        restricted = _make_dir(
+            db_session,
+            "RestrictedTypoDir",
+            perms=["vbn_bi"],
+        )
+        _make_file(
+            db_session,
+            dir_id=restricted.id,
+            desc="Einladung zum Festkommers",
+            hash_suffix="fuzzy-typo-perm",
+        )
+
+        resp = client.get(
+            "/api/archive/search?q=Festkomers",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
 
 # ------------------------------------------------------------------ #
 # Presigned URL with thumbnail size (line 823 + thumbnail path)

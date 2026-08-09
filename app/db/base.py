@@ -15,6 +15,7 @@ from app.models.contacts_log import ContactsLog  # noqa: F401
 from app.models.key import Key  # noqa: F401
 from app.models.member import Member  # noqa: F401
 from app.models.member_badge import MemberBadge  # noqa: F401
+from app.models.member_change_request import MemberChangeRequest  # noqa: F401
 from app.models.member_key import MemberKey  # noqa: F401
 from app.models.member_role import MemberRole  # noqa: F401
 from app.models.members_log import MembersLog  # noqa: F401

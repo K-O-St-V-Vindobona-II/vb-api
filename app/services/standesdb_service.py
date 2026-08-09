@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from itertools import combinations
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, literal
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
@@ -35,6 +35,7 @@ from app.schemas.standesdb import (
     RoleHistoryResponse,
     TreeNodeResponse,
 )
+from app.services.search_utils import build_prefix_tsquery_text
 
 # --- Stats ---
 
@@ -93,47 +94,127 @@ def get_contact_stats(db: Session) -> dict[str, int]:
 # --- Search ---
 
 
-def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | int]]:
-    results = []
+def _member_search_result(
+    member: Member, rank: float
+) -> tuple[float, dict[str, str | int]]:
+    org_label = member.org_id.upper() if member.org_id else "?"
+    label = f"Mitglied ({org_label}): {member.cn}"
+    return (rank, {"type": "member", "id": member.id, "label": label})
 
-    members = (
-        db.query(Member)
-        .filter(
-            (Member.vorname.ilike(f"%{term}%"))
-            | (Member.nachname.ilike(f"%{term}%"))
-            | (Member.couleurname.ilike(f"%{term}%"))
-        )
+
+def _contact_search_result(
+    contact: Contact, rank: float
+) -> tuple[float, dict[str, str | int]]:
+    label = f"Kontakt: {contact.cn}"
+    return (rank, {"type": "contact", "id": contact.id, "label": label})
+
+
+def _search_members_exact(db: Session, tsquery: object) -> list[tuple[Member, float]]:
+    rank = func.ts_rank(Member.search_vector, tsquery)
+    rows = (
+        db.query(Member, rank)
+        .filter(Member.search_vector.op("@@")(tsquery))
+        .order_by(rank.desc())
         .all()
     )
-    for m in members:
-        org_label = m.org_id.upper() if m.org_id else "?"
-        results.append(
-            {
-                "type": "member",
-                "id": m.id,
-                "label": (f"Mitglied ({org_label}): {m.cn}"),
-            }
-        )
+    return [(m, float(r)) for m, r in rows]
 
-    contacts = (
-        db.query(Contact)
+
+def _search_contacts_exact(db: Session, tsquery: object) -> list[tuple[Contact, float]]:
+    rank = func.ts_rank(Contact.search_vector, tsquery)
+    rows = (
+        db.query(Contact, rank)
         .filter(
             Contact.deleted_at.is_(None),
-            (Contact.name.ilike(f"%{term}%"))
-            | (Contact.couleurname.ilike(f"%{term}%")),
+            Contact.search_vector.op("@@")(tsquery),
         )
+        .order_by(rank.desc())
         .all()
     )
-    results.extend(
-        {
-            "type": "contact",
-            "id": c.id,
-            "label": f"Kontakt: {c.cn}",
-        }
-        for c in contacts
-    )
+    return [(c, float(r)) for c, r in rows]
 
-    return results
+
+def _search_members_fuzzy(db: Session, term: str) -> list[tuple[Member, float]]:
+    """Typo-tolerant fallback (pg_trgm) - name fields only, deliberately no
+    org_id: org codes ("vbw"/"vbn") differ by a single character, so
+    fuzzy-matching them risks defeating the exact reason org_id is part of
+    the Stage 1 vector in the first place (see migration 46e5c8d03b55)."""
+    q = literal(term)
+    rank = func.greatest(
+        func.word_similarity(term, func.coalesce(Member.vorname, "")),
+        func.word_similarity(term, func.coalesce(Member.nachname, "")),
+        func.word_similarity(term, func.coalesce(Member.couleurname, "")),
+    )
+    rows = (
+        db.query(Member, rank)
+        .filter(
+            q.op("<%")(func.coalesce(Member.vorname, ""))
+            | q.op("<%")(func.coalesce(Member.nachname, ""))
+            | q.op("<%")(func.coalesce(Member.couleurname, ""))
+        )
+        .order_by(rank.desc())
+        .all()
+    )
+    return [(m, float(r)) for m, r in rows]
+
+
+def _search_contacts_fuzzy(db: Session, term: str) -> list[tuple[Contact, float]]:
+    q = literal(term)
+    rank = func.greatest(
+        func.word_similarity(term, Contact.name),
+        func.word_similarity(term, func.coalesce(Contact.couleurname, "")),
+    )
+    rows = (
+        db.query(Contact, rank)
+        .filter(
+            Contact.deleted_at.is_(None),
+            (
+                q.op("<%")(Contact.name)
+                | q.op("<%")(func.coalesce(Contact.couleurname, ""))
+            ),
+        )
+        .order_by(rank.desc())
+        .all()
+    )
+    return [(c, float(r)) for c, r in rows]
+
+
+def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | int]]:
+    """Search members and contacts by name, minimum 3 characters (enforced
+    at the router - no extra length gate needed here for the fuzzy stage,
+    unlike archive_service.search_archive(), since 3 chars is already the
+    floor a caller can ever reach).
+
+    Stage 1 (exact/prefix, tsvector): matches vorname+nachname combined
+    (so "Max Mustermann" finds a member with vorname=Max, nachname=
+    Mustermann - a plain per-field OR never could) plus org_id, so a query
+    can mix a name with an org qualifier in one string (e.g. "schimpl
+    vbn" finds only the vbn member of that name).
+
+    Stage 2 (pg_trgm typo tolerance): only runs when Stage 1 finds
+    nothing at all, name fields only - see _search_members_fuzzy().
+    """
+    tsquery_text = build_prefix_tsquery_text(db, term)
+    ranked: list[tuple[float, dict[str, str | int]]] = []
+    if tsquery_text:
+        tsquery = func.to_tsquery("german", tsquery_text)
+        ranked = [
+            _member_search_result(m, r) for m, r in _search_members_exact(db, tsquery)
+        ]
+        ranked += [
+            _contact_search_result(c, r) for c, r in _search_contacts_exact(db, tsquery)
+        ]
+
+    if not ranked:
+        ranked = [
+            _member_search_result(m, r) for m, r in _search_members_fuzzy(db, term)
+        ]
+        ranked += [
+            _contact_search_result(c, r) for c, r in _search_contacts_fuzzy(db, term)
+        ]
+
+    ranked.sort(key=lambda entry: entry[0], reverse=True)
+    return [result for _, result in ranked]
 
 
 # --- Member Detail ---
@@ -319,7 +400,7 @@ def get_member_detail(
 _EMPTY_VALUES = {None, False, "", "deaktiviert"}
 
 
-def _values_differ(old_val: object, new_val: object) -> bool:
+def values_differ(old_val: object, new_val: object) -> bool:
     if old_val == new_val:
         return False
     return not (old_val in _EMPTY_VALUES and new_val in _EMPTY_VALUES)
@@ -437,7 +518,7 @@ def apply_member_input(  # noqa: C901
     diff: dict[str, dict[str, object]] = {}
     for field, new_val in input_dict.items():
         old_val = getattr(member, field, None)
-        if _values_differ(old_val, new_val):
+        if values_differ(old_val, new_val):
             diff[field] = {"old": old_val, "new": new_val}
             setattr(member, field, new_val)
         elif old_val != new_val:
@@ -873,20 +954,14 @@ def validate_roles_history(  # noqa: C901, PLR0912
         )
 
 
-def search_parent(
+def _search_parent_exact(
     db: Session,
-    member_id: int,
-    term: str,
-) -> list[dict[str, int | str]]:
-    member = db.get(Member, member_id)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Mitglied nicht gefunden.",
-        )
-
-    results = (
-        db.query(Member)
+    member: Member,
+    tsquery: object,
+) -> list[tuple[Member, float]]:
+    rank = func.ts_rank(Member.search_vector, tsquery)
+    rows = (
+        db.query(Member, rank)
         .filter(
             Member.org_id == member.org_id,
             Member.id != member.id,
@@ -894,14 +969,82 @@ def search_parent(
             # for parent_id IS NULL, even though "no parent" trivially
             # isn't equal to member.id and should stay a valid candidate.
             Member.parent_id.is_distinct_from(member.id),
-            (Member.vorname.ilike(f"%{term}%"))
-            | (Member.nachname.ilike(f"%{term}%"))
-            | (Member.couleurname.ilike(f"%{term}%")),
+            Member.search_vector.op("@@")(tsquery),
         )
+        .order_by(rank.desc())
         .all()
     )
+    return [(m, float(r)) for m, r in rows]
 
-    return [{"id": m.id, "cn": m.cn} for m in results]
+
+def _search_parent_fuzzy(
+    db: Session,
+    member: Member,
+    term: str,
+) -> list[tuple[Member, float]]:
+    """Typo-tolerant fallback (pg_trgm), name fields only - org isn't part
+    of the query here at all (already a hard filter below), so the
+    org-code fuzzy-matching concern from _search_members_fuzzy() doesn't
+    apply."""
+    q = literal(term)
+    rank = func.greatest(
+        func.word_similarity(term, func.coalesce(Member.vorname, "")),
+        func.word_similarity(term, func.coalesce(Member.nachname, "")),
+        func.word_similarity(term, func.coalesce(Member.couleurname, "")),
+    )
+    rows = (
+        db.query(Member, rank)
+        .filter(
+            Member.org_id == member.org_id,
+            Member.id != member.id,
+            Member.parent_id.is_distinct_from(member.id),
+            (
+                q.op("<%")(func.coalesce(Member.vorname, ""))
+                | q.op("<%")(func.coalesce(Member.nachname, ""))
+                | q.op("<%")(func.coalesce(Member.couleurname, ""))
+            ),
+        )
+        .order_by(rank.desc())
+        .all()
+    )
+    return [(m, float(r)) for m, r in rows]
+
+
+def search_parent(
+    db: Session,
+    member_id: int,
+    term: str,
+) -> list[dict[str, int | str]]:
+    """Search for potential parent members within the same org, minimum 3
+    characters (enforced at the router). Same two-stage exact/prefix +
+    pg_trgm-fuzzy shape as search_members_and_contacts(), see its
+    docstring - org is already a hard filter here, not part of the query
+    text, so there's no org-code fuzzy-matching concern to guard against.
+    """
+    member = db.get(Member, member_id)
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mitglied nicht gefunden.",
+        )
+
+    tsquery_text = build_prefix_tsquery_text(db, term)
+    ranked: list[tuple[float, dict[str, int | str]]] = []
+    if tsquery_text:
+        tsquery = func.to_tsquery("german", tsquery_text)
+        ranked = [
+            (r, {"id": m.id, "cn": m.cn})
+            for m, r in _search_parent_exact(db, member, tsquery)
+        ]
+
+    if not ranked:
+        ranked = [
+            (r, {"id": m.id, "cn": m.cn})
+            for m, r in _search_parent_fuzzy(db, member, term)
+        ]
+
+    ranked.sort(key=lambda entry: entry[0], reverse=True)
+    return [result for _, result in ranked]
 
 
 # --- Contact Detail ---
@@ -955,7 +1098,7 @@ def apply_contact_input(
 
     for field, new_val in data.items():
         old_val = getattr(contact, field, None)
-        if _values_differ(old_val, new_val):
+        if values_differ(old_val, new_val):
             diff[field] = {
                 "old": old_val,
                 "new": new_val,

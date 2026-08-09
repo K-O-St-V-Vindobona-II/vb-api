@@ -28,7 +28,10 @@ MoneyOut = Annotated[
 
 
 class PartnerRef(BaseModel):
-    type: str
+    type: str = Field(
+        ...,
+        description="Either 'member' or 'contact' - which of the two `id` refers to.",
+    )
     id: int
     cn: str
 
@@ -50,7 +53,9 @@ class CategoryFilterShortResponse(BaseModel):
     subject: str | None
     subject_mode: SubjectMode
     p4x_category_id: int
-    hitCount: int  # noqa: N815
+    hitCount: int = Field(  # noqa: N815
+        ..., description="Number of transactions this filter rule currently matches."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +139,20 @@ class TransactionResponse(BaseModel):
     has_attachment: bool = False
     partner: PartnerRef | None = None
     delegating_partner: PartnerRef | None = None
-    p4x_category_directs: list[CategoryDirectResponse] = []
-    p4x_category_filters: list[CategoryFilterShortResponse] = []
+    p4x_category_directs: list[CategoryDirectResponse] = Field(
+        default=[],
+        description=(
+            "Categories manually assigned to this transaction, independent of any "
+            "filter rule (see /admin/transactions/{id}/set-category-direct)."
+        ),
+    )
+    p4x_category_filters: list[CategoryFilterShortResponse] = Field(
+        default=[],
+        description=(
+            "Categories this transaction currently matches via an active filter "
+            "rule (see /admin/category-filters)."
+        ),
+    )
 
 
 class TransactionRawResponse(BaseModel):
@@ -152,6 +169,15 @@ class PaginatedTransactions(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class TransactionsByMonthResponse(PaginatedTransactions):
+    """GET .../by-month/{year}/{month}'s response - the one paginated
+    transaction listing that also carries the account's start/end balance
+    for that month."""
+
+    startbalance: MoneyOut
+    endbalance: MoneyOut
 
 
 # ---------------------------------------------------------------------------
@@ -171,13 +197,19 @@ class WarningsResponse(BaseModel):
 
 class ImportGiven(BaseModel):
     p4x_account_id: int
-    parsed: bool
+    parsed: bool = Field(
+        ..., description="Whether the file parsed as a George-Bank export."
+    )
 
 
 class ImportResult(BaseModel):
     given: ImportGiven
     summary: dict[str, int] = {}
     message: str | None = None
+    # Only set on a successful import (see import_transactions in
+    # app/api/router_includes/p4x.py) - the failure branch (given.parsed=False)
+    # only ever sets message.
+    account: AccountResponse | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +223,9 @@ class CategoryResponse(BaseModel):
     label: str
     background_color: str
     text_color: str
-    protected: bool
+    protected: bool = Field(
+        ..., description="System category that cannot be deleted (see delete_category)."
+    )
 
 
 class CategoryWithUsageResponse(CategoryResponse):
@@ -229,7 +263,9 @@ class CategoryFilterResponse(BaseModel):
     subject: str | None
     subject_mode: SubjectMode
     p4x_category_id: int
-    hitCount: int  # noqa: N815
+    hitCount: int = Field(  # noqa: N815
+        ..., description="Number of transactions this filter rule currently matches."
+    )
 
 
 class CategoryFilterSaveRequest(StrictInputModel):
@@ -273,6 +309,18 @@ class FilterHitResponse(BaseModel):
     amount: MoneyOut
     subject: str
     iban: str
+
+
+class Filter2DirectPreviewResponse(BaseModel):
+    # camelCase on the wire (pre-existing key, kept as-is for the frontend)
+    warningsCount: int  # noqa: N815
+    filter: CategoryFilterResponse
+    category: CategoryResponse
+    hits: list[FilterHitResponse]
+
+
+class Filter2DirectResultResponse(BaseModel):
+    hits: list[FilterHitResponse]
 
 
 # ---------------------------------------------------------------------------
@@ -326,14 +374,35 @@ class FeeBalanceResponse(BaseModel):
     progress: list[FeeProgressEntry]
 
 
-class FeeMemberResponse(BaseModel):
+class FeeMemberSelfResponse(BaseModel):
+    """Self-service shape of a fee member's account - deliberately omits
+    p4x_comment, which is an admin-internal note not meant for the member
+    to see."""
+
     id: int
     cn: str
-    p4x_init_date: str | None
+    p4x_init_date: str | None = Field(
+        ...,
+        description=(
+            "Month fee tracking starts from for this member - defaults to their "
+            "Philistrierungsdatum if never explicitly set."
+        ),
+    )
     p4x_init_balance: MoneyOut | None
-    p4x_freed: bool | None
-    p4x_comment: str | None
+    p4x_freed: bool | None = Field(
+        ..., description="True if this member is exempted from paying membership fees."
+    )
     balance: FeeBalanceResponse | None
+
+
+class FeeMemberResponse(FeeMemberSelfResponse):
+    p4x_comment: str | None = Field(
+        ...,
+        description=(
+            "Admin-internal note about this member's fee account, never shown to "
+            "the member themselves (see FeeMemberSelfResponse)."
+        ),
+    )
 
 
 class FeeMemberUpdateRequest(StrictInputModel):
@@ -350,10 +419,20 @@ class FeeMemberUpdateRequest(StrictInputModel):
     p4x_comment: str | None = Field(None, max_length=250)
 
 
-class DebtorResponse(BaseModel):
+class FeeBalanceListItem(BaseModel):
     id: int
     cn: str
+    p4x_freed: bool
     balance: MoneyOut
+
+
+class FeeMemberSearchResultItem(BaseModel):
+    id: int
+    label: str
+
+
+class FeeMemberSearchResponse(BaseModel):
+    data: list[FeeMemberSearchResultItem]
 
 
 # ---------------------------------------------------------------------------
@@ -369,8 +448,17 @@ class PartnerSearchResult(BaseModel):
 
 class SetPartnerRequest(StrictInputModel):
     partner: PartnerRef | None = None
-    hasDelegatingPartner: bool = False  # noqa: N815
-    delegatingPartner: PartnerRef | None = None  # noqa: N815
+    hasDelegatingPartner: bool = Field(  # noqa: N815
+        default=False,
+        description=(
+            "Whether a second partner made this payment on the primary partner's "
+            "behalf (e.g. a spouse paying for both memberships in one transaction)."
+        ),
+    )
+    delegatingPartner: PartnerRef | None = Field(  # noqa: N815
+        default=None,
+        description="The delegating partner, if hasDelegatingPartner is true.",
+    )
 
 
 # ---------------------------------------------------------------------------

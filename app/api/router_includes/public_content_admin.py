@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.auth_guards import require_permission
 from app.db.database import get_db
 from app.models.member import Member
-from app.schemas.base import MoveRequest
+from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_content import (
     AboutTabAdminResponse,
     AboutTabUpdateRequest,
@@ -63,6 +63,10 @@ def update_about_tab(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> AboutTabAdminResponse:
+    """Update one fixed "Über uns" tab's title and body by slot. Links in
+    the body must use the `[text](url)` mini-syntax (see
+    AboutTabUpdateRequest); slot itself cannot be changed - the 3 tabs are
+    a fixed set (see PublicSiteAboutTab.KNOWN_SLOTS)."""
     tab = about_tabs_service.get_tab_or_404(db, slot)
     about_tabs_service.update_tab(db, tab, data.title, data.body)
     return AboutTabAdminResponse.model_validate(tab)
@@ -76,6 +80,9 @@ def get_settings(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> SiteSettingsResponse:
+    """Return the singleton site-wide settings row: the "Über uns" video
+    heading + YouTube id, the Programm section's Google Calendar id, and
+    the gallery heading."""
     return SiteSettingsResponse.model_validate(site_settings_service.get_settings(db))
 
 
@@ -85,6 +92,10 @@ def update_settings(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> SiteSettingsResponse:
+    """Update the singleton site-wide settings. youtube_url/calendar_id
+    accept a full pasted link (video URL, share link, or calendar embed
+    URL) and are normalized to the bare video id / calendar id before
+    saving - see SiteSettingsUpdateRequest's validators."""
     settings = site_settings_service.get_settings(db)
     site_settings_service.update_settings(
         db,
@@ -105,6 +116,8 @@ def list_programm_hints(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> list[ProgrammHintResponse]:
+    """List the "Hinweise" bullets shown under the public Programm
+    section, in display order."""
     return [
         ProgrammHintResponse.model_validate(hint)
         for hint in programm_hints_service.list_hints(db)
@@ -119,6 +132,8 @@ def create_programm_hint(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> ProgrammHintResponse:
+    """Create a new Programm hint, appended after the last one in display
+    order."""
     hint = programm_hints_service.create_hint(db, data.text)
     return ProgrammHintResponse.model_validate(hint)
 
@@ -130,6 +145,7 @@ def update_programm_hint(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> ProgrammHintResponse:
+    """Update a Programm hint's text."""
     hint = programm_hints_service.get_hint_or_404(db, hint_id)
     programm_hints_service.update_hint(db, hint, data.text)
     return ProgrammHintResponse.model_validate(hint)
@@ -141,10 +157,13 @@ def move_programm_hint(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
+    """Move a Programm hint one position up or down, swapping sort_order
+    with its immediate neighbor. A no-op (still 200) if the hint is
+    already at that end of the list."""
     hint = programm_hints_service.get_hint_or_404(db, hint_id)
     programm_hints_service.move_hint(db, hint, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(
@@ -155,6 +174,8 @@ def delete_programm_hint(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
+    """Permanently delete a Programm hint. No confirmation/undo - the
+    admin UI is expected to confirm before calling this."""
     hint = programm_hints_service.get_hint_or_404(db, hint_id)
     programm_hints_service.delete_hint(db, hint)
 
@@ -167,6 +188,8 @@ def list_quotes(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> list[QuoteResponse]:
+    """List the testimonial quotes shown on the public site's "Zitate"
+    section, in display order."""
     return [
         QuoteResponse.model_validate(quote) for quote in quotes_service.list_quotes(db)
     ]
@@ -178,6 +201,8 @@ def create_quote(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> QuoteResponse:
+    """Create a new testimonial quote, appended after the last one in
+    display order."""
     quote = quotes_service.create_quote(db, data.quote, data.author)
     return QuoteResponse.model_validate(quote)
 
@@ -189,6 +214,7 @@ def update_quote(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> QuoteResponse:
+    """Update a testimonial quote's text and author."""
     quote = quotes_service.get_quote_or_404(db, quote_id)
     quotes_service.update_quote(db, quote, data.quote, data.author)
     return QuoteResponse.model_validate(quote)
@@ -200,10 +226,13 @@ def move_quote(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
+    """Move a quote one position up or down, swapping sort_order with its
+    immediate neighbor. A no-op (still 200) if the quote is already at
+    that end of the list."""
     quote = quotes_service.get_quote_or_404(db, quote_id)
     quotes_service.move_quote(db, quote, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(
@@ -214,6 +243,8 @@ def delete_quote(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
+    """Permanently delete a testimonial quote. No confirmation/undo - the
+    admin UI is expected to confirm before calling this."""
     quote = quotes_service.get_quote_or_404(db, quote_id)
     quotes_service.delete_quote(db, quote)
 
@@ -226,6 +257,9 @@ def list_social_links(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> list[SocialLinkAdminResponse]:
+    """List all social media links, enabled and disabled, in display
+    order - the admin view. GET /public/site-content (public_site.py)
+    returns only the enabled subset."""
     return [
         SocialLinkAdminResponse.model_validate(link)
         for link in social_links_service.list_admin_links(db)
@@ -238,6 +272,10 @@ def create_social_link(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> SocialLinkAdminResponse:
+    """Create a new social media link, appended after the last one in
+    display order. platform is a free, format-checked slug (not a fixed
+    set) and can only be set here - see PublicSiteSocialLink's model
+    docstring."""
     link = social_links_service.create_link(
         db, data.platform, data.label, data.url, data.is_enabled
     )
@@ -251,6 +289,9 @@ def update_social_link(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> SocialLinkAdminResponse:
+    """Update a social media link's label, URL, and enabled state.
+    platform cannot be changed after creation - delete and recreate
+    instead."""
     link = social_links_service.get_link_or_404(db, link_id)
     social_links_service.update_link(db, link, data.label, data.url, data.is_enabled)
     return SocialLinkAdminResponse.model_validate(link)
@@ -262,10 +303,13 @@ def move_social_link(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
+    """Move a social media link one position up or down, swapping
+    sort_order with its immediate neighbor. A no-op (still 200) if the
+    link is already at that end of the list."""
     link = social_links_service.get_link_or_404(db, link_id)
     social_links_service.move_link(db, link, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_content_admin_router.delete(
@@ -276,5 +320,7 @@ def delete_social_link(
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
+    """Permanently delete a social media link. No confirmation/undo - the
+    admin UI is expected to confirm before calling this."""
     link = social_links_service.get_link_or_404(db, link_id)
     social_links_service.delete_link(db, link)

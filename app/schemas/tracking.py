@@ -85,3 +85,7 @@ class ActivityStats(BaseModel):
     active_users_today: int
     total_actions_today: int
     actions_by_type: dict[str, int]
+
+
+class TrackingConfigResponse(BaseModel):
+    retention_months: int

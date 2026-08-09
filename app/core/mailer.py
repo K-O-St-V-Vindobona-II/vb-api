@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import smtplib
 from datetime import UTC, date, datetime
@@ -6,7 +7,7 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings, require_setting
@@ -17,7 +18,15 @@ logger = logging.getLogger(__name__)
 
 _current_dir = Path(__file__).resolve().parent
 _templates_dir = _current_dir.parent / "templates" / "email"
-_jinja_env = Environment(loader=FileSystemLoader(str(_templates_dir)))  # noqa: S701
+# Autoescaping is mandatory here: several templates render member-submitted
+# free text (e.g. member_change_request_submitted.html renders self-service
+# Stammdaten fields), and public_contact_form.html renders anonymous website
+# visitor input. Without it, any of those fields could inject raw HTML into
+# an email an admin opens in their mail client.
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(_templates_dir)),
+    autoescape=select_autoescape(["html"]),
+)
 
 
 def _build_from_header() -> tuple[str, str]:
@@ -292,4 +301,124 @@ def send_entry_changed_email(
         html_content,
         "\n".join(text_lines),
         template_key="entry-changed",
+    )
+
+
+def _prepare_diff_for_display(
+    diff: dict[str, dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """proposed_data comes back from JSONB with geburtsdatum's value as a
+    plain ISO string, not a date object - _format_diff_value only applies
+    its fuzzy-date formatting to actual date instances. Converts just that
+    one field back so the email renders "4. Mai 2001" instead of the raw
+    "2001-05-04"."""
+    prepared: dict[str, dict[str, object]] = {}
+    for key, values in diff.items():
+        new_values = dict(values)
+        for side in ("old", "new"):
+            val = new_values.get(side)
+            if key == "geburtsdatum" and isinstance(val, str):
+                with contextlib.suppress(ValueError):
+                    new_values[side] = date.fromisoformat(val)
+        prepared[key] = new_values
+    return prepared
+
+
+def send_member_change_request_submitted_email(
+    to_emails: list[str],
+    member_cn: str,
+    diff: dict[str, dict[str, object]],
+) -> None:
+    """Notifies the submitting member's org admin(s) that a self-service
+    Stammdaten change request is waiting for review."""
+    if not to_emails or not diff:
+        return
+
+    subject = f"Neuer Änderungsantrag: {member_cn}"
+    prepared_diff = _prepare_diff_for_display(diff)
+
+    template = _jinja_env.get_template("member_change_request_submitted.html")
+    html_content = template.render(
+        member_cn=member_cn,
+        diff=prepared_diff,
+        format_value=_format_diff_value,
+    )
+
+    send_to_recipients(
+        to_emails,
+        subject,
+        html_content,
+        template_key="member-change-request-submitted",
+    )
+
+
+def send_member_change_request_resolved_email(
+    to_email: str,
+    diff: dict[str, dict[str, object]],
+    field_decisions: dict[str, str],
+) -> None:
+    """Notifies the member of the outcome of their own change request,
+    approved and rejected fields shown in clearly separate sections."""
+    if not to_email or not diff:
+        return
+
+    prepared_diff = _prepare_diff_for_display(diff)
+    approved = {
+        key: values
+        for key, values in prepared_diff.items()
+        if field_decisions.get(key) == "approved"
+    }
+    rejected = {
+        key: values
+        for key, values in prepared_diff.items()
+        if field_decisions.get(key) == "rejected"
+    }
+
+    template = _jinja_env.get_template("member_change_request_resolved.html")
+    html_content = template.render(
+        approved=approved,
+        rejected=rejected,
+        format_value=_format_diff_value,
+    )
+
+    send_to_recipients(
+        [to_email],
+        "Dein Änderungsantrag wurde bearbeitet",
+        html_content,
+        template_key="member-change-request-resolved",
+    )
+
+
+def send_own_image_changed_email(
+    to_emails: list[str],
+    member_cn: str,
+    action: str,
+) -> None:
+    """Notifies a member's org standesdb admins that the member changed one
+    of their own profile images via self-service (upload/update/delete).
+    Purely informational - self-service image changes need no admin
+    approval, this is not a gate."""
+    if not to_emails:
+        return
+
+    action_label = {
+        "upload": "ein neues Profilbild hochgeladen",
+        "update": "ein Profilbild bearbeitet",
+        "delete": "ein Profilbild gelöscht",
+    }.get(action, "ein Profilbild geändert")
+
+    subject = f"Profilbild geändert: {member_cn}"
+
+    template = _jinja_env.get_template("own_image_changed.html")
+    html_content = template.render(
+        member_cn=member_cn,
+        action_label=action_label,
+        action=action,
+    )
+
+    send_to_recipients(
+        to_emails,
+        subject,
+        html_content,
+        template_key="own-image-changed",
     )

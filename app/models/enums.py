@@ -51,3 +51,8 @@ class ChangeLogAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+
+
+class MemberChangeRequestStatus(StrEnum):
+    PENDING = "pending"
+    RESOLVED = "resolved"

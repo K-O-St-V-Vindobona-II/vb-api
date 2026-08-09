@@ -9,7 +9,7 @@ from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
 from app.models.public_gallery_image import PublicGalleryImage
-from app.schemas.base import MoveRequest
+from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_gallery import (
     GalleryImageAdminResponse,
     GalleryImageUpdateRequest,
@@ -89,11 +89,11 @@ def move_image(
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
-) -> dict[str, str]:
+) -> StatusResponse:
     """Move a gallery image up or down (swaps sort_order with its neighbor)."""
     img = public_gallery_service.get_image_or_404(db, image_id)
     public_gallery_service.move_image(db, img, data.direction)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @public_gallery_admin_router.delete(
