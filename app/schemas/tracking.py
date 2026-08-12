@@ -1,16 +1,6 @@
-from datetime import UTC, datetime
-from typing import Annotated
+from pydantic import BaseModel
 
-from pydantic import BaseModel, BeforeValidator
-
-
-def _ensure_utc(v: datetime | None) -> datetime | None:
-    if isinstance(v, datetime) and v.tzinfo is None:
-        return v.replace(tzinfo=UTC)
-    return v
-
-
-UtcDatetime = Annotated[datetime, BeforeValidator(_ensure_utc)]
+from app.schemas.base import UtcDatetime
 
 
 class SentEmailListItem(BaseModel):

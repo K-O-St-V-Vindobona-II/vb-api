@@ -1,7 +1,5 @@
 """Pure unit tests for Pydantic validators in app/schemas/standesdb.py."""
 
-from datetime import UTC, datetime
-
 import pytest
 from pydantic import ValidationError
 
@@ -9,29 +7,7 @@ from app.schemas.standesdb import (
     ContactSaveRequest,
     ImageUpdateRequest,
     MemberSaveRequest,
-    _ensure_utc,
 )
-
-# ---------------------------------------------------------------------------
-# _ensure_utc helper
-# ---------------------------------------------------------------------------
-
-
-class TestEnsureUtc:
-    def test_naive_datetime_gets_utc(self) -> None:
-        naive = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
-        result = _ensure_utc(naive)
-        assert result is not None
-        assert result.tzinfo is UTC
-
-    def test_aware_datetime_unchanged(self) -> None:
-        aware = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
-        result = _ensure_utc(aware)
-        assert result is aware
-
-    def test_none_stays_none(self) -> None:
-        assert _ensure_utc(None) is None
-
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal valid payloads
