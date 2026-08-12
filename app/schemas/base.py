@@ -1,6 +1,23 @@
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict
+
+
+def _ensure_utc(v: datetime | None) -> datetime | None:
+    """Treats naive datetimes as UTC.
+
+    Defensive: every timestamp column in this codebase is already
+    TIMESTAMPTZ, so this should never trigger from a DB-backed value -
+    it guards against a future non-DB source (e.g. a hand-built dict)
+    slipping a naive datetime past validation.
+    """
+    if isinstance(v, datetime) and v.tzinfo is None:
+        return v.replace(tzinfo=UTC)
+    return v
+
+
+UtcDatetime = Annotated[datetime, BeforeValidator(_ensure_utc)]
 
 
 class StrictInputModel(BaseModel):

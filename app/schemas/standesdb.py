@@ -1,10 +1,9 @@
 import re
-from datetime import UTC, date, datetime
-from typing import Annotated, Literal, Self
+from datetime import date
+from typing import Literal, Self
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     EmailStr,
     Field,
@@ -19,16 +18,7 @@ from app.models.enums import (
     MemberDeliveryPreference,
     RoleGroup,
 )
-from app.schemas.base import IdLabelOption, StrictInputModel
-
-
-def _ensure_utc(v: datetime | None) -> datetime | None:
-    if isinstance(v, datetime) and v.tzinfo is None:
-        return v.replace(tzinfo=UTC)
-    return v
-
-
-UtcDatetime = Annotated[datetime, BeforeValidator(_ensure_utc)]
+from app.schemas.base import IdLabelOption, StrictInputModel, UtcDatetime
 
 PHONE_REGEX = re.compile(r"^\+?[\d\s/\- ]+$")
 

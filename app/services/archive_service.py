@@ -62,12 +62,6 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _ts(dt: datetime | None) -> str | None:
-    if dt is None:
-        return None
-    return dt.isoformat()
-
-
 # --- Permissions ---
 
 
@@ -181,8 +175,8 @@ def _file_short(
         "size": item.size,
         "is_image": item.is_image,
         "mime_type": item.mime_type,
-        "created_at": _ts(item.created_at),
-        "deleted_at": _ts(file_obj.deleted_at),
+        "created_at": item.created_at,
+        "deleted_at": file_obj.deleted_at,
     }
 
 
@@ -192,8 +186,8 @@ def _dir_short(d: ArchiveDir) -> dict[str, object]:
         "id": d.id,
         "name": d.name,
         "description": d.description,
-        "created_at": _ts(d.created_at),
-        "deleted_at": _ts(d.deleted_at),
+        "created_at": d.created_at,
+        "deleted_at": d.deleted_at,
     }
 
 
@@ -226,7 +220,7 @@ def _store_item_response(
         "size": item.size,
         "is_image": item.is_image,
         "created_by": (item.member.cn if item.member else None),
-        "created_at": _ts(item.created_at),
+        "created_at": item.created_at,
     }
 
 
@@ -237,7 +231,7 @@ def _comment_response(
         "id": c.id,
         "content": c.content,
         "author": c.member.cn if c.member else None,
-        "created_at": _ts(c.created_at),
+        "created_at": c.created_at,
     }
 
 
@@ -386,9 +380,9 @@ def get_dir_detail(
             "states": [],
         },
         "stats": None,
-        "created_at": _ts(dir_obj.created_at),
-        "updated_at": _ts(dir_obj.updated_at),
-        "deleted_at": _ts(dir_obj.deleted_at),
+        "created_at": dir_obj.created_at,
+        "updated_at": dir_obj.updated_at,
+        "deleted_at": dir_obj.deleted_at,
     }
 
 
@@ -700,8 +694,8 @@ def get_file_detail(
         "active_version": _store_item_response(item),
         "comments": [_comment_response(c) for c in comments],
         "trashed_comments": [_comment_response(c) for c in trashed_comments],
-        "created_at": _ts(item.created_at),
-        "deleted_at": _ts(file_obj.deleted_at),
+        "created_at": item.created_at,
+        "deleted_at": file_obj.deleted_at,
     }
 
 

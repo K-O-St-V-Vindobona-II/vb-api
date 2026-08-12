@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.base import StrictInputModel
+from app.schemas.base import StrictInputModel, UtcDatetime
 
 PERM_REGEX = re.compile(r"^[a-z]{3}_[a-z]{2}$")
 
@@ -23,8 +23,8 @@ class ArchiveDirShort(BaseModel):
     id: int
     name: str
     description: str | None
-    created_at: str | None
-    deleted_at: str | None
+    created_at: UtcDatetime | None
+    deleted_at: UtcDatetime | None
 
 
 class ArchiveFileShort(BaseModel):
@@ -40,8 +40,8 @@ class ArchiveFileShort(BaseModel):
     size: int
     is_image: bool
     mime_type: str
-    created_at: str | None
-    deleted_at: str | None
+    created_at: UtcDatetime | None
+    deleted_at: UtcDatetime | None
 
 
 class ArchiveDirBucket(BaseModel):
@@ -135,9 +135,9 @@ class ArchiveDirDetailResponse(BaseModel):
     content: ArchiveDirContent
     sets: ArchiveSets
     stats: ArchiveStats | None
-    created_at: str | None
-    updated_at: str | None
-    deleted_at: str | None
+    created_at: UtcDatetime | None
+    updated_at: UtcDatetime | None
+    deleted_at: UtcDatetime | None
 
 
 class ArchiveStoreItemResponse(BaseModel):
@@ -152,14 +152,14 @@ class ArchiveStoreItemResponse(BaseModel):
     size: int
     is_image: bool
     created_by: str | None
-    created_at: str | None
+    created_at: UtcDatetime | None
 
 
 class ArchiveCommentResponse(BaseModel):
     id: int
     content: str
     author: str | None
-    created_at: str | None
+    created_at: UtcDatetime | None
 
 
 class ArchiveFileDetailResponse(BaseModel):
@@ -180,8 +180,8 @@ class ArchiveFileDetailResponse(BaseModel):
     active_version: ArchiveStoreItemResponse
     comments: list[ArchiveCommentResponse]
     trashed_comments: list[ArchiveCommentResponse]
-    created_at: str | None
-    deleted_at: str | None
+    created_at: UtcDatetime | None
+    deleted_at: UtcDatetime | None
 
 
 class ArchiveSearchDirResult(BaseModel):

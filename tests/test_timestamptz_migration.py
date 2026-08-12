@@ -2,8 +2,17 @@
 revision 740805d424aa): psycopg2 now returns tz-aware datetimes for every
 converted column, where it previously returned naive ones. These tests lock
 in that the existing naive-input guards become harmless no-ops on aware
-input, and that the two schema/service spots which relied on the DB
-returning naive values now produce correctly offset-suffixed output."""
+input, and that endpoints backed by tz-aware columns produce correctly
+offset-suffixed output.
+
+Note: app/schemas/tracking.py and app/schemas/standesdb.py used to each
+declare their own identical _ensure_utc/UtcDatetime pair; that duplication
+was consolidated into app/schemas/base.py (see tests/test_schemas_base.py
+for its unit tests). app/schemas/archive.py used to bypass Pydantic
+validation entirely (str-typed timestamp fields, hand-formatted via
+archive_service._ts()); it now uses the same UtcDatetime type, which is why
+there is no archive-specific _ts()-level test here anymore - the
+end-to-end endpoint tests below cover the same ground."""
 
 from datetime import UTC, date, datetime
 
@@ -11,15 +20,14 @@ import bcrypt
 
 from app.api.deps import _ensure_tz_aware as _deps_ensure_tz_aware
 from app.models.archive_dir import ArchiveDir
+from app.models.archive_file import ArchiveFile
+from app.models.archive_store_item import ArchiveStoreItem
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.role import Role
 from app.schemas.public_gallery import GalleryImageAdminResponse
-from app.schemas.standesdb import _ensure_utc as _standesdb_ensure_utc
-from app.schemas.tracking import _ensure_utc as _tracking_ensure_utc
-from app.services.archive_service import _ts
 from app.services.auth_service import _ensure_tz_aware as _auth_ensure_tz_aware
 from app.services.auth_service import create_user_session
 
@@ -55,24 +63,6 @@ def _login_admin(db) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class TestEnsureUtcNoOpOnAwareInput:
-    """Both app/schemas/tracking.py and app/schemas/standesdb.py declare an
-    identical _ensure_utc BeforeValidator that used to be responsible for
-    stamping UTC onto naive DB values. Post-migration those values arrive
-    already aware, so the validator must simply pass them through
-    unchanged rather than double-stamping or erroring."""
-
-    def test_tracking_ensure_utc_passes_through_aware_datetime(self):
-        assert _tracking_ensure_utc(AWARE_DT) == AWARE_DT
-
-    def test_standesdb_ensure_utc_passes_through_aware_datetime(self):
-        assert _standesdb_ensure_utc(AWARE_DT) == AWARE_DT
-
-    def test_tracking_ensure_utc_still_stamps_naive_input(self):
-        naive = datetime(2026, 1, 15, 12, 30, 0)  # noqa: DTZ001
-        assert _tracking_ensure_utc(naive) == naive.replace(tzinfo=UTC)
-
-
 class TestEnsureTzAwareNoOpOnAwareInput:
     """app/api/deps.py and app/services/auth_service.py each declare an
     _ensure_tz_aware guard used before comparing a DB-read datetime against
@@ -84,21 +74,6 @@ class TestEnsureTzAwareNoOpOnAwareInput:
 
     def test_auth_service_ensure_tz_aware_passes_through_aware_datetime(self):
         assert _auth_ensure_tz_aware(AWARE_DT) == AWARE_DT
-
-
-class TestArchiveServiceTimestampSerialization:
-    """archive_service._ts() feeds app/schemas/archive.py's str-typed
-    timestamp fields. It never stamped tzinfo itself — it only relied on
-    receiving an aware datetime to produce an offset-suffixed ISO string.
-    Before the migration this silently produced offset-less strings (a
-    pre-existing frontend display bug); after it, this must include the
-    UTC offset."""
-
-    def test_ts_includes_utc_offset_for_aware_datetime(self):
-        assert _ts(AWARE_DT) == "2026-01-15T12:30:00+00:00"
-
-    def test_ts_returns_none_for_none(self):
-        assert _ts(None) is None
 
 
 class TestPublicGalleryOffsetSerialization:
@@ -122,10 +97,11 @@ class TestPublicGalleryOffsetSerialization:
 
 
 class TestArchiveEndpointReturnsOffsetTimestamp:
-    """End-to-end proof (not just the unit-level _ts() test above) that a
-    real API response now carries a UTC offset for a timestamp read back
-    from the migrated column, via a real HTTP round-trip through TestClient
-    against the actual Postgres-backed session."""
+    """End-to-end proof that a real API response carries a UTC offset for a
+    timestamp read back from the migrated columns, via a real HTTP
+    round-trip through TestClient against the actual Postgres-backed
+    session — covers both the dir and file response shapes in
+    app/schemas/archive.py."""
 
     def test_get_dir_created_at_has_utc_offset(self, client, db_session):
         headers = _login_admin(db_session)
@@ -138,7 +114,38 @@ class TestArchiveEndpointReturnsOffsetTimestamp:
         assert resp.status_code == 200
         created_at = resp.json()["created_at"]
         assert created_at is not None
-        assert created_at.endswith("+00:00")
+        assert created_at.endswith(("Z", "+00:00"))
+
+    def test_get_file_created_at_has_utc_offset(self, client, db_session):
+        headers = _login_admin(db_session)
+        now = datetime.now(UTC)
+        item = ArchiveStoreItem(
+            name="tz-file",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1000,
+            sha256_hash="b" * 64,
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(item)
+        db_session.flush()
+        file_ = ArchiveFile(
+            archive_dir_id=0,
+            description="tz-endpoint-test",
+            archive_store_item_id=item.id,
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(file_)
+        db_session.commit()
+
+        resp = client.get(f"/api/archive/files/{file_.id}", headers=headers)
+
+        assert resp.status_code == 200
+        created_at = resp.json()["created_at"]
+        assert created_at is not None
+        assert created_at.endswith(("Z", "+00:00"))
 
 
 class TestPublicGalleryEndpointReturnsOffsetTimestamp:
