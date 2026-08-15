@@ -13,7 +13,6 @@ import logging
 import subprocess
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
 
 from apscheduler.job import Job
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.datetime_utils import get_app_timezone, local_today
 from app.core.mailer import render_template, send_to_recipients
 from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -81,7 +81,7 @@ MONTHS_DE = [
     "Dezember",
 ]
 
-APP_TZ = ZoneInfo(get_settings().app_timezone)
+APP_TZ = get_app_timezone()
 
 # All cron trigger hour/minute values below are wall-clock time in the
 # configured app timezone (Settings.app_timezone, default Europe/Vienna;
@@ -248,7 +248,7 @@ def job_birthday_mails() -> None:
     db = SessionLocal()
     started = datetime.now(UTC)
     try:
-        tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+        tomorrow = local_today() + timedelta(days=1)
 
         members = (
             db.query(Member)
@@ -345,7 +345,7 @@ def _get_role_holder_emails(
     role_ids: list[str],
     org_id: str,
 ) -> list[str]:
-    today = datetime.now(UTC).date()
+    today = local_today()
     member_ids = {
         mr.member_id
         for mr in db.query(MemberRole)
@@ -460,7 +460,7 @@ def _send_debtor_reminders(
 
 
 def job_debtor_reminder() -> None:
-    today = datetime.now(UTC).date()
+    today = local_today()
     if today.month % 3 == 0:
         return
 
@@ -534,7 +534,7 @@ def job_standesdb_chronicles() -> None:
             )
             return
 
-        given = datetime.now(UTC).date()
+        given = local_today()
         anniversaries = compute_anniversaries(db, given)
         if not anniversaries:
             record_job_run(

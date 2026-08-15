@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import bcrypt
 
+from app.core.datetime_utils import local_today
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -623,7 +624,7 @@ class TestGetFeeBalancesPaymentAttribution:
             email="onend@t.at",
             couleurname="OnEnd",
         )
-        end_date = datetime.now(UTC).date().replace(day=1) - timedelta(days=1)
+        end_date = local_today().replace(day=1) - timedelta(days=1)
         _add_fee_payment(db_session, member, end_date, 50.0)
 
         entry = next(b for b in get_fee_balances(db_session) if b["id"] == member.id)
@@ -687,7 +688,7 @@ class TestGetFeeBalancesEdgeCases:
         instead of the global default end_date (end of previous month,
         which would otherwise exclude this member's only due month)."""
         _seed_base(db_session)
-        current_month_start = datetime.now(UTC).date().replace(day=1)
+        current_month_start = local_today().replace(day=1)
         member = _create_fee_member(
             db_session,
             p4x_init_balance=0,

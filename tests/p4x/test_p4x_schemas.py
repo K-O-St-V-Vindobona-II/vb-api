@@ -1,12 +1,14 @@
 """Pure unit tests for Pydantic validators in app/schemas/p4x.py."""
 
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
+from app.core.datetime_utils import local_today
 from app.schemas.p4x import (
     AccountSaveRequest,
     CategoryFilterSaveRequest,
@@ -127,15 +129,29 @@ class TestAccountInitDate:
         assert a.init_date == date(2015, 1, 1)
 
     def test_future_date_rejected(self) -> None:
-        future = datetime.now(UTC).date() + timedelta(days=30)
+        future = local_today() + timedelta(days=30)
         data = _valid_account_data(init_date=future)
         with pytest.raises(ValidationError, match="Zukunft"):
             AccountSaveRequest(**data)
 
     def test_today_passes(self) -> None:
-        data = _valid_account_data(init_date=datetime.now(UTC).date())
+        data = _valid_account_data(init_date=local_today())
         a = AccountSaveRequest(**data)
-        assert a.init_date == datetime.now(UTC).date()
+        assert a.init_date == local_today()
+
+    def test_today_passes_using_configured_app_timezone_not_utc(self) -> None:
+        """Regression (2026-08-15 timezone audit): previously compared
+        against datetime.now(UTC).date() — an init_date of Vienna's actual
+        "today" could be wrongly rejected as "in the future" for up to 2h
+        after Vienna midnight, when UTC's date still lags a day behind.
+        Patching local_today() directly (rather than the real system
+        clock) keeps this deterministic regardless of when the suite
+        runs."""
+        fixed_today = date(2026, 6, 15)
+        with patch("app.schemas.p4x.local_today", return_value=fixed_today):
+            data = _valid_account_data(init_date=fixed_today)
+            a = AccountSaveRequest(**data)
+        assert a.init_date == fixed_today
 
 
 # ---------------------------------------------------------------------------
@@ -231,15 +247,25 @@ class TestSummaryEnd:
         assert s.end == date(2025, 6, 30)
 
     def test_end_in_future_rejected(self) -> None:
-        future = datetime.now(UTC).date() + timedelta(days=30)
+        future = local_today() + timedelta(days=30)
         data = _valid_summary_data(end=future)
         with pytest.raises(ValidationError, match="Zukunft"):
             SummaryOrderRequest(**data)
 
     def test_end_today_passes(self) -> None:
-        data = _valid_summary_data(end=datetime.now(UTC).date())
+        data = _valid_summary_data(end=local_today())
         s = SummaryOrderRequest(**data)
-        assert s.end == datetime.now(UTC).date()
+        assert s.end == local_today()
+
+    def test_end_today_passes_using_configured_app_timezone_not_utc(self) -> None:
+        """Regression (2026-08-15 timezone audit) — see the equivalent test
+        in TestAccountInitDate above; same validator pattern, applied here
+        to SummaryOrderRequest.end."""
+        fixed_today = date(2026, 6, 15)
+        with patch("app.schemas.p4x.local_today", return_value=fixed_today):
+            data = _valid_summary_data(end=fixed_today)
+            s = SummaryOrderRequest(**data)
+        assert s.end == fixed_today
 
 
 # ---------------------------------------------------------------------------

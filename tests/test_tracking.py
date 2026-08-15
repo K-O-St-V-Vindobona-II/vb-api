@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import bcrypt
 
+from app.core.datetime_utils import local_today
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -384,7 +385,12 @@ class TestActivitySessions:
             )
             db_session.add(log)
         db_session.commit()
-        date_str = now.strftime("%Y-%m-%d")
+        # local_today(), not now.strftime("%Y-%m-%d") (which would be the
+        # UTC calendar date) — get_activity_sessions() interprets date_str
+        # as a Vienna-local calendar day (see the 2026-08-15 timezone
+        # audit), so this stays correct regardless of when the suite runs
+        # relative to Vienna midnight.
+        date_str = local_today().isoformat()
         resp = client.get(
             f"/api/tracking/activity/sessions?date_str={date_str}",
             headers=headers,
@@ -743,7 +749,8 @@ class TestActivitySessionsCoverage:
             )
         )
         db_session.commit()
-        date_str = now.strftime("%Y-%m-%d")
+        # local_today(), not UTC — see test_groups_by_member_and_gap above.
+        date_str = local_today().isoformat()
         resp = client.get(
             f"/api/tracking/activity/sessions?date_str={date_str}&member_id={admin.id}",
             headers=headers,

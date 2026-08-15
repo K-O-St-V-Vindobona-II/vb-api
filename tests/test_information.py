@@ -13,7 +13,7 @@ from app.models.state import State
 from app.services.auth_service import (
     create_user_session,
 )
-from app.services.information_service import get_payment_info
+from app.services.information_service import get_current_fee, get_payment_info
 
 
 def _seed(db):
@@ -148,3 +148,22 @@ class TestGetPaymentInfoService:
         db_session.commit()
         result = get_payment_info(db_session)
         assert result[1]["bic"] is None
+
+    def test_current_fee_uses_local_today_not_utc(self, db_session, monkeypatch):
+        """Regression (2026-08-15 timezone audit): "current month" for the
+        public fee display previously resolved via datetime.now(UTC).date().
+        Patching local_today() directly (rather than the real system
+        clock) keeps this deterministic regardless of when the suite
+        runs."""
+        monkeypatch.setattr(
+            "app.services.information_service.local_today",
+            lambda: datetime.date(2026, 6, 15),
+        )
+        db_session.add_all(
+            [
+                P4xFee(start=datetime.date(2020, 1, 1), fee=10, protected=False),
+                P4xFee(start=datetime.date(2026, 6, 1), fee=15, protected=False),
+            ]
+        )
+        db_session.commit()
+        assert get_current_fee(db_session) == "15"

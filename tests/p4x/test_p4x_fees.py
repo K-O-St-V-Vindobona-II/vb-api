@@ -85,3 +85,21 @@ class TestFeeConfigCRUD:
         assert error is not None
         assert "geschützt" in error.lower() or "nicht gefunden" in error.lower()
         assert len(get_all_fees(db_session)) == 2
+
+    def test_current_month_uses_local_today_not_utc(self, db_session, monkeypatch):
+        """Regression (2026-08-15 timezone audit): the "current month or
+        later" check previously compared against datetime.now(UTC).date().
+        Patching local_today() directly (rather than the real system
+        clock) keeps this deterministic regardless of when the suite
+        runs."""
+        monkeypatch.setattr(
+            "app.services.p4x_fee_balance_service.local_today",
+            lambda: date(2026, 6, 15),
+        )
+        fee, error = create_fee(db_session, 2026, 6, 20.0)
+        assert error is None
+        assert fee is not None
+
+        _, error = create_fee(db_session, 2026, 5, 20.0)
+        assert error is not None
+        assert "Zukunft" in error

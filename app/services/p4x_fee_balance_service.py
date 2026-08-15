@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from sqlalchemy import ColumnElement
     from sqlalchemy.orm import Session
 
+from app.core.datetime_utils import local_today
 from app.models.member import Member
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
@@ -74,7 +75,7 @@ def create_fee(
     """Returns (fee, None) on success or (None, error_message) on failure."""
     start = date(year, month, 1)
 
-    if start < datetime.now(UTC).date().replace(day=1):
+    if start < local_today().replace(day=1):
         return None, "Startmonat muss aktueller Monat sein oder in der Zukunft liegen."
 
     existing = db.query(P4xFee).filter(P4xFee.start == start).first()
@@ -502,10 +503,10 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
                     days=1
                 )
         except ValueError:
-            prev_month = datetime.now(UTC).date().replace(day=1) - timedelta(days=1)
+            prev_month = local_today().replace(day=1) - timedelta(days=1)
             end_date = prev_month
     else:
-        prev_month = datetime.now(UTC).date().replace(day=1) - timedelta(days=1)
+        prev_month = local_today().replace(day=1) - timedelta(days=1)
         end_date = prev_month
 
     if end_date < start_date:
@@ -845,7 +846,7 @@ def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
     fees = get_all_fees(db)
     month_starts = [f.start.replace(day=1) for f in fees]
     month_fees = [f.fee for f in fees]
-    default_end_date = datetime.now(UTC).date().replace(day=1) - timedelta(days=1)
+    default_end_date = local_today().replace(day=1) - timedelta(days=1)
 
     states = _build_member_states(
         fee_members, month_starts, month_fees, default_end_date

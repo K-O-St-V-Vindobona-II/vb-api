@@ -250,6 +250,47 @@ class TestAccountBalance:
         balance_jun = get_account_balance(db_session, account, date(2026, 6, 30))
         assert balance_jun == 350.0  # 100 + 50 + 200
 
+    def test_default_up_to_date_uses_local_today_not_utc(self, db_session, monkeypatch):
+        """Regression (2026-08-15 timezone audit): the up_to_date=None
+        default previously resolved via datetime.now(UTC).date(). Patching
+        local_today() directly (rather than the real system clock) keeps
+        this deterministic regardless of when the suite runs."""
+        monkeypatch.setattr(
+            "app.services.p4x_account_service.local_today",
+            lambda: date(2026, 3, 1),
+        )
+        account = _create_account(db_session)
+        db_session.add(
+            P4xTransaction(
+                sha256_hash="within",
+                booking=date(2026, 2, 15),
+                valuation=date(2026, 2, 15),
+                iban="AT00",
+                amount=50.0,
+                subject="test",
+                p4x_account_id=account.id,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+        db_session.add(
+            P4xTransaction(
+                sha256_hash="after",
+                booking=date(2026, 6, 1),
+                valuation=date(2026, 6, 1),
+                iban="AT00",
+                amount=200.0,
+                subject="test",
+                p4x_account_id=account.id,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+        db_session.commit()
+
+        balance = get_account_balance(db_session, account)
+        assert balance == 150.0  # 100 init + 50 "within" — "after" excluded
+
 
 class TestDashboard:
     def test_dashboard_requires_auth(self, db_session, client):

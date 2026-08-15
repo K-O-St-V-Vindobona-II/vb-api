@@ -3,7 +3,7 @@ import io
 import json
 import re
 import zipfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
+from app.core.datetime_utils import local_today
 from app.db.database import get_db
 from app.models.member import Member
 from app.models.p4x_fee import P4xFee
@@ -957,7 +958,7 @@ def export_own_fee_member(
         raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(full)
     safe_name = re.sub(r'[\\/:*?"<>|]', "_", current_user.cn)
-    filename = f"Beitragskonto_{safe_name}_{datetime.now(UTC).date()}.xlsx"
+    filename = f"Beitragskonto_{safe_name}_{local_today()}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -994,7 +995,7 @@ def export_fee_member(
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(response)
 
     safe_name = re.sub(r'[\\/:*?"<>|]', "_", member.cn)
-    filename = f"Beitragskonto_{safe_name}_{datetime.now(UTC).date()}.xlsx"
+    filename = f"Beitragskonto_{safe_name}_{local_today()}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

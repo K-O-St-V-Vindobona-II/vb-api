@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from app.core.datetime_utils import local_today
 from app.models.p4x_account import P4xAccount
 from app.services.p4x_fee_balance_service import fee_for_month
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def get_current_fee(db: Session) -> str:
-    today = datetime.now(UTC).date().replace(day=1)
+    today = local_today().replace(day=1)
     return str(int(fee_for_month(db, today)))
 
 

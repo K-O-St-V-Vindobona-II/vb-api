@@ -17,6 +17,7 @@ import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.core.datetime_utils import local_today
 from app.core.scheduler import (
     APP_TZ,
     BACKUP_HOUR,
@@ -553,7 +554,7 @@ class TestSchedulerTimezone:
 class TestStandesdbChronicles:
     def test_recipients_sent_via_bcc_not_to(self, db_session, mock_record_job_run):
         _seed_base(db_session)
-        today = datetime.now(UTC).date()
+        today = local_today()
         dow = today.isoweekday()
         week_start = today + timedelta(days=(8 - dow) % 7)
         target = week_start + timedelta(days=1)
@@ -637,7 +638,7 @@ class TestStandesdbChronicles:
 class TestBirthdayMails:
     def test_sends_with_personal_from_name(self, db_session, mock_record_job_run):
         _seed_base(db_session)
-        tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+        tomorrow = local_today() + timedelta(days=1)
 
         m = Member(
             email="geburtstag@vbw.at",
@@ -836,20 +837,18 @@ class TestDebtorReminder:
         """June (%3==0) is a skip month by design — this early return
         happens before a DB session even opens, so it's deliberately not
         recorded as a run (see job_debtor_reminder's instrumentation)."""
-        with patch("app.core.scheduler.datetime") as mock_datetime:
-            mock_datetime.now.return_value.date.return_value = date(2026, 6, 15)
+        with patch("app.core.scheduler.local_today", return_value=date(2026, 6, 15)):
             job_debtor_reminder()
 
         mock_record_job_run.assert_not_called()
 
     def test_stale_booking_records_exit_code_one(self, db_session, mock_record_job_run):
         with (
-            patch("app.core.scheduler.datetime") as mock_datetime,
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
             patch("app.core.scheduler._validate_latest_booking", return_value=False),
         ):
-            mock_datetime.now.return_value.date.return_value = date(2026, 7, 15)
             job_debtor_reminder()
 
         mock_record_job_run.assert_called_once_with(
@@ -858,13 +857,12 @@ class TestDebtorReminder:
 
     def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
         with (
-            patch("app.core.scheduler.datetime") as mock_datetime,
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
             patch("app.core.scheduler._validate_latest_booking", return_value=True),
             patch("app.core.scheduler._send_debtor_reminders") as mock_send_reminders,
         ):
-            mock_datetime.now.return_value.date.return_value = date(2026, 7, 15)
             job_debtor_reminder()
 
         mock_send_reminders.assert_called_once()

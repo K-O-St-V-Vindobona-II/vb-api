@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from app.schemas.p4x import AccountSaveRequest
 
+from app.core.datetime_utils import local_today
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
@@ -124,7 +125,7 @@ def get_account_balance(
     up_to_date: date | None = None,
 ) -> Decimal:
     if up_to_date is None:
-        up_to_date = datetime.now(UTC).date()
+        up_to_date = local_today()
 
     total = (
         db.query(func.sum(P4xTransaction.amount))

@@ -7,8 +7,9 @@ since building two distinct sessions through the HTTP layer would need
 much heavier fixtures than calling the pure grouping functions directly.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
+from app.core.datetime_utils import local_day_bounds_utc, local_today
 from app.models.member import Member
 from app.models.org import Org
 from app.models.request_log import RequestLog
@@ -89,7 +90,14 @@ class TestGetActivitySessionsPagination:
     list instead. Regression test for that slicing."""
 
     def test_paginates_grouped_sessions_not_raw_rows(self, db_session) -> None:
-        now = datetime.now(UTC)
+        # Anchored to local_today()'s own UTC day bounds (not a raw
+        # datetime.now(UTC) timestamp/strftime) so this stays correct
+        # regardless of when the suite runs relative to Vienna midnight —
+        # get_activity_sessions() interprets date_str as a Vienna-local
+        # calendar day (see the 2026-08-15 timezone audit).
+        today = local_today()
+        day_start, _ = local_day_bounds_utc(today)
+        base = day_start + timedelta(hours=12)
         for member_id, offset_hours in [(1, 0), (2, 0), (3, 0)]:
             db_session.add(
                 RequestLog(
@@ -99,17 +107,17 @@ class TestGetActivitySessionsPagination:
                     request_path="/api/test",
                     response_status=200,
                     memory_usage=0,
-                    created_at=now + timedelta(hours=offset_hours),
-                    updated_at=now,
+                    created_at=base + timedelta(hours=offset_hours),
+                    updated_at=base,
                 )
             )
         db_session.commit()
 
         page1 = get_activity_sessions(
-            db_session, now.strftime("%Y-%m-%d"), None, page=1, page_size=2
+            db_session, today.isoformat(), None, page=1, page_size=2
         )
         page2 = get_activity_sessions(
-            db_session, now.strftime("%Y-%m-%d"), None, page=2, page_size=2
+            db_session, today.isoformat(), None, page=2, page_size=2
         )
 
         assert page1["total"] == 3
@@ -117,6 +125,45 @@ class TestGetActivitySessionsPagination:
         assert page2["total"] == 3
         assert len(page2["items"]) == 1
         assert page1["items"][0].member_id != page2["items"][0].member_id
+
+
+class TestGetActivitySessionsTimezone:
+    def test_date_str_interpreted_as_configured_app_timezone(
+        self, db_session, monkeypatch
+    ) -> None:
+        """Regression (2026-08-15 timezone audit): date_str previously
+        became datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        — a Vienna-local calendar day picked in the frontend's DatePicker
+        was silently reinterpreted as a UTC day, shifting the actual
+        window by 1-2h. Pacific/Kiritimati (UTC+14) makes the local and
+        UTC day boundaries differ by a full 14h, so a log placed inside
+        that gap unambiguously proves which basis is actually used."""
+        monkeypatch.setenv("APP_TIMEZONE", "Pacific/Kiritimati")
+        day = date(2026, 6, 15)
+        day_start_utc, _ = local_day_bounds_utc(day)
+        # 30 minutes into the Kiritimati-local day, but still 2026-06-14 in
+        # UTC — a UTC-based interpretation of "2026-06-15" would exclude
+        # this row entirely.
+        inside_local_day = day_start_utc + timedelta(minutes=30)
+
+        db_session.add(
+            RequestLog(
+                client_ip="127.0.0.1",
+                member_id=1,
+                request_method="GET",
+                request_path="/api/test",
+                response_status=200,
+                memory_usage=0,
+                created_at=inside_local_day,
+                updated_at=inside_local_day,
+            )
+        )
+        db_session.commit()
+
+        result = get_activity_sessions(
+            db_session, day.isoformat(), None, page=1, page_size=25
+        )
+        assert result["total"] == 1
 
 
 class TestMemberNameMap:

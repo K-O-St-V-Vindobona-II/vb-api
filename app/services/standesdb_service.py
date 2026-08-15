@@ -8,6 +8,7 @@ from sqlalchemy import func, literal
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.datetime_utils import local_today
 from app.models.badge import Badge
 from app.models.contact import Contact
 from app.models.contacts_log import ContactsLog
@@ -1180,7 +1181,7 @@ def get_roles_list(
     year: int | None = None,
     semester: str | None = None,
 ) -> dict[str, object]:
-    now = datetime.now(UTC).date()
+    now = local_today()
     if year and semester:
         if semester == "ws":
             start = date(year, 8, 1)

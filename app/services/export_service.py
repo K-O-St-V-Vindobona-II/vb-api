@@ -1,5 +1,5 @@
 import base64
-from datetime import UTC, date, datetime
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import Session
 from weasyprint import HTML
 
+from app.core.datetime_utils import local_today
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
     S3_PATH_STANDESDB_IMAGES,
@@ -640,7 +641,7 @@ def generate_booklet(
         has_contacts=len(contacts) > 0,
         has_vbw=has_vbw,
         has_vbn=has_vbn,
-        today=datetime.now(UTC).date().isoformat(),
+        today=local_today().isoformat(),
         created_by=current_user.cn,
         members=member_data,
         contacts=contact_data,
