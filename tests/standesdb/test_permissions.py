@@ -3,8 +3,9 @@
 Ableitung der Berechtigungen aus aktiven Rollen.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
+from app.core.datetime_utils import local_today
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -134,7 +135,7 @@ class TestCalculatePermissions:
     def test_expired_role_no_permissions(self, db_session):
         _seed(db_session)
         m = _member(db_session)
-        yesterday = datetime.now(UTC).date() - timedelta(days=1)
+        yesterday = local_today() - timedelta(days=1)
         _assign(db_session, m.id, "senior", date(2020, 1, 1), yesterday)
         perms = calculate_permissions(m)
         assert "keylist" not in perms
@@ -143,7 +144,7 @@ class TestCalculatePermissions:
     def test_future_role_no_permissions(self, db_session):
         _seed(db_session)
         m = _member(db_session)
-        tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+        tomorrow = local_today() + timedelta(days=1)
         _assign(db_session, m.id, "senior", tomorrow, None)
         perms = calculate_permissions(m)
         assert perms == []
@@ -152,5 +153,26 @@ class TestCalculatePermissions:
         _seed(db_session)
         m = _member(db_session)
         _assign(db_session, m.id, "senior", date(2020, 1, 1), None)
+        perms = calculate_permissions(m)
+        assert "keylist" in perms
+
+    def test_role_boundary_uses_configured_app_timezone_not_utc(
+        self, db_session, monkeypatch
+    ):
+        """Regression (2026-08-15 timezone audit): _active_roles() previously
+        compared MemberRole.startdate/enddate against datetime.now(UTC).date().
+        Role dates are Vienna-local calendar days entered by admins, not UTC
+        ones -- a role starting "today" could be wrongly treated as not yet
+        active for up to 2h after Vienna midnight, when UTC's date still lags
+        a day behind. Patching local_today() directly (rather than the real
+        system clock) keeps this deterministic regardless of when the suite
+        runs."""
+        fixed_today = date(2026, 6, 15)
+        monkeypatch.setattr(
+            "app.services.permission_service.local_today", lambda: fixed_today
+        )
+        _seed(db_session)
+        m = _member(db_session)
+        _assign(db_session, m.id, "senior", fixed_today, None)
         perms = calculate_permissions(m)
         assert "keylist" in perms

@@ -1,6 +1,6 @@
 """Tests für GET /api/standesdb/roles — Chargen-Liste."""
 
-from datetime import UTC, date, datetime
+from datetime import date
 from unittest.mock import patch
 
 import bcrypt
@@ -119,8 +119,10 @@ class TestRolesListEndpoint:
             db_session, vbn_member.id, "xx", date(2025, 8, 1), date(2026, 1, 31)
         )
 
-        with patch("app.services.standesdb_service.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2025, 10, 15, tzinfo=UTC)
+        with patch(
+            "app.services.standesdb_service.local_today",
+            return_value=date(2025, 10, 15),
+        ):
             resp = client.get("/api/standesdb/roles", headers=headers)
 
         assert resp.status_code == 200
@@ -138,8 +140,10 @@ class TestRolesListEndpoint:
             db_session, user.id, "xx", date(2024, 2, 1), date(2024, 7, 31)
         )
 
-        with patch("app.services.standesdb_service.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2025, 10, 15, tzinfo=UTC)
+        with patch(
+            "app.services.standesdb_service.local_today",
+            return_value=date(2025, 10, 15),
+        ):
             resp = client.get("/api/standesdb/roles", headers=headers)
 
         roles = resp.json()["roles"]
@@ -238,8 +242,10 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, _ = _login(db_session, client)
 
-        with patch("app.services.standesdb_service.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2025, 5, 1, tzinfo=UTC)
+        with patch(
+            "app.services.standesdb_service.local_today",
+            return_value=date(2025, 5, 1),
+        ):
             resp = client.get("/api/standesdb/roles", headers=headers)
 
         data = resp.json()
@@ -250,8 +256,10 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, _ = _login(db_session, client)
 
-        with patch("app.services.standesdb_service.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2025, 11, 1, tzinfo=UTC)
+        with patch(
+            "app.services.standesdb_service.local_today",
+            return_value=date(2025, 11, 1),
+        ):
             resp = client.get("/api/standesdb/roles", headers=headers)
 
         data = resp.json()

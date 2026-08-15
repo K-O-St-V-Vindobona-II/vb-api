@@ -1,12 +1,12 @@
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.datetime_utils import local_today
 from app.models.member import Member
 
 logger = logging.getLogger(__name__)
@@ -125,8 +125,10 @@ ALL_PERMISSIONS: list[str] = sorted({rule.permission for rule in PERMISSION_RULE
 
 def _active_roles(member: Member) -> tuple[set[str], set[str]]:
     """Currently active role IDs and role groups for a member (today between
-    startdate and enddate)."""
-    today = datetime.now(UTC).date()
+    startdate and enddate, in Settings.app_timezone — role dates are
+    Vienna-local calendar days entered by admins, not UTC ones; see the
+    2026-08-15 timezone audit)."""
+    today = local_today()
     active_role_ids: set[str] = set()
     active_role_groups: set[str] = set()
 

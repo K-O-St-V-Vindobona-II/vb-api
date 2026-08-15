@@ -12,7 +12,7 @@ from app.core.scheduler import get_scheduled_jobs, job_downsync
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
-from app.schemas.base import PaginatedResponse, StatusResponse
+from app.schemas.base import PaginatedResponse, StatusResponse, UtcDatetime
 from app.services import system_service
 from app.services.backup_service import run_backup
 from app.services.permission_service import (
@@ -98,7 +98,7 @@ class ScheduledJobResponse(BaseModel):
 
 class BackupTriggerResponse(BaseModel):
     backup_name: str
-    triggered_at: str
+    triggered_at: UtcDatetime
 
 
 @system_router.get("/environment")
@@ -156,7 +156,7 @@ def trigger_backup(
         ) from exc
     return BackupTriggerResponse(
         backup_name=backup_name,
-        triggered_at=datetime.now(UTC).isoformat(),
+        triggered_at=datetime.now(UTC),
     )
 
 

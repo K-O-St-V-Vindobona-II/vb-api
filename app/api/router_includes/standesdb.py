@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Annotated, cast
 
 from fastapi import (
@@ -17,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
+from app.core.datetime_utils import local_today
 from app.core.mailer import (
     send_entry_changed_email,
     send_member_change_request_resolved_email,
@@ -143,7 +143,7 @@ def do_export(
     members = export_service.filter_members(db, filter_data)
     contacts = export_service.filter_contacts(db, filter_data)
 
-    today = datetime.now(UTC).date().isoformat()
+    today = local_today().isoformat()
 
     if module == "mailing-liste":
         content = export_service.generate_mailing_list(members, contacts)
@@ -225,7 +225,7 @@ def download_keys_list(
     _current_user: Annotated[Member, Depends(require_permission("keylist"))],
 ) -> Response:
     """Download the key holders list as a plain-text file. Requires keylist."""
-    today = datetime.now(UTC).date().isoformat()
+    today = local_today().isoformat()
     content = standesdb_service.generate_keys_download(db)
     return Response(
         content=content,

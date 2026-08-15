@@ -1,10 +1,11 @@
 import re
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
+from app.core.datetime_utils import local_today
 from app.models.enums import SubjectMode
 from app.schemas.base import StrictInputModel
 
@@ -114,7 +115,7 @@ class AccountSaveRequest(StrictInputModel):
         if v < date(2015, 1, 1):
             msg = "Datum muss nach dem 01.01.2015 liegen."
             raise ValueError(msg)
-        if v > datetime.now(UTC).date():
+        if v > local_today():
             msg = "Datum darf nicht in der Zukunft liegen."
             raise ValueError(msg)
         return v
@@ -481,7 +482,7 @@ class SummaryOrderRequest(StrictInputModel):
     @field_validator("end")
     @classmethod
     def validate_end(cls, v: date) -> date:
-        if v > datetime.now(UTC).date():
+        if v > local_today():
             msg = "Enddatum darf nicht in der Zukunft liegen."
             raise ValueError(msg)
         return v

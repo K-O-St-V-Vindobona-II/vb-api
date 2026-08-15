@@ -1,9 +1,10 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.core.datetime_utils import local_day_bounds_utc, local_today
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.request_log import RequestLog
@@ -193,11 +194,11 @@ def list_sent_emails(
     query = db.query(SentEmail)
 
     if year and month:
-        start = datetime(year, month, 1, tzinfo=UTC)
+        start, _ = local_day_bounds_utc(date(year, month, 1))
         if month == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+            end, _ = local_day_bounds_utc(date(year + 1, 1, 1))
         else:
-            end = datetime(year, month + 1, 1, tzinfo=UTC)
+            end, _ = local_day_bounds_utc(date(year, month + 1, 1))
         query = query.filter(
             SentEmail.created_at >= start,
             SentEmail.created_at < end,
@@ -269,7 +270,7 @@ def _member_name_map(db: Session, member_ids: set[int]) -> dict[int, str]:
 
 
 def get_activity_stats(db: Session) -> ActivityStats:
-    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start, _ = local_day_bounds_utc(local_today())
 
     today_logs = db.query(RequestLog).filter(RequestLog.created_at >= today_start).all()
 
@@ -376,17 +377,16 @@ def get_activity_sessions(
 
     if date_str:
         try:
-            day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+            day = date.fromisoformat(date_str)
         except ValueError:
             raise HTTPException(status_code=400, detail="Format: YYYY-MM-DD") from None
+        day_start, day_end = local_day_bounds_utc(day)
         query = query.filter(
-            RequestLog.created_at >= day,
-            RequestLog.created_at < day + timedelta(days=1),
+            RequestLog.created_at >= day_start,
+            RequestLog.created_at < day_end,
         )
     else:
-        today_start = datetime.now(UTC).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        today_start, _ = local_day_bounds_utc(local_today())
         query = query.filter(RequestLog.created_at >= today_start)
 
     if member_id:
@@ -466,15 +466,15 @@ def list_activity(
 
     if date_from:
         try:
-            d = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=UTC)
-            query = query.filter(RequestLog.created_at >= d)
+            d_start, _ = local_day_bounds_utc(date.fromisoformat(date_from))
+            query = query.filter(RequestLog.created_at >= d_start)
         except ValueError:
             pass
 
     if date_to:
         try:
-            d = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=UTC)
-            query = query.filter(RequestLog.created_at < d + timedelta(days=1))
+            _, d_end = local_day_bounds_utc(date.fromisoformat(date_to))
+            query = query.filter(RequestLog.created_at < d_end)
         except ValueError:
             pass
 
