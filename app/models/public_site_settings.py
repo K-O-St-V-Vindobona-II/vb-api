@@ -19,8 +19,8 @@ class PublicSiteSettings(Base):
     own - a single-row settings table avoids duplicating the
     singleton-enforcement pattern (CHECK id=1) across several near-empty
     tables. Only the YouTube video id / calendar id are stored, not the
-    embed/ICS URLs derived from them (no computed values persisted, see
-    CLAUDE.md 3NF rule) - URL construction stays frontend-side logic.
+    embed/ICS URLs derived from them (no computed values persisted, per
+    this project's 3NF rule) - URL construction stays frontend-side logic.
     """
 
     __tablename__ = "public_site_settings"

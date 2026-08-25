@@ -1,7 +1,8 @@
 """Regression coverage for the updated_at DB trigger (Alembic revision
-74d19e4af679): CLAUDE.md mandates that updated_at is maintained exclusively
-by a Postgres trigger, never by Python. These tests prove the trigger
-actually fires on UPDATE without any application code setting the column."""
+74d19e4af679): project convention mandates that updated_at is maintained
+exclusively by a Postgres trigger, never by Python. These tests prove the
+trigger actually fires on UPDATE without any application code setting the
+column."""
 
 from datetime import UTC, datetime
 
