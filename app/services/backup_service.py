@@ -198,6 +198,37 @@ def _wipe_public_schema(
     )
 
 
+def _scheduled_task_runs_table_exists(
+    host: str, user: str, password: str, port: int, dbname: str
+) -> bool:
+    """Check whether public.scheduled_task_runs exists in `dbname`.
+
+    Used to decide whether it can be snapshotted before a restore. A
+    brand-new, still-schema-less database (e.g. a freshly initialized
+    Postgres cluster right after a major-version upgrade, or the first
+    restore onto a newly (re-)installed host) has no tables at all yet -
+    pg_dump refuses with "no matching tables were found" in that case,
+    which would otherwise abort the whole restore before it starts.
+    """
+    psql = _resolve_pg_tool("psql")
+    result = _run_pg_subprocess(
+        [
+            psql,
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={dbname}",
+            "--tuples-only",
+            "--no-align",
+            "-c",
+            "SELECT to_regclass('public.scheduled_task_runs') IS NOT NULL;",
+        ],
+        env=_build_pg_env(password),
+        tool_name="psql",
+    )
+    return result.stdout.strip() == b"t"
+
+
 def _snapshot_local_job_history(
     host: str, user: str, password: str, port: int, dbname: str
 ) -> bytes:
@@ -209,7 +240,8 @@ def _snapshot_local_job_history(
     empty just because the schema got wiped first. Data-only, single-table
     dump so this stays a cheap, non-blocking MVCC snapshot of the live
     table, taken before _wipe_public_schema() terminates any other
-    session.
+    session. Callers must check _table_exists() first - pg_dump errors
+    out (rather than returning an empty dump) if the table doesn't exist.
     """
     pg_dump = _resolve_pg_tool("pg_dump")
     result = _run_pg_subprocess(
@@ -278,7 +310,11 @@ def run_restore(
     (snapshotted before the wipe, re-inserted after) - the restored dump
     itself never carries scheduled_task_runs data across stages (see
     run_backup()'s --exclude-table-data), only this stage's pre-restore
-    rows are ever re-applied here.
+    rows are ever re-applied here. Skipped entirely when the target
+    database has no scheduled_task_runs table yet (a brand-new, still
+    schema-less cluster) - there is no local history to preserve in that
+    case, and the table exists again immediately after the main restore
+    regardless (the dump's own schema includes it).
     """
     database_url = cast("str", get_settings().database_url)
     _require_postgres(database_url)
@@ -311,8 +347,10 @@ def run_restore(
     logger.info("Restoring DB from backup: %s", backup_name)
     pg_restore = _resolve_pg_tool("pg_restore")
     try:
-        local_job_history = _snapshot_local_job_history(
-            host, user, password, port, dbname
+        local_job_history = (
+            _snapshot_local_job_history(host, user, password, port, dbname)
+            if _scheduled_task_runs_table_exists(host, user, password, port, dbname)
+            else None
         )
         _wipe_public_schema(host, user, password, port, dbname)
         _run_pg_subprocess(
@@ -327,9 +365,10 @@ def run_restore(
             env=_build_pg_env(password),
             tool_name="pg_restore",
         )
-        _restore_local_job_history(
-            local_job_history, host, user, password, port, dbname
-        )
+        if local_job_history is not None:
+            _restore_local_job_history(
+                local_job_history, host, user, password, port, dbname
+            )
     finally:
         Path(tmp_path).unlink()
 

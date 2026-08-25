@@ -787,7 +787,7 @@ class TestGetFeeBalancesMatchesCalculateFeeBalance:
 
 
 class TestGetFeeBalancesQueryCount:
-    """N+1 regression guard (CLAUDE.md): the query count must stay
+    """N+1 regression guard: the query count must stay
     constant as the number of fee members grows."""
 
     def test_query_count_does_not_scale_with_member_count(

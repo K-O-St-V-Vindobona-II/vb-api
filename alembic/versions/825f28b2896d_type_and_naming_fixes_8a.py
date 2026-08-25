@@ -78,8 +78,8 @@ def upgrade() -> None:
         " p4x_transactions_sha256hash_key TO p4x_transactions_sha256_hash_key"
     )
 
-    # --- junction-table alphabetical naming (CLAUDE.md: m:n tables named
-    # alphabetically, e.g. article_tag not tag_article) ---
+    # --- junction-table alphabetical naming (project convention: m:n
+    # tables named alphabetically, e.g. article_tag not tag_article) ---
     op.rename_table("members_badges", "badges_members")
     op.execute(
         "ALTER TABLE badges_members RENAME CONSTRAINT members_badges_pkey"

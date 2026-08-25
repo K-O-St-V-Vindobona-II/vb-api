@@ -7,7 +7,7 @@ FastAPI backend for **vb** — the internal management system of Vindobona II / 
 ## Tech Stack
 
 - **Runtime:** Python 3.12, FastAPI, SQLAlchemy (sync), Alembic
-- **Database:** PostgreSQL 17
+- **Database:** PostgreSQL 18
 - **Storage:** S3-compatible (MinIO on Dev-VPS, AWS S3 on production)
 - **Scheduler:** APScheduler (async)
 - **Container:** Podman Quadlets (rootless systemd)
@@ -59,7 +59,7 @@ is unset, `conftest.py` falls back to `DATABASE_URL` — but only accepts it
 if it points at an allowlisted test database name (`vb_test`/`test`); any
 other target is refused with a loud error, precisely to prevent a
 misconfigured `DATABASE_URL` from ever wiping a real database. CI uses the
-same convention against its own ephemeral `postgres:17` service container
+same convention against its own ephemeral `postgres:18` service container
 (database `test`).
 
 ### Linting & formatting

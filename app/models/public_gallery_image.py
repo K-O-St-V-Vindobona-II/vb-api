@@ -12,7 +12,7 @@ class PublicGalleryImage(Base):
 
     Uses a UUID primary key (unlike most other models in this codebase,
     which use integer PKs) since this is a brand-new table with no legacy
-    data to migrate, following CLAUDE.md's UUID-for-new-tables guidance.
+    data to migrate, following the project's UUID-for-new-tables convention.
     """
 
     __tablename__ = "public_gallery_images"

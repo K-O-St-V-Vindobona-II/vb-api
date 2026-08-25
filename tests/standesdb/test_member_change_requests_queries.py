@@ -1,7 +1,7 @@
 """N+1 regression test for GET /standesdb/member-change-requests - a list
 endpoint whose query count must not scale with the number of pending
-requests, per CLAUDE.md's list-endpoint testing rule. Kept in its own file
-to mirror the tests/p4x/test_p4x_service_queries.py convention.
+requests, per this project's list-endpoint testing convention. Kept in its
+own file to mirror the tests/p4x/test_p4x_service_queries.py convention.
 """
 
 from datetime import date
