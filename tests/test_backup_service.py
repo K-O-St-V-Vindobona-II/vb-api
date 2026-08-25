@@ -1,18 +1,21 @@
 """Tests for backup_service — run_backup, run_restore, cleanup_old_backups."""
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 from app.services.backup_service import (
     _parse_backup_timestamp,
     _parse_db_url,
+    _retry_transient_s3,
     cleanup_old_backups,
     run_backup,
     run_restore,
@@ -77,11 +80,11 @@ def _put_backup(storage: StorageClient, name: str) -> None:
 class TestParseBackupTimestamp:
     def test_valid_development(self):
         dt = _parse_backup_timestamp("development-2026-06-30_03-00-00.dump")
-        assert dt == datetime(2026, 6, 30, 3, 0, 0, tzinfo=UTC)
+        assert dt == datetime(2026, 6, 30, 3, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
 
     def test_valid_production(self):
         dt = _parse_backup_timestamp("production-2025-01-15_22-30-45.dump")
-        assert dt == datetime(2025, 1, 15, 22, 30, 45, tzinfo=UTC)
+        assert dt == datetime(2025, 1, 15, 22, 30, 45, tzinfo=ZoneInfo("Europe/Vienna"))
 
     def test_valid_qa(self):
         assert _parse_backup_timestamp("qa-2024-12-01_00-00-00.dump") is not None
@@ -100,7 +103,7 @@ class TestParseBackupTimestamp:
 
     def test_valid_manual_suffix(self):
         dt = _parse_backup_timestamp("development-2026-06-30_03-00-00-manual.dump")
-        assert dt == datetime(2026, 6, 30, 3, 0, 0, tzinfo=UTC)
+        assert dt == datetime(2026, 6, 30, 3, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
 
 
 class TestParseDbUrl:
@@ -255,6 +258,26 @@ class TestRunBackup:
 
         assert "-manual" not in name
 
+    def test_run_backup_uses_app_timezone_not_utc(self, backup_bucket):
+        """Regression guard for the 2026-08-25 production incident: the
+        embedded timestamp used to be datetime.now(UTC), which silently
+        diverged from the Vienna wall-clock time an admin actually sees
+        (the container has TZ=Europe/Vienna set) - exactly the
+        DST-dependent 1-2h skew local_now() exists to prevent everywhere
+        else in the app."""
+        storage = _make_storage()
+        fixed_now = datetime(2026, 8, 25, 13, 25, 11, tzinfo=ZoneInfo("Europe/Vienna"))
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, return_value=FAKE_PG_DUMP),
+            patch("subprocess.run") as mock_run,
+            patch("app.services.backup_service.local_now", return_value=fixed_now),
+        ):
+            mock_run.return_value = MagicMock(stdout=b"x", returncode=0)
+            name = run_backup(storage)
+
+        assert "2026-08-25_13-25-11" in name
+
 
 class TestRunRestore:
     def test_run_restore_specific_name(self, backup_bucket):
@@ -268,11 +291,19 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                MagicMock(returncode=0, stdout=b"snapshot-bytes"),  # snapshot dump
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
+                MagicMock(returncode=0),  # local history restore
+            ]
             restored = run_restore(storage, backup_name=backup_name)
 
         assert restored == backup_name
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
         restore_args = mock_run.call_args_list[3][0][0]
         assert "pg_restore" in restore_args[0]
 
@@ -298,15 +329,17 @@ class TestRunRestore:
                 MagicMock(returncode=0, stdout=local_snapshot),  # snapshot dump
                 MagicMock(returncode=0),  # wipe
                 MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
                 MagicMock(returncode=0),  # local history restore
             ]
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
         snapshot_args = mock_run.call_args_list[1][0][0]
         wipe_args = mock_run.call_args_list[2][0][0]
         main_restore_args = mock_run.call_args_list[3][0][0]
-        history_restore_args = mock_run.call_args_list[4][0][0]
+        history_restore_args = mock_run.call_args_list[6][0][0]
 
         # Snapshot must run BEFORE the wipe, against the still-live table.
         assert snapshot_args[0] == FAKE_PG_DUMP
@@ -347,10 +380,12 @@ class TestRunRestore:
                 MagicMock(returncode=0, stdout=b"f"),  # table-exists check: no
                 MagicMock(returncode=0),  # wipe
                 MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
             ]
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 3
+        assert mock_run.call_count == 5
         table_exists_args = mock_run.call_args_list[0][0][0]
         wipe_args = mock_run.call_args_list[1][0][0]
         main_restore_args = mock_run.call_args_list[2][0][0]
@@ -359,6 +394,34 @@ class TestRunRestore:
         assert "to_regclass" in table_exists_args[-1]
         assert wipe_args[0] == FAKE_PSQL
         assert main_restore_args[0] == FAKE_PG_RESTORE
+
+    def test_run_restore_fails_when_database_ends_up_empty(self, backup_bucket):
+        """Regression guard for the 2026-08-25 production incident: three
+        consecutive automated restores reported success while every table
+        was empty afterward - pg_restore itself exited 0, nothing caught
+        it. A restore that leaves zero rows anywhere must now fail loudly
+        instead of silently reporting success."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=b"f"),  # table-exists check: no
+                    MagicMock(returncode=0),  # wipe
+                    MagicMock(returncode=0),  # main restore
+                    MagicMock(returncode=0),  # ANALYZE (restore verification)
+                    MagicMock(returncode=0, stdout=b"0"),  # row count: EMPTY
+                ],
+            ),
+            patch.object(Path, "unlink"),
+            pytest.raises(RuntimeError, match="zero rows"),
+        ):
+            run_restore(storage, backup_name=backup_name)
 
     def test_run_restore_wipes_schema_before_restoring(self, backup_bucket):
         """Regression guard for the pg_restore --clean drop-order bug: a
@@ -379,10 +442,18 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                MagicMock(returncode=0, stdout=b"snapshot-bytes"),  # snapshot dump
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
+                MagicMock(returncode=0),  # local history restore
+            ]
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
         wipe_args = mock_run.call_args_list[2][0][0]
         restore_args = mock_run.call_args_list[3][0][0]
 
@@ -417,11 +488,19 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                MagicMock(returncode=0, stdout=b"snapshot-bytes"),  # snapshot dump
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
+                MagicMock(returncode=0),  # local history restore
+            ]
             restored = run_restore(storage, backup_name=None)
 
         assert restored == "test-2026-06-30_03-00-00.dump"
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
 
     def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
         self, backup_bucket
@@ -438,7 +517,9 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            # stdout="1": not "t" (table-exists check -> skip snapshot) but
+            # still a valid int (restore-verification row-count check).
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"1")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == newest
@@ -459,7 +540,9 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
             patch.object(storage, "download", wraps=storage.download) as mock_download,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            # stdout="1": not "t" (table-exists check -> skip snapshot) but
+            # still a valid int (restore-verification row-count check).
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"1")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == newest
@@ -506,10 +589,18 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                MagicMock(returncode=0, stdout=b"snapshot-bytes"),  # snapshot dump
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+                MagicMock(returncode=0),  # ANALYZE (restore verification)
+                MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
+                MagicMock(returncode=0),  # local history restore
+            ]
             run_restore(storage, backup_name=backup_name, force=True)
 
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
 
     def test_run_restore_snapshot_dump_fails_cleans_up_tempfile(self, backup_bucket):
         storage = _make_storage()
@@ -589,7 +680,7 @@ class TestRunRestore:
     def test_run_restore_local_history_restore_fails_cleans_up_both_tempfiles(
         self, backup_bucket
     ):
-        """The local-history re-insert (5th subprocess call) has its own
+        """The local-history re-insert (7th subprocess call) has its own
         temp file, separate from the main backup's temp file - both must
         be cleaned up even if only the later one fails."""
         storage = _make_storage()
@@ -604,8 +695,10 @@ class TestRunRestore:
                 side_effect=[
                     MagicMock(returncode=0, stdout=b"t"),  # table-exists check
                     MagicMock(returncode=0, stdout=b"local-history-snapshot"),
-                    MagicMock(returncode=0),
-                    MagicMock(returncode=0),
+                    MagicMock(returncode=0),  # wipe
+                    MagicMock(returncode=0),  # main restore
+                    MagicMock(returncode=0),  # ANALYZE (restore verification)
+                    MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
                     CalledProcessError(
                         1, "pg_restore", stderr=b"pg_restore: error: could not connect"
                     ),
@@ -617,6 +710,35 @@ class TestRunRestore:
             run_restore(storage, backup_name=backup_name)
 
         assert mock_unlink.call_count == 2
+
+
+class TestRetryTransientS3:
+    """Regression guard for the 2026-08-25 production incident: a restore's
+    S3 list/download hit a transient "not found" for an object that
+    demonstrably existed the whole time (unchanged S3 LastModified).
+    Tested directly against the helper (not through run_restore()) since
+    it's a small, genuinely reusable primitive - a direct unit test can
+    assert exact attempt counts, which an integration test through the
+    full restore flow can't do cleanly."""
+
+    def test_succeeds_on_first_attempt(self):
+        operation = MagicMock(return_value="ok")
+        assert _retry_transient_s3(operation) == "ok"
+        assert operation.call_count == 1
+
+    def test_retries_then_succeeds(self):
+        error = ClientError({"Error": {"Code": "SlowDown"}}, "ListObjectsV2")
+        operation = MagicMock(side_effect=[error, "ok"])
+        with patch("time.sleep"):
+            assert _retry_transient_s3(operation, attempts=3) == "ok"
+        assert operation.call_count == 2
+
+    def test_gives_up_after_exhausting_attempts(self):
+        error = ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        operation = MagicMock(side_effect=[error, error, error])
+        with patch("time.sleep"), pytest.raises(ClientError):
+            _retry_transient_s3(operation, attempts=3)
+        assert operation.call_count == 3
 
 
 class TestCleanupOldBackups:

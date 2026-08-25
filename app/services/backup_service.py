@@ -3,13 +3,17 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+from botocore.exceptions import ClientError
 from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
+from app.core.datetime_utils import get_app_timezone, local_now
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 
 logger = logging.getLogger(__name__)
@@ -85,6 +89,33 @@ def _run_pg_subprocess(
         raise RuntimeError(msg) from exc
 
 
+def _retry_transient_s3[T](
+    operation: Callable[[], T], *, attempts: int = 3, base_delay: float = 1.0
+) -> T:
+    """Retry an S3 read (list/download) a few times with exponential backoff.
+
+    AWS S3 is documented as strongly read-after-write consistent, but a real
+    production restore on 2026-08-25 hit a LIST+GET pair that returned "not
+    found" for an object whose S3 LastModified timestamp proved it had
+    existed, unchanged, the whole time. Root cause unconfirmed - this is
+    cheap insurance against a repeat, scoped to the two S3 reads on the
+    restore path most exposed to it (see run_restore()).
+    """
+    for attempt in range(attempts - 1):
+        try:
+            return operation()
+        except ClientError:
+            delay = base_delay * (2**attempt)
+            logger.warning(
+                "Transient S3 error on attempt %d/%d, retrying in %.0fs",
+                attempt + 1,
+                attempts,
+                delay,
+            )
+            time.sleep(delay)
+    return operation()  # final attempt - let any ClientError propagate
+
+
 def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
     """
     Dump the PostgreSQL database and upload to S3.
@@ -101,7 +132,7 @@ def run_backup(storage: StorageClient, *, manual: bool = False) -> str:
 
     host, user, password, port, dbname = _parse_db_url(database_url)
 
-    timestamp = datetime.now(UTC).strftime(_TIMESTAMP_FORMAT)
+    timestamp = local_now().strftime(_TIMESTAMP_FORMAT)
     suffix = "-manual" if manual else ""
     backup_name = f"{get_settings().app_environment}-{timestamp}{suffix}.dump"
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
@@ -293,6 +324,61 @@ def _restore_local_job_history(
         Path(tmp_path).unlink()
 
 
+def _verify_restore_populated(
+    host: str, user: str, password: str, port: int, dbname: str
+) -> None:
+    """Raise RuntimeError if the just-restored database has zero rows.
+
+    A pg_restore that exits 0 does not guarantee any rows actually landed -
+    regression guard for a 2026-08-25 production incident where three
+    consecutive automated restores reported success while leaving every
+    table empty (root cause unconfirmed, see run_restore()'s docstring).
+    ANALYZE refreshes planner statistics immediately after the bulk load,
+    then this sums row-count estimates across every table in 'public' -
+    table-agnostic on purpose, this module has no business-domain knowledge
+    of which specific tables should hold data.
+    """
+    psql = _resolve_pg_tool("psql")
+    _run_pg_subprocess(
+        [
+            psql,
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={dbname}",
+            "-c",
+            "ANALYZE;",
+        ],
+        env=_build_pg_env(password),
+        tool_name="psql",
+    )
+    result = _run_pg_subprocess(
+        [
+            psql,
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={dbname}",
+            "--tuples-only",
+            "--no-align",
+            "-c",
+            (
+                "SELECT COALESCE(SUM(n_live_tup), 0)::bigint FROM"
+                " pg_stat_user_tables WHERE schemaname = 'public';"
+            ),
+        ],
+        env=_build_pg_env(password),
+        tool_name="psql",
+    )
+    total_rows = int(result.stdout.strip())
+    if total_rows == 0:
+        msg = (
+            "Restore completed but the database has zero rows across all "
+            "tables in 'public' - treating this as a failed restore."
+        )
+        raise RuntimeError(msg)
+
+
 def run_restore(
     storage: StorageClient,
     backup_name: str | None = None,
@@ -327,7 +413,9 @@ def run_restore(
         raise RuntimeError(msg)
 
     if backup_name is None:
-        keys = storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
+        keys = _retry_transient_s3(
+            lambda: storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
+        )
         if not keys:
             msg = "No backups found in S3."
             raise RuntimeError(msg)
@@ -336,7 +424,7 @@ def run_restore(
 
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
     logger.info("Downloading backup from S3: %s", s3_key)
-    data = storage.download(key=s3_key)
+    data = _retry_transient_s3(lambda: storage.download(key=s3_key))
 
     host, user, password, port, dbname = _parse_db_url(database_url)
 
@@ -365,6 +453,7 @@ def run_restore(
             env=_build_pg_env(password),
             tool_name="pg_restore",
         )
+        _verify_restore_populated(host, user, password, port, dbname)
         if local_job_history is not None:
             _restore_local_job_history(
                 local_job_history, host, user, password, port, dbname
@@ -377,9 +466,13 @@ def run_restore(
 
 
 def _parse_backup_timestamp(backup_name: str) -> datetime | None:
-    """Extract the UTC timestamp from a
+    """Extract the timestamp from a
     '[env]-YYYY-MM-DD_HH-MM-SS[-manual].dump' name (the optional "-manual"
-    suffix, and any other trailing text, is ignored)."""
+    suffix, and any other trailing text, is ignored). The embedded
+    timestamp is in Settings.app_timezone (run_backup() writes it via
+    local_now()), not UTC - tagged accordingly so downstream comparisons
+    (e.g. cleanup_old_backups()'s retention cutoff) stay correct regardless
+    of which timezone either side happens to use."""
     if not backup_name.endswith(".dump"):
         return None
     stem = backup_name.removesuffix(".dump")
@@ -387,7 +480,7 @@ def _parse_backup_timestamp(backup_name: str) -> datetime | None:
         _, ts_part = stem.split("-", 1)
         return datetime.strptime(
             ts_part[:_TIMESTAMP_LENGTH], _TIMESTAMP_FORMAT
-        ).replace(tzinfo=UTC)
+        ).replace(tzinfo=get_app_timezone())
     except ValueError:
         return None
 

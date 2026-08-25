@@ -9,9 +9,14 @@ purpose. See the 2026-08-15 timezone audit: that ad-hoc pattern is exactly
 how a UTC-vs-Vienna 1-2h skew (DST-dependent) ended up baked into role
 activation windows and "today" statistics.
 
-DB storage (TIMESTAMPTZ columns) and the machine-facing db_backup/downsync
-cron triggers are deliberately excluded from this convention and stay
-UTC -- see Settings.app_timezone's own docstring in app/core/config.py.
+DB storage (TIMESTAMPTZ columns) stays UTC regardless of this convention --
+see Settings.app_timezone's own docstring in app/core/config.py. The
+db_backup/downsync scheduled jobs' own *trigger timing* (which hour they
+fire) also stays UTC-anchored on purpose (see BACKUP_HOUR in
+app/core/scheduler.py) -- but the *filename* a backup gets once it runs
+goes through local_now() like any other human-facing timestamp (see
+run_backup() in app/services/backup_service.py), precisely so an admin
+reading backup names doesn't have to mentally convert UTC to Vienna time.
 """
 
 from datetime import UTC, date, datetime, timedelta
