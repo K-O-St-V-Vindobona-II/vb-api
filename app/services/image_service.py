@@ -171,6 +171,7 @@ def upload_image(
     owner_type: str,
     owner_id: int,
     file: UploadFile,
+    *,
     description: str | None,
     created_by: int | None,
     storage: StorageClient,

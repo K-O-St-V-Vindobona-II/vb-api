@@ -247,7 +247,8 @@ def _empty_content() -> dict[str, dict[str, list[dict[str, object]]]]:
 
 def _classify_dir(
     d: ArchiveDir,
-    admin: bool,  # noqa: FBT001
+    *,
+    admin: bool,
     user: Member,
     db: Session,
     bucket: dict[str, list[dict[str, object]]],
@@ -278,7 +279,14 @@ def get_root_content(
         .all()
     )
     for d in dirs:
-        _classify_dir(d, admin, user, db, content["subdirs"], perm_sets)
+        _classify_dir(
+            d,
+            admin=admin,
+            user=user,
+            db=db,
+            bucket=content["subdirs"],
+            perm_sets=perm_sets,
+        )
 
     files = db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).all()
     for f in files:
@@ -321,7 +329,14 @@ def _build_dir_detail_content(
 
     children = dir_obj.children.order_by(ArchiveDir.name).all()
     for d in children:
-        _classify_dir(d, admin, user, db, content["subdirs"], perm_sets)
+        _classify_dir(
+            d,
+            admin=admin,
+            user=user,
+            db=db,
+            bucket=content["subdirs"],
+            perm_sets=perm_sets,
+        )
 
     has_insight = can_insight(user, db, dir_obj, perm_sets)
     files = dir_obj.archive_files.all()

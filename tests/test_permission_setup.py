@@ -329,8 +329,10 @@ class TestDevSuperuserEnvironmentGating:
             [
                 sys.executable,
                 "-c",
-                "from app.services.permission_service import DEV_SUPERUSER_ID; "
-                "print(DEV_SUPERUSER_ID)",
+                (
+                    "from app.services.permission_service import DEV_SUPERUSER_ID; "
+                    "print(DEV_SUPERUSER_ID)"
+                ),
             ],
             cwd=Path(__file__).resolve().parent.parent,
             capture_output=True,

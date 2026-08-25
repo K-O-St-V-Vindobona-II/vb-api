@@ -163,7 +163,7 @@ class TestMemberCreateNotification:
         mock_send.assert_called_once()
         args = mock_send.call_args
         assert args[0][1] == "member"
-        assert args[0][4] == "store"
+        assert args.kwargs["change_type"] == "store"
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_create_member_email_has_correct_cn(self, mock_send, client, db_session):
@@ -215,7 +215,7 @@ class TestMemberUpdateNotification:
         mock_send.assert_called_once()
         args = mock_send.call_args
         assert args[0][1] == "member"
-        assert args[0][4] == "update"
+        assert args.kwargs["change_type"] == "update"
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_update_member_without_change_no_email(self, mock_send, client, db_session):
@@ -297,7 +297,7 @@ class TestContactNotification:
         mock_send.assert_called_once()
         args = mock_send.call_args
         assert args[0][1] == "contact"
-        assert args[0][4] == "store"
+        assert args.kwargs["change_type"] == "store"
 
     @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_update_contact_sends_email(self, mock_send, client, db_session):
@@ -329,4 +329,4 @@ class TestContactNotification:
         mock_send.assert_called_once()
         args = mock_send.call_args
         assert args[0][1] == "contact"
-        assert args[0][4] == "update"
+        assert args.kwargs["change_type"] == "update"

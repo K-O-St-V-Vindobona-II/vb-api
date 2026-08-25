@@ -100,10 +100,10 @@ def update_settings(
     site_settings_service.update_settings(
         db,
         settings,
-        data.about_video_heading,
-        data.youtube_url,
-        data.calendar_id,
-        data.gallery_heading,
+        heading=data.about_video_heading,
+        youtube_id=data.youtube_url,
+        calendar_id=data.calendar_id,
+        gallery_heading=data.gallery_heading,
     )
     return SiteSettingsResponse.model_validate(settings)
 

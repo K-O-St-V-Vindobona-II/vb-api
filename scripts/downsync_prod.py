@@ -92,7 +92,7 @@ def _run_db_restore(local_storage: StorageClient, dry_run: bool) -> None:
                 "(run without --skip-s3 and --dry-run first to mirror one down)."
             )
             return
-        latest = sorted(keys)[-1]
+        latest = max(keys)
         print(f"  WOULD RESTORE: {latest}")
         return
 

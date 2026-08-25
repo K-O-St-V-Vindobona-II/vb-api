@@ -43,6 +43,7 @@ class StorageClient:
         access_key: str,
         secret_key: str,
         bucket: str,
+        *,
         public_endpoint_url: str | None = None,
         region: str = "us-east-1",
         presigned_expiry: int = 900,

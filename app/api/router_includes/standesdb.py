@@ -329,8 +329,8 @@ def create_member(
             "member",
             member.cn,
             diff,
-            "store",
-            current_user.cn,
+            change_type="store",
+            modifier_cn=current_user.cn,
         )
 
     return StatusIdResponse(status="ok", id=member.id)
@@ -376,8 +376,8 @@ def update_member(
             "member",
             member.cn,
             diff,
-            "update",
-            current_user.cn,
+            change_type="update",
+            modifier_cn=current_user.cn,
         )
 
     return StatusIdResponse(status="ok", id=member.id)
@@ -556,8 +556,8 @@ def create_contact(
             "contact",
             contact.cn,
             diff,
-            "store",
-            current_user.cn,
+            change_type="store",
+            modifier_cn=current_user.cn,
         )
 
     return StatusIdResponse(status="ok", id=contact.id)
@@ -595,8 +595,8 @@ def update_contact(
             "contact",
             contact.cn,
             diff,
-            "update",
-            current_user.cn,
+            change_type="update",
+            modifier_cn=current_user.cn,
         )
 
     return StatusIdResponse(status="ok", id=contact.id)
@@ -673,6 +673,7 @@ def list_own_member_images(
 @standesdb_router.post("/members/me/images", status_code=status.HTTP_201_CREATED)
 def upload_own_member_image(
     file: Annotated[UploadFile, File()],
+    *,
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
@@ -684,7 +685,13 @@ def upload_own_member_image(
     own profile images; org admins are notified by email afterward,
     purely informational (no approval gate)."""
     img = image_service.upload_image(
-        db, "member", current_user.id, file, description, current_user.id, storage
+        db,
+        "member",
+        current_user.id,
+        file,
+        description=description,
+        created_by=current_user.id,
+        storage=storage,
     )
     _notify_own_image_changed(db, background_tasks, current_user, "upload")
     return StatusIdResponse(status="ok", id=img.id)
@@ -808,6 +815,7 @@ def member_image_url(
 )
 def upload_member_image(
     member_id: int,
+    *,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
@@ -828,9 +836,9 @@ def upload_member_image(
         "member",
         member_id,
         file,
-        description,
-        current_user.id,
-        storage,
+        description=description,
+        created_by=current_user.id,
+        storage=storage,
     )
     return StatusIdResponse(status="ok", id=img.id)
 
@@ -961,6 +969,7 @@ def contact_image_url(
 )
 def upload_contact_image(
     contact_id: int,
+    *,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -981,9 +990,9 @@ def upload_contact_image(
         "contact",
         contact_id,
         file,
-        description,
-        current_user.id,
-        storage,
+        description=description,
+        created_by=current_user.id,
+        storage=storage,
     )
     return StatusIdResponse(status="ok", id=img.id)
 

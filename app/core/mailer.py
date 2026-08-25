@@ -65,6 +65,7 @@ def _log_sent_email(
     subject: str,
     html_body: str,
     template_key: str,
+    *,
     from_addr: str | None = None,
     bcc_str: str | None = None,
 ) -> None:
@@ -103,6 +104,7 @@ def render_template(
 
 def send_to_recipients(
     to_emails: list[str],
+    *,
     subject: str,
     html_content: str,
     template_key: str = "generic",
@@ -143,7 +145,7 @@ def send_to_recipients(
         subject,
         html_content,
         template_key,
-        from_header,
+        from_addr=from_header,
         bcc_str=", ".join(bcc_emails) if bcc_emails else None,
     )
 
@@ -175,7 +177,11 @@ def send_reset_email(to_email: str, token: str) -> None:
 
     _send_message(msg, to_email)
     _log_sent_email(
-        to_email, msg["Subject"], html_content, "password-reset", from_header
+        to_email,
+        msg["Subject"],
+        html_content,
+        "password-reset",
+        from_addr=from_header,
     )
 
 
@@ -200,7 +206,11 @@ def _send_to_multiple(
 
     _send_message(msg, to_emails)
     _log_sent_email(
-        ", ".join(to_emails), subject, html_content, template_key, from_header
+        ", ".join(to_emails),
+        subject,
+        html_content,
+        template_key,
+        from_addr=from_header,
     )
 
 
@@ -258,6 +268,7 @@ def send_entry_changed_email(
     entry_type: str,
     entry_cn: str,
     diff: dict[str, dict[str, object]],
+    *,
     change_type: str,
     modifier_cn: str,
 ) -> None:
@@ -282,8 +293,10 @@ def send_entry_changed_email(
     text_lines = [
         f"{modifier_cn} hat eine Änderung in der Verbindungsdatenbank vorgenommen:",
         "",
-        f"Datensatz: {'Mitglied' if entry_type == 'member' else 'Kontakt'}"
-        f' "{entry_cn}"',
+        (
+            f"Datensatz: {'Mitglied' if entry_type == 'member' else 'Kontakt'}"
+            f' "{entry_cn}"'
+        ),
         f"Art: {'Neuanlage' if change_type == 'store' else 'Änderung'}",
         "",
     ]
@@ -346,8 +359,8 @@ def send_member_change_request_submitted_email(
 
     send_to_recipients(
         to_emails,
-        subject,
-        html_content,
+        subject=subject,
+        html_content=html_content,
         template_key="member-change-request-submitted",
     )
 
@@ -383,8 +396,8 @@ def send_member_change_request_resolved_email(
 
     send_to_recipients(
         [to_email],
-        "Dein Änderungsantrag wurde bearbeitet",
-        html_content,
+        subject="Dein Änderungsantrag wurde bearbeitet",
+        html_content=html_content,
         template_key="member-change-request-resolved",
     )
 
@@ -418,7 +431,7 @@ def send_own_image_changed_email(
 
     send_to_recipients(
         to_emails,
-        subject,
-        html_content,
+        subject=subject,
+        html_content=html_content,
         template_key="own-image-changed",
     )

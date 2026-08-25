@@ -24,9 +24,11 @@ def assert_module_imports_and_configures_mappers(module_name: str) -> None:
         [
             sys.executable,
             "-c",
-            f"import {module_name}; "
-            "from sqlalchemy.orm import configure_mappers; "
-            "configure_mappers()",
+            (
+                f"import {module_name}; "
+                "from sqlalchemy.orm import configure_mappers; "
+                "configure_mappers()"
+            ),
         ],
         cwd=REPO_ROOT,
         capture_output=True,

@@ -185,6 +185,7 @@ def get_sent_email_detail(
 @tracking_router.get("/sent-emails")
 def list_sent_emails(
     db: Annotated[Session, Depends(get_db)],
+    *,
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
@@ -194,7 +195,9 @@ def list_sent_emails(
 ) -> PaginatedResponse[SentEmailListItem]:
     """List sent emails with optional year/month and text search filters (paginated)."""
     return PaginatedResponse[SentEmailListItem].model_validate(
-        tracking_service.list_sent_emails(db, page, page_size, year, month, search)
+        tracking_service.list_sent_emails(
+            db, page, page_size, year=year, month=month, search=search
+        )
     )
 
 
@@ -236,6 +239,7 @@ def get_activity_detail(
 @tracking_router.get("/activity")
 def list_activity(
     db: Annotated[Session, Depends(get_db)],
+    *,
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
@@ -246,6 +250,11 @@ def list_activity(
     """List activity log entries with optional filters (paginated)."""
     return PaginatedResponse[ActivityLogItem].model_validate(
         tracking_service.list_activity(
-            db, page, page_size, member_id, date_from, date_to
+            db,
+            page,
+            page_size,
+            member_id=member_id,
+            date_from=date_from,
+            date_to=date_to,
         )
     )

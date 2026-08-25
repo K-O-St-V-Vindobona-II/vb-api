@@ -293,7 +293,7 @@ def _snapshot_local_job_history(
 
 
 def _restore_local_job_history(
-    snapshot: bytes, host: str, user: str, password: str, port: int, dbname: str
+    snapshot: bytes, *, host: str, user: str, password: str, port: int, dbname: str
 ) -> None:
     """Re-insert this stage's own pre-restore scheduled_task_runs rows.
 
@@ -419,7 +419,7 @@ def run_restore(
         if not keys:
             msg = "No backups found in S3."
             raise RuntimeError(msg)
-        backup_name = sorted(keys)[-1].removeprefix(f"{S3_PATH_DB_BACKUPS}/")
+        backup_name = max(keys).removeprefix(f"{S3_PATH_DB_BACKUPS}/")
         logger.info("Auto-selected latest backup: %s", backup_name)
 
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
@@ -456,7 +456,12 @@ def run_restore(
         _verify_restore_populated(host, user, password, port, dbname)
         if local_job_history is not None:
             _restore_local_job_history(
-                local_job_history, host, user, password, port, dbname
+                local_job_history,
+                host=host,
+                user=user,
+                password=password,
+                port=port,
+                dbname=dbname,
             )
     finally:
         Path(tmp_path).unlink()
