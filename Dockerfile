@@ -4,9 +4,16 @@ WORKDIR /app
 
 # Shared runtime deps: WeasyPrint (PDF export) rendering libs + Postgres client
 # (pg_dump/pg_restore, used by app/services/backup_service.py and dev scripts).
+# postgresql-client is pinned via the official PGDG repo instead of Debian's
+# bundled version, so pg_dump/pg_restore always match (or exceed) the Postgres
+# server's major version - required for the client tools to safely dump from
+# and restore into that server across a major-version upgrade.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 \
-    postgresql-client \
+    curl ca-certificates gnupg postgresql-common \
+    && sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-client-18 \
+    && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -21,10 +28,8 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.lock
 FROM base AS dev
 
 # Dev-only build headers: libpq-dev (compiling DB-related deps),
-# libsqlite3-dev/sqlite3 (scripts/sqlite2pg.py, local SQLite inspection),
 # libffi-dev (compiling cryptography/cffi-based deps from source).
 RUN apt-get update && apt-get install -y \
-    sqlite3 libsqlite3-dev \
     libpq-dev \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*

@@ -268,12 +268,12 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
             restored = run_restore(storage, backup_name=backup_name)
 
         assert restored == backup_name
-        assert mock_run.call_count == 4
-        restore_args = mock_run.call_args_list[2][0][0]
+        assert mock_run.call_count == 5
+        restore_args = mock_run.call_args_list[3][0][0]
         assert "pg_restore" in restore_args[0]
 
     def test_run_restore_snapshots_and_restores_local_job_history(self, backup_bucket):
@@ -294,6 +294,7 @@ class TestRunRestore:
             patch.object(Path, "unlink"),
         ):
             mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"t"),  # table-exists check
                 MagicMock(returncode=0, stdout=local_snapshot),  # snapshot dump
                 MagicMock(returncode=0),  # wipe
                 MagicMock(returncode=0),  # main restore
@@ -301,11 +302,11 @@ class TestRunRestore:
             ]
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 4
-        snapshot_args = mock_run.call_args_list[0][0][0]
-        wipe_args = mock_run.call_args_list[1][0][0]
-        main_restore_args = mock_run.call_args_list[2][0][0]
-        history_restore_args = mock_run.call_args_list[3][0][0]
+        assert mock_run.call_count == 5
+        snapshot_args = mock_run.call_args_list[1][0][0]
+        wipe_args = mock_run.call_args_list[2][0][0]
+        main_restore_args = mock_run.call_args_list[3][0][0]
+        history_restore_args = mock_run.call_args_list[4][0][0]
 
         # Snapshot must run BEFORE the wipe, against the still-live table.
         assert snapshot_args[0] == FAKE_PG_DUMP
@@ -323,6 +324,41 @@ class TestRunRestore:
         # The snapshot bytes actually flow into the local-restore temp file.
         history_tmp_path = history_restore_args[-1]
         assert Path(history_tmp_path).read_bytes() == local_snapshot
+
+    def test_run_restore_skips_snapshot_when_table_does_not_exist(self, backup_bucket):
+        """Regression guard: restoring into a brand-new, still schema-less
+        database (e.g. right after a Postgres major-version upgrade, or the
+        first restore onto a freshly (re-)installed host) used to abort
+        immediately - pg_dump raised "no matching tables were found" for
+        scheduled_task_runs before the restore ever got a chance to create
+        it. The snapshot/re-insert pair must be skipped entirely in that
+        case, not attempted and swallowed."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=b"f"),  # table-exists check: no
+                MagicMock(returncode=0),  # wipe
+                MagicMock(returncode=0),  # main restore
+            ]
+            run_restore(storage, backup_name=backup_name)
+
+        assert mock_run.call_count == 3
+        table_exists_args = mock_run.call_args_list[0][0][0]
+        wipe_args = mock_run.call_args_list[1][0][0]
+        main_restore_args = mock_run.call_args_list[2][0][0]
+
+        assert table_exists_args[0] == FAKE_PSQL
+        assert "to_regclass" in table_exists_args[-1]
+        assert wipe_args[0] == FAKE_PSQL
+        assert main_restore_args[0] == FAKE_PG_RESTORE
 
     def test_run_restore_wipes_schema_before_restoring(self, backup_bucket):
         """Regression guard for the pg_restore --clean drop-order bug: a
@@ -343,12 +379,12 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
             run_restore(storage, backup_name=backup_name)
 
-        assert mock_run.call_count == 4
-        wipe_args = mock_run.call_args_list[1][0][0]
-        restore_args = mock_run.call_args_list[2][0][0]
+        assert mock_run.call_count == 5
+        wipe_args = mock_run.call_args_list[2][0][0]
+        restore_args = mock_run.call_args_list[3][0][0]
 
         assert wipe_args[0] == FAKE_PSQL
         assert "-c" in wipe_args
@@ -381,11 +417,11 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
             restored = run_restore(storage, backup_name=None)
 
         assert restored == "test-2026-06-30_03-00-00.dump"
-        assert mock_run.call_count == 4
+        assert mock_run.call_count == 5
 
     def test_run_restore_latest_picks_newer_manual_over_older_scheduled(
         self, backup_bucket
@@ -470,10 +506,10 @@ class TestRunRestore:
             patch("subprocess.run") as mock_run,
             patch.object(Path, "unlink"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout=b"x")
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"t")
             run_restore(storage, backup_name=backup_name, force=True)
 
-        assert mock_run.call_count == 4
+        assert mock_run.call_count == 5
 
     def test_run_restore_snapshot_dump_fails_cleans_up_tempfile(self, backup_bucket):
         storage = _make_storage()
@@ -485,9 +521,12 @@ class TestRunRestore:
             patch(PATCH_WHICH, side_effect=_which_side_effect),
             patch(
                 "subprocess.run",
-                side_effect=CalledProcessError(
-                    1, "pg_dump", stderr=b"pg_dump: error: could not connect"
-                ),
+                side_effect=[
+                    MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                    CalledProcessError(
+                        1, "pg_dump", stderr=b"pg_dump: error: could not connect"
+                    ),
+                ],
             ),
             patch.object(Path, "unlink") as mock_unlink,
             pytest.raises(RuntimeError, match="could not connect"),
@@ -507,6 +546,7 @@ class TestRunRestore:
             patch(
                 "subprocess.run",
                 side_effect=[
+                    MagicMock(returncode=0, stdout=b"t"),  # table-exists check
                     MagicMock(returncode=0, stdout=b"local-history-snapshot"),
                     CalledProcessError(
                         1, "psql", stderr=b"psql: error: could not connect"
@@ -531,6 +571,7 @@ class TestRunRestore:
             patch(
                 "subprocess.run",
                 side_effect=[
+                    MagicMock(returncode=0, stdout=b"t"),  # table-exists check
                     MagicMock(returncode=0, stdout=b"local-history-snapshot"),
                     MagicMock(returncode=0),
                     CalledProcessError(
@@ -548,7 +589,7 @@ class TestRunRestore:
     def test_run_restore_local_history_restore_fails_cleans_up_both_tempfiles(
         self, backup_bucket
     ):
-        """The local-history re-insert (4th subprocess call) has its own
+        """The local-history re-insert (5th subprocess call) has its own
         temp file, separate from the main backup's temp file - both must
         be cleaned up even if only the later one fails."""
         storage = _make_storage()
@@ -561,6 +602,7 @@ class TestRunRestore:
             patch(
                 "subprocess.run",
                 side_effect=[
+                    MagicMock(returncode=0, stdout=b"t"),  # table-exists check
                     MagicMock(returncode=0, stdout=b"local-history-snapshot"),
                     MagicMock(returncode=0),
                     MagicMock(returncode=0),
