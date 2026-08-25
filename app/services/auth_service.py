@@ -48,7 +48,7 @@ class _TimeoutHTTPAdapter(HTTPAdapter):
     google-auth's own docs recommend for bounding this call.
     """
 
-    def send(
+    def send(  # noqa: PLR0917 - matches base class signature, must stay positional
         self,
         request: requests.PreparedRequest,
         stream: bool = False,  # noqa: FBT001, FBT002 - matches base class signature

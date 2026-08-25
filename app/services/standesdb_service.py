@@ -446,6 +446,7 @@ def _persist_change_log(
     log_model: type,
     fk_field: str,
     entity_id: int,
+    *,
     diff: dict[str, dict[str, object]],
     action: str,
     modified_by: int,
@@ -543,10 +544,10 @@ def apply_member_input(  # noqa: C901
             MembersLog,
             "member_id",
             member.id,
-            diff,
-            "create" if is_new else "update",
-            current_user.id,
-            now,
+            diff=diff,
+            action="create" if is_new else "update",
+            modified_by=current_user.id,
+            modified_at=now,
         )
 
     db.commit()
@@ -1120,10 +1121,10 @@ def apply_contact_input(
             ContactsLog,
             "contact_id",
             contact.id,
-            diff,
-            "create" if is_new else "update",
-            current_user.id,
-            now,
+            diff=diff,
+            action="create" if is_new else "update",
+            modified_by=current_user.id,
+            modified_at=now,
         )
 
     db.commit()

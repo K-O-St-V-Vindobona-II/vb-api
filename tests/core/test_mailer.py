@@ -76,7 +76,9 @@ class TestFormatDiffValue:
 class TestSendEntryChangedEmail:
     @patch("app.core.mailer._send_to_multiple")
     def test_empty_diff_no_send(self, mock_send):
-        send_entry_changed_email(["a@b.at"], "member", "Test", {}, "update", "Admin")
+        send_entry_changed_email(
+            ["a@b.at"], "member", "Test", {}, change_type="update", modifier_cn="Admin"
+        )
         mock_send.assert_not_called()
 
     @patch("app.core.mailer._send_to_multiple")
@@ -86,8 +88,8 @@ class TestSendEntryChangedEmail:
             "member",
             "Test",
             {"vorname": {"old": "A", "new": "B"}},
-            "update",
-            "Admin",
+            change_type="update",
+            modifier_cn="Admin",
         )
         mock_send.assert_not_called()
 
@@ -98,8 +100,8 @@ class TestSendEntryChangedEmail:
             "member",
             "Max Muster",
             {"vorname": {"old": "Alt", "new": "Neu"}},
-            "update",
-            "Admin User",
+            change_type="update",
+            modifier_cn="Admin User",
         )
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
@@ -114,8 +116,8 @@ class TestSendEntryChangedEmail:
             "contact",
             "Kontakt X",
             {"name": {"old": None, "new": "Kontakt X"}},
-            "store",
-            "Admin",
+            change_type="store",
+            modifier_cn="Admin",
         )
         args = mock_send.call_args[0]
         html = args[2]
@@ -131,8 +133,8 @@ class TestSendEntryChangedEmail:
                 "geburtsdatum": {"old": None, "new": "1978-07-05"},
                 "geburtsdatum_accuracy": {"old": 0, "new": 3},
             },
-            "update",
-            "Admin",
+            change_type="update",
+            modifier_cn="Admin",
         )
         text = mock_send.call_args[0][3]
         assert "geburtsdatum_accuracy" not in text
@@ -154,8 +156,8 @@ class TestSendEntryChangedEmail:
             "member",
             "Test",
             {"vorname": {"old": "Alt", "new": "Neu"}},
-            "update",
-            "Admin",
+            change_type="update",
+            modifier_cn="Admin",
         )
 
         subject = mock_send.call_args[0][1]
@@ -457,7 +459,7 @@ class TestMemberChangeRequestEmailsEscapeUserInput:
             {"taetigkeit": {"old": "Alt", "new": self._PAYLOAD}},
         )
 
-        html = mock_send.call_args[0][2]
+        html = mock_send.call_args.kwargs["html_content"]
         assert self._PAYLOAD not in html
         assert "&lt;img src=x onerror=alert(1)&gt;" in html
 
@@ -469,6 +471,6 @@ class TestMemberChangeRequestEmailsEscapeUserInput:
             {"taetigkeit": "approved"},
         )
 
-        html = mock_send.call_args[0][2]
+        html = mock_send.call_args.kwargs["html_content"]
         assert self._PAYLOAD not in html
         assert "&lt;img src=x onerror=alert(1)&gt;" in html

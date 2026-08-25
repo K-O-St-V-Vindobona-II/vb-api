@@ -276,11 +276,11 @@ class TestPersistLog:
             request,
             "POST",
             "/api/auth/login",
-            "203.0.113.5",
-            body,
-            "a@b.at",
-            None,
-            Response(status_code=200),
+            client_ip="203.0.113.5",
+            body=body,
+            email="a@b.at",
+            response_content=None,
+            response=Response(status_code=200),
         )
 
         entry = db_session.query(RequestLog).one()
@@ -313,11 +313,11 @@ class TestPersistLog:
             request,
             "GET",
             "/api/standesdb/members/1",
-            "1.2.3.4",
-            b"",
-            "found@vbw.at",
-            None,
-            Response(status_code=200),
+            client_ip="1.2.3.4",
+            body=b"",
+            email="found@vbw.at",
+            response_content=None,
+            response=Response(status_code=200),
         )
 
         entry = db_session.query(RequestLog).one()
@@ -335,11 +335,11 @@ class TestPersistLog:
                 request,
                 "POST",
                 "/api/x",
-                "1.2.3.4",
-                b"",
-                None,
-                None,
-                Response(status_code=500),
+                client_ip="1.2.3.4",
+                body=b"",
+                email=None,
+                response_content=None,
+                response=Response(status_code=500),
             )
 
 

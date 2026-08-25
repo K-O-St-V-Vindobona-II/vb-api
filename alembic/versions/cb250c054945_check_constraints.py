@@ -41,14 +41,18 @@ _CHECK_CONSTRAINTS: list[tuple[str, str, str]] = [
     (
         "members",
         "members_philistrierungsdatum_accuracy_check",
-        "philistrierungsdatum_accuracy IS NULL "
-        "OR philistrierungsdatum_accuracy BETWEEN 0 AND 3",
+        (
+            "philistrierungsdatum_accuracy IS NULL "
+            "OR philistrierungsdatum_accuracy BETWEEN 0 AND 3"
+        ),
     ),
     (
         "members",
         "members_entlassungsdatum_accuracy_check",
-        "entlassungsdatum_accuracy IS NULL "
-        "OR entlassungsdatum_accuracy BETWEEN 0 AND 3",
+        (
+            "entlassungsdatum_accuracy IS NULL "
+            "OR entlassungsdatum_accuracy BETWEEN 0 AND 3"
+        ),
     ),
     (
         "members",
@@ -63,14 +67,18 @@ _CHECK_CONSTRAINTS: list[tuple[str, str, str]] = [
     (
         "members_badges",
         "members_badges_presentationdate_accuracy_check",
-        "presentationdate_accuracy IS NULL "
-        "OR presentationdate_accuracy BETWEEN 0 AND 3",
+        (
+            "presentationdate_accuracy IS NULL "
+            "OR presentationdate_accuracy BETWEEN 0 AND 3"
+        ),
     ),
     (
         "members_keys",
         "members_keys_presentationdate_accuracy_check",
-        "presentationdate_accuracy IS NULL "
-        "OR presentationdate_accuracy BETWEEN 0 AND 3",
+        (
+            "presentationdate_accuracy IS NULL "
+            "OR presentationdate_accuracy BETWEEN 0 AND 3"
+        ),
     ),
     (
         "members_roles",

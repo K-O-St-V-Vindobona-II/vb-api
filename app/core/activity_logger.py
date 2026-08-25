@@ -153,11 +153,11 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
                 request,
                 method,
                 path,
-                client_ip,
-                body,
-                email,
-                response_content,
-                response,
+                client_ip=client_ip,
+                body=body,
+                email=email,
+                response_content=response_content,
+                response=response,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("Activity logging failed: %s", e)
@@ -185,6 +185,7 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
         request: Request,
         method: str,
         path: str,
+        *,
         client_ip: str,
         body: bytes,
         email: str | None,

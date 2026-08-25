@@ -79,18 +79,28 @@ _HEUTE_BODY = (
 )
 
 _HINTS = (
-    "Alle Veranstaltungen beginnen, je nach Angabe, c.t. (cum tempore, 15 "
-    "Minuten nach der angegebenen Zeit) oder s.t. (sine tempore, "
-    "pünktlich).",
-    "Alle Veranstaltungen finden auf der Bude Vindobonae statt, sofern "
-    "nicht anders angegeben.",
-    "Die Convente und alle als „intern“ bezeichneten Veranstaltungen "
-    "finden ohne Gäste statt.",
-    "Bei anderen Veranstaltungen sind Gäste willkommen — wenn du uns noch "
-    "nicht kennst, bitten wir um kurze Voranmeldung.",
-    "Die „offiziellen“ und „hochoffiziellen“ Veranstaltungen finden "
-    "plen.col. („in vollen Farben“) statt. Auf ein entsprechendes "
-    "Erscheinungsbild ist Wert zu legen.",
+    (
+        "Alle Veranstaltungen beginnen, je nach Angabe, c.t. (cum tempore, 15 "
+        "Minuten nach der angegebenen Zeit) oder s.t. (sine tempore, "
+        "pünktlich)."
+    ),
+    (
+        "Alle Veranstaltungen finden auf der Bude Vindobonae statt, sofern "
+        "nicht anders angegeben."
+    ),
+    (
+        "Die Convente und alle als „intern“ bezeichneten Veranstaltungen "
+        "finden ohne Gäste statt."
+    ),
+    (
+        "Bei anderen Veranstaltungen sind Gäste willkommen — wenn du uns noch "
+        "nicht kennst, bitten wir um kurze Voranmeldung."
+    ),
+    (
+        "Die „offiziellen“ und „hochoffiziellen“ Veranstaltungen finden "
+        "plen.col. („in vollen Farben“) statt. Auf ein entsprechendes "
+        "Erscheinungsbild ist Wert zu legen."
+    ),
 )
 
 

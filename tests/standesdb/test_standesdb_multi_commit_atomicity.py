@@ -104,10 +104,10 @@ class TestPersistChangeLogSkipsTechnicalKeys:
             MembersLog,
             "member_id",
             member.id,
-            diff,
-            "update",
-            admin.id,
-            datetime.now(UTC),
+            diff=diff,
+            action="update",
+            modified_by=admin.id,
+            modified_at=datetime.now(UTC),
         )
         db_session.commit()
 

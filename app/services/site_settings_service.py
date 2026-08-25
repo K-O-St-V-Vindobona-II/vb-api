@@ -19,6 +19,7 @@ def get_settings(db: Session) -> PublicSiteSettings:
 def update_settings(
     db: Session,
     settings: PublicSiteSettings,
+    *,
     heading: str,
     youtube_id: str,
     calendar_id: str,
