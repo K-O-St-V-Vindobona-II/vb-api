@@ -5,6 +5,9 @@ from typing import NoReturn
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Kept in sync by convention with the equivalent frontend guards
+# (vb-intern/vite.env-check.ts, vb-www/vite.env-check.ts) — not shared code,
+# since backend and frontends deploy and release independently.
 _VALID_ENVIRONMENTS = frozenset({"development", "test", "qa", "production"})
 
 
