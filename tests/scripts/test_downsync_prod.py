@@ -15,13 +15,6 @@ import pytest
 import scripts.downsync_prod as downsync_prod
 from app.services.s3_mirror_service import MirrorResult
 
-SECRETS = {
-    "AWS_ACCESS_KEY_ID": "key",
-    "AWS_SECRET_ACCESS_KEY": "secret",
-    "AWS_BUCKET": "vindobona2-at",
-    "AWS_REGION": "eu-central-1",
-}
-
 
 def _run_main(argv: list[str]) -> None:
     with patch("sys.argv", ["downsync_prod.py", *argv]):
@@ -32,20 +25,22 @@ class TestProductionGuard:
     def test_blocks_before_anything_else(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "production"}),
-            patch.object(downsync_prod, "_load_aws_env") as mock_secrets,
+            patch.object(downsync_prod, "_build_prod_storage") as mock_storage,
             pytest.raises(SystemExit) as exc_info,
         ):
             _run_main([])
 
         assert exc_info.value.code == 1
-        mock_secrets.assert_not_called()
+        mock_storage.assert_not_called()
 
 
 class TestConfirmation:
     def test_aborts_when_confirmation_is_not_yes(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
             patch("builtins.input", return_value="no"),
             patch.object(downsync_prod, "_run_db_restore") as mock_db,
             patch.object(downsync_prod, "_run_s3_mirror") as mock_s3,
@@ -60,9 +55,10 @@ class TestConfirmation:
     def test_yes_flag_skips_prompt(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
             patch("builtins.input") as mock_input,
-            patch.object(downsync_prod, "build_prod_storage", return_value=MagicMock()),
             patch.object(downsync_prod, "_run_db_restore"),
             patch.object(downsync_prod, "_run_s3_mirror", return_value=MirrorResult()),
         ):
@@ -73,9 +69,10 @@ class TestConfirmation:
     def test_dry_run_skips_prompt(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
             patch("builtins.input") as mock_input,
-            patch.object(downsync_prod, "build_prod_storage", return_value=MagicMock()),
             patch.object(downsync_prod, "_run_db_restore"),
             patch.object(downsync_prod, "_run_s3_mirror", return_value=MirrorResult()),
         ):
@@ -88,9 +85,8 @@ class TestStepSkipping:
     def test_skip_db_only_runs_s3(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
-                downsync_prod, "build_prod_storage", return_value=MagicMock()
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ) as mock_build_storage,
             patch.object(downsync_prod, "_run_db_restore") as mock_db,
             patch.object(
@@ -107,9 +103,8 @@ class TestStepSkipping:
     def test_skip_s3_only_runs_db(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
             patch.object(
-                downsync_prod, "build_prod_storage", return_value=MagicMock()
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
             ) as mock_build_storage,
             patch.object(downsync_prod, "_run_db_restore") as mock_db,
             patch.object(
@@ -127,8 +122,9 @@ class TestStepSkipping:
     def test_no_delete_is_threaded_through_to_s3_step(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
-            patch.object(downsync_prod, "build_prod_storage", return_value=MagicMock()),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
             patch.object(
                 downsync_prod, "_run_s3_mirror", return_value=MirrorResult()
             ) as mock_s3,
@@ -144,8 +140,9 @@ class TestStepSkipping:
         potentially-incomplete local data."""
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
-            patch.object(downsync_prod, "_load_aws_env", return_value=SECRETS),
-            patch.object(downsync_prod, "build_prod_storage", return_value=MagicMock()),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
             patch.object(
                 downsync_prod,
                 "_run_s3_mirror",
@@ -273,9 +270,9 @@ class TestRunS3Mirror:
         assert mock_mirror.call_args.kwargs["delete_orphans"] is False
 
 
-class TestLoadAwsEnvCliWrapper:
-    """_load_aws_env() itself is a thin CLI adapter around the shared
-    app.services.downsync_service.load_aws_env() (tested directly in
+class TestBuildProdStorageCliWrapper:
+    """_build_prod_storage() itself is a thin CLI adapter around the shared
+    app.services.downsync_service.build_prod_storage() (tested directly in
     tests/test_downsync_service.py) — this only verifies the adapter
     converts RuntimeError into print + sys.exit(1)."""
 
@@ -283,17 +280,19 @@ class TestLoadAwsEnvCliWrapper:
         with (
             patch.object(
                 downsync_prod,
-                "load_aws_env",
-                side_effect=RuntimeError("No AWS credentials found"),
+                "build_prod_storage",
+                side_effect=RuntimeError("AWS_ACCESS_KEY_ID is not set."),
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            downsync_prod._load_aws_env()
+            downsync_prod._build_prod_storage()
 
         assert exc_info.value.code == 1
 
-    def test_returns_secrets_when_complete(self) -> None:
-        with patch.object(downsync_prod, "load_aws_env", return_value=SECRETS):
-            result = downsync_prod._load_aws_env()
+    def test_returns_storage_client_when_complete(self) -> None:
+        storage = MagicMock()
 
-        assert result == SECRETS
+        with patch.object(downsync_prod, "build_prod_storage", return_value=storage):
+            result = downsync_prod._build_prod_storage()
+
+        assert result is storage

@@ -44,7 +44,8 @@ class PermissionRulesResponse(BaseModel):
 
 # Pydantic v2 serializes Decimal as a JSON string by default, not a
 # number — silently breaks the frontend's `number` typing. Same fix as
-# app/schemas/p4x.py's MoneyOut (see feedback memory on this gotcha).
+# app/schemas/p4x.py's MoneyOut: force it back to a bare JSON number via
+# a PlainSerializer.
 _DurationSecondsOut = Annotated[
     Decimal, PlainSerializer(float, return_type=float, when_used="json")
 ]

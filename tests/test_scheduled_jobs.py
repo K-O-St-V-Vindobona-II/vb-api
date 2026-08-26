@@ -450,9 +450,6 @@ class TestJobDownsync:
     def test_happy_path_calls_steps_in_order(self, mock_record_job_run):
         with (
             patch(
-                "app.core.scheduler.load_aws_env", return_value={"AWS_BUCKET": "x"}
-            ) as mock_load_env,
-            patch(
                 "app.core.scheduler.build_prod_storage", return_value=MagicMock()
             ) as mock_build_storage,
             patch(
@@ -465,7 +462,6 @@ class TestJobDownsync:
             mock_restore.return_value = "production-2026-08-08_03-00-00.dump"
             job_downsync()
 
-        mock_load_env.assert_called_once()
         mock_build_storage.assert_called_once()
         mock_mirror.assert_called_once()
         mock_restore.assert_called_once()
@@ -482,7 +478,6 @@ class TestJobDownsync:
 
     def test_mirror_errors_skip_restore_and_migration(self, mock_record_job_run):
         with (
-            patch("app.core.scheduler.load_aws_env", return_value={}),
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
             patch(
                 "app.core.scheduler.mirror_prefix",
@@ -502,7 +497,7 @@ class TestJobDownsync:
     def test_missing_credentials_is_caught_and_logged(self, mock_record_job_run):
         with (
             patch(
-                "app.core.scheduler.load_aws_env",
+                "app.core.scheduler.build_prod_storage",
                 side_effect=RuntimeError("no creds"),
             ),
             patch("app.core.scheduler.mirror_prefix") as mock_mirror,
@@ -516,7 +511,6 @@ class TestJobDownsync:
 
     def test_restore_exception_is_caught_and_logged(self, mock_record_job_run):
         with (
-            patch("app.core.scheduler.load_aws_env", return_value={}),
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
             patch("app.core.scheduler.mirror_prefix", return_value=MirrorResult()),
             patch("app.core.scheduler.run_restore", side_effect=RuntimeError("boom")),
@@ -531,10 +525,10 @@ class TestJobDownsync:
 
     def test_production_guard_refuses_to_run(self, monkeypatch, mock_record_job_run):
         monkeypatch.setenv("APP_ENVIRONMENT", "production")
-        with patch("app.core.scheduler.load_aws_env") as mock_load_env:
+        with patch("app.core.scheduler.build_prod_storage") as mock_build_storage:
             job_downsync()
 
-        mock_load_env.assert_not_called()
+        mock_build_storage.assert_not_called()
         # Deliberately untracked — see app/core/scheduler.py's job_downsync
         # docstring: this guard should never actually trigger in practice.
         mock_record_job_run.assert_not_called()

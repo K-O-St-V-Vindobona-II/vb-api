@@ -19,6 +19,9 @@ FastAPI backend for **vb** — the internal management system of Vindobona II / 
 - Podman with the `vb-api` container running (see Quadlet config)
 - Python dev dependencies are installed inside the container (`requirements-dev.lock`)
 
+For the local dev Quadlet/env setup and production/stage prerequisites, see
+[`vb-deploy`'s Voraussetzungen](../vb-deploy/README.md#voraussetzungen).
+
 ### After cloning
 
 ```bash
@@ -87,6 +90,9 @@ Copy `.env.example` and fill in the required values:
 ```bash
 cp .env.example .env
 ```
+
+For the actual production/stage values (and how they're managed), see
+[`vb-deploy`'s Stages](../vb-deploy/README.md#stages).
 
 `APP_ENVIRONMENT` is **required** — the application refuses to start without it:
 
@@ -173,3 +179,8 @@ The pipeline (`.github/workflows/ci-cd.yml`) runs on every push to `development`
 2. **Typecheck, Migrations & Test** — `pyright` + `alembic upgrade head` + `pytest --cov`
 3. **CodeQL Security Scan**
 4. **Build & Push Image** — pushes to `ghcr.io` on release or manual trigger
+
+Production/stage rollout itself happens outside this pipeline: the host's own
+`podman-auto-update.timer` picks up the new `:latest` image automatically, or
+an operator triggers it immediately via `--tags deploy-api` — see
+[`vb-deploy`'s Phase 2 — Tag-2-Betrieb](../vb-deploy/README.md#phase-2--tag-2-betrieb).
