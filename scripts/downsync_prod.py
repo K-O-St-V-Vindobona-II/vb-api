@@ -35,16 +35,16 @@ sys.path.insert(0, str(_VB_API_ROOT))
 from app.core.config import get_settings
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient, get_storage
 from app.services.backup_service import run_restore
-from app.services.downsync_service import build_prod_storage, load_aws_env
+from app.services.downsync_service import build_prod_storage
 from app.services.s3_mirror_service import MirrorResult, mirror_prefix
 
 
-def _load_aws_env() -> dict[str, str]:
-    # Thin CLI wrapper: load_aws_env() raises RuntimeError so the shared
-    # scheduler job can log-and-skip instead of killing the whole worker
-    # process; this script's UX (print + exit) is preserved here.
+def _build_prod_storage() -> StorageClient:
+    # Thin CLI wrapper: build_prod_storage() raises RuntimeError so the
+    # shared scheduler job can log-and-skip instead of killing the whole
+    # worker process; this script's UX (print + exit) is preserved here.
     try:
-        return load_aws_env()
+        return build_prod_storage()
     except RuntimeError as exc:
         print(f"ERROR: {exc}")
         sys.exit(1)
@@ -171,9 +171,10 @@ def main() -> None:
         _confirm(args.yes)
 
     if not args.skip_s3:
-        aws_env = _load_aws_env()
-        prod_storage = build_prod_storage(aws_env)
-        print(f"=== S3 mirror (prod {aws_env['AWS_BUCKET']} -> local MinIO) ===")
+        prod_storage = _build_prod_storage()
+        print(
+            f"=== S3 mirror (prod {get_settings().aws_prod_bucket} -> local MinIO) ==="
+        )
         result = _run_s3_mirror(
             prod_storage, local_storage, args.dry_run, args.no_delete
         )

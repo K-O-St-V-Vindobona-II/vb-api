@@ -48,7 +48,7 @@ from app.services.anniversary_service import (
 )
 from app.services.archive_service import get_unsorted_upload_count
 from app.services.backup_service import cleanup_old_backups, run_backup, run_restore
-from app.services.downsync_service import build_prod_storage, load_aws_env
+from app.services.downsync_service import build_prod_storage
 from app.services.p4x_category_service import apply_all_category_filters
 from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
 from app.services.permission_service import get_emails_with_permission
@@ -778,8 +778,7 @@ def job_downsync() -> None:
     started = datetime.now(UTC)
 
     try:
-        aws_env = load_aws_env()
-        prod_storage = build_prod_storage(aws_env)
+        prod_storage = build_prod_storage()
     except RuntimeError as exc:
         logger.exception("Downsync failed: could not load prod AWS credentials.")
         record_job_run(

@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     )
     s3_access_key: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY")
     s3_secret_key: str | None = Field(default=None, validation_alias="S3_SECRET_KEY")
+    # Prod AWS S3 credentials for the non-prod downsync job/script
+    # (app/services/downsync_service.py) — deliberately separate from the
+    # s3_* fields above, which target this stage's own bucket/endpoint.
+    aws_prod_access_key_id: str | None = Field(
+        default=None, validation_alias="AWS_ACCESS_KEY_ID"
+    )
+    aws_prod_secret_access_key: str | None = Field(
+        default=None, validation_alias="AWS_SECRET_ACCESS_KEY"
+    )
+    aws_prod_bucket: str | None = Field(default=None, validation_alias="AWS_BUCKET")
+    # Tier 3: has a sensible default, unlike the three prod AWS fields above.
+    aws_prod_region: str = Field(default="eu-central-1", validation_alias="AWS_REGION")
 
     # Tier 3 (SMTP) — optional with defaults, no boot-time validation.
     # "null" (not "") mirrors the historical env convention: an explicit
