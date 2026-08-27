@@ -182,6 +182,79 @@ class TestStorageClient:
             mock_s3.upload("k", b"d")
 
 
+class TestEnsureBucketExists:
+    def test_noop_when_bucket_already_exists(self, mock_s3):
+        with patch.object(mock_s3._client, "create_bucket") as mock_create:
+            mock_s3.ensure_bucket_exists()
+        mock_create.assert_not_called()
+
+    def test_creates_bucket_when_missing(self):
+        storage = storage_module.StorageClient(
+            endpoint_url="https://s3.amazonaws.com",
+            access_key="testing",
+            secret_key="testing",
+            bucket="brand-new-test-bucket",
+        )
+        with pytest.raises(ClientError):
+            storage._client.head_bucket(Bucket="brand-new-test-bucket")
+
+        storage.ensure_bucket_exists()
+
+        # No longer raises - moto's in-memory S3 now has the bucket.
+        storage._client.head_bucket(Bucket="brand-new-test-bucket")
+
+    def test_omits_location_constraint_for_us_east_1(self):
+        storage = storage_module.StorageClient(
+            endpoint_url="https://s3.amazonaws.com",
+            access_key="testing",
+            secret_key="testing",
+            bucket="us-east-bucket",
+            region="us-east-1",
+        )
+        with (
+            patch.object(
+                storage._client,
+                "head_bucket",
+                side_effect=ClientError(
+                    {"Error": {"Code": "404", "Message": "Not Found"}},
+                    "HeadBucket",
+                ),
+            ),
+            patch.object(storage._client, "create_bucket") as mock_create,
+        ):
+            storage.ensure_bucket_exists()
+
+        mock_create.assert_called_once_with(Bucket="us-east-bucket")
+
+    def test_includes_location_constraint_for_non_default_region(self):
+        # AWS S3 (unlike MinIO) rejects create_bucket() without a matching
+        # CreateBucketConfiguration for any region other than us-east-1.
+        storage = storage_module.StorageClient(
+            endpoint_url="https://s3.amazonaws.com",
+            access_key="testing",
+            secret_key="testing",
+            bucket="region-test-bucket",
+            region="eu-central-1",
+        )
+        with (
+            patch.object(
+                storage._client,
+                "head_bucket",
+                side_effect=ClientError(
+                    {"Error": {"Code": "404", "Message": "Not Found"}},
+                    "HeadBucket",
+                ),
+            ),
+            patch.object(storage._client, "create_bucket") as mock_create,
+        ):
+            storage.ensure_bucket_exists()
+
+        mock_create.assert_called_once_with(
+            Bucket="region-test-bucket",
+            CreateBucketConfiguration={"LocationConstraint": "eu-central-1"},
+        )
+
+
 class TestGetStorageSingleton:
     """Regression tests for the S3_ENDPOINT_URL default.
 
@@ -241,5 +314,37 @@ class TestGetStorageSingleton:
         try:
             with pytest.raises(RuntimeError, match="S3_SECRET_KEY is not set"):
                 storage_module._get_storage_singleton()
+        finally:
+            storage_module._storage = old_singleton
+
+    def test_ensures_bucket_outside_production(self, monkeypatch):
+        # Regression: a freshly provisioned non-prod stage's own storage
+        # (e.g. vb-deploy's per-stage MinIO) starts out with no bucket at
+        # all - the singleton must self-heal that on non-prod stages.
+        monkeypatch.setenv("APP_ENVIRONMENT", "test")
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with patch.object(
+                storage_module.StorageClient, "ensure_bucket_exists"
+            ) as mock_ensure:
+                storage_module._get_storage_singleton()
+            mock_ensure.assert_called_once()
+        finally:
+            storage_module._storage = old_singleton
+
+    def test_skips_ensure_bucket_in_production(self, monkeypatch):
+        # Regression: production's bucket must already exist for real - a
+        # missing/mistyped bucket there should fail loudly, not get
+        # silently "fixed" by creating an unexpected new one.
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        old_singleton = storage_module._storage
+        storage_module._storage = None
+        try:
+            with patch.object(
+                storage_module.StorageClient, "ensure_bucket_exists"
+            ) as mock_ensure:
+                storage_module._get_storage_singleton()
+            mock_ensure.assert_not_called()
         finally:
             storage_module._storage = old_singleton
