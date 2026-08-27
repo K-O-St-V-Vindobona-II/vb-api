@@ -49,6 +49,7 @@ class StorageClient:
         presigned_expiry: int = 900,
     ) -> None:
         self._bucket = bucket
+        self._region = region
         self._presigned_expiry = presigned_expiry
 
         self._client = boto3.client(
@@ -176,6 +177,28 @@ class StorageClient:
             Key=key,
         )
 
+    def ensure_bucket_exists(self) -> None:
+        """Create the configured bucket if it doesn't exist yet.
+
+        Only meant to be called on non-production stages (see
+        _get_storage_singleton()): a freshly provisioned non-prod stage's
+        own S3-compatible storage (e.g. the per-stage MinIO instance vb-deploy
+        sets up) starts out with no bucket at all, and nothing else in this
+        codebase ever creates one. Idempotent - a no-op once the bucket
+        exists. Deliberately not called for production: a missing/mistyped
+        production bucket should fail loudly (require_setting()-style),
+        not get silently "fixed" by creating an unexpected new bucket.
+        """
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+        except ClientError:
+            create_kwargs: dict[str, object] = {"Bucket": self._bucket}
+            if self._region != "us-east-1":
+                create_kwargs["CreateBucketConfiguration"] = {
+                    "LocationConstraint": self._region
+                }
+            self._client.create_bucket(**create_kwargs)
+
     def list_keys(self, prefix: str) -> list[str]:
         """Return all object keys under prefix (handles S3 pagination)."""
         keys: list[str] = []
@@ -236,6 +259,8 @@ def _get_storage_singleton() -> StorageClient:
             region=settings.s3_region,
             presigned_expiry=settings.s3_presigned_expiry,
         )
+        if settings.app_environment != "production":
+            _storage.ensure_bucket_exists()
     return _storage
 
 

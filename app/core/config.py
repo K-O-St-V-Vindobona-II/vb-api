@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # Prod AWS S3 credentials for the non-prod downsync job/script
     # (app/services/downsync_service.py) — deliberately separate from the
     # s3_* fields above, which target this stage's own bucket/endpoint.
+    # Expected to be a dedicated, read-only IAM user scoped to the prod
+    # bucket only (s3:GetObject/s3:ListBucket) — the downsync path never
+    # writes through this credential, only through the s3_* one above.
     aws_prod_access_key_id: str | None = Field(
         default=None, validation_alias="AWS_ACCESS_KEY_ID"
     )
