@@ -193,7 +193,10 @@ otherwise, before any prompt is shown, nothing deleted). Only after that
 check passes does it ask for interactive confirmation (with an
 impact-specific note or warning, depending on the category above, and the
 confirmation prompt itself states whether this purge affects "DB only" or
-"DB AND S3"); there is no flag to skip it. The database row is then
+"DB AND S3"); there is no flag to skip it. `podman exec` without `-it` has
+no TTY for that prompt — it fails fast with a clear error pointing to `-it`
+instead of hanging (same for `purge-duplicates`'s batch confirmation below,
+both share the same confirmation helper). The database row is then
 hard-deleted first (cascading its comments) and committed — only *after*
 that commit succeeds does the script attempt to delete the underlying S3
 object(s), and only if no other file anywhere still references the same
@@ -491,7 +494,11 @@ wird gelöscht. Erst nach dieser Prüfung fragt das Script interaktiv nach
 Bestätigung (mit einem kategorieabhängigen Hinweis bzw. einer Warnung,
 siehe oben; die Bestätigungszeile selbst nennt außerdem, ob der Purge nur
 die DB oder DB UND S3 betrifft); einen Parameter zum Überspringen gibt es
-nicht. Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
+nicht. `podman exec` ohne `-it` hat kein TTY für diese Abfrage — sie bricht
+dann sofort mit einer klaren Fehlermeldung ab, die auf `-it` verweist,
+statt zu hängen (gilt genauso für die Batch-Bestätigung von
+`purge-duplicates` weiter unten, beide teilen sich denselben
+Bestätigungs-Helper). Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
 Kommentare) und committet — **erst danach** versucht das Script, das
 zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
 im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)
