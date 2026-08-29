@@ -117,23 +117,25 @@ it only ever reads local storage, which is why step 1 must run before step
 `APP_ENVIRONMENT=production` (hard guard, no override), since this combines
 two operations that are each individually destructive against whichever
 stage they target. Asks for an interactive "yes" confirmation before doing
-anything, unless `--yes` is passed.
+anything, unless `--yes` is passed. `podman exec` without `-it` has no TTY
+attached, so the prompt has no stdin to read from — it now fails fast with
+a clear error telling you to add `-it` or pass `--yes`, instead of hanging.
 
 Must run **inside the container** — `pg_restore` and `alembic` are only
 installed there, not on the host.
 
 **Usage:**
 ```bash
-# Inside the container
+# Inside the container (an interactive shell already has a TTY)
 python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
 python scripts/downsync_prod.py --yes
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
-# Via podman exec
-podman exec vb-api python scripts/downsync_prod.py
-podman exec -it vb-api python scripts/downsync_prod.py
+# Via podman exec - no TTY attached by default, so pick one:
+podman exec -it vb-api python scripts/downsync_prod.py   # interactive prompt
+podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
 ```
 
 **Parameters:**
@@ -409,22 +411,25 @@ komplett, wenn `APP_ENVIRONMENT=production` gesetzt ist (harter Guard, kein
 Override), da hier zwei Operationen kombiniert werden, die jede für sich
 bereits destruktiv gegen die jeweils angezielte Stage sind. Fragt vor jeder
 Aktion interaktiv per "yes"-Bestätigung nach, außer `--yes` wird übergeben.
+`podman exec` ohne `-it` hat kein angebundenes TTY, die Abfrage findet also
+kein stdin zum Lesen — sie bricht dann sofort mit einer klaren Fehlermeldung
+ab (statt zu hängen) und verweist auf `-it` bzw. `--yes`.
 
 Muss **im Container** laufen — `pg_restore` und `alembic` sind nur dort
 installiert, nicht auf dem Host.
 
 **Aufruf:**
 ```bash
-# Im Container
+# Im Container (eine interaktive Shell hat bereits ein TTY)
 python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
 python scripts/downsync_prod.py --yes
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
-# Via podman exec
-podman exec vb-api python scripts/downsync_prod.py
-podman exec -it vb-api python scripts/downsync_prod.py
+# Via podman exec - standardmäßig kein TTY angebunden, also eine Variante wählen:
+podman exec -it vb-api python scripts/downsync_prod.py    # interaktive Abfrage
+podman exec vb-api python scripts/downsync_prod.py --yes  # non-interaktiv
 ```
 
 **Parameter:**

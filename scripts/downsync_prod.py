@@ -53,7 +53,15 @@ def _build_prod_storage() -> StorageClient:
 def _confirm(auto_yes: bool) -> None:
     if auto_yes:
         return
-    answer = input('Type "yes" to overwrite local DB and S3 data: ')
+    try:
+        answer = input('Type "yes" to overwrite local DB and S3 data: ')
+    except EOFError:
+        print(
+            "ERROR: no interactive terminal attached to confirm "
+            "(rerun with 'podman exec -it ...', or pass --yes to skip "
+            "the prompt)."
+        )
+        sys.exit(1)
     if answer.strip().lower() != "yes":
         print("Aborted.")
         sys.exit(0)
