@@ -1,8 +1,8 @@
-"""Lazy singleton for the web container's ARQ Redis connection pool.
+"""Lazy singleton for the web container's ARQ Valkey connection pool.
 
 Mirrors app/core/storage.py's _get_storage_singleton() exactly: created on
 first actual use (not at app startup), so the test suite's module-scoped
-TestClient lifespan never needs a live Redis connection unless a test
+TestClient lifespan never needs a live Valkey connection unless a test
 explicitly exercises an enqueue path (those tests override get_arq_pool
 via app.dependency_overrides, same pattern as get_storage).
 """
@@ -21,7 +21,7 @@ async def _get_arq_pool_singleton() -> ArqRedis:
     if _arq_pool is None:
         settings = get_settings()
         _arq_pool = await create_pool(
-            RedisSettings.from_dsn(cast("str", settings.redis_url))
+            RedisSettings.from_dsn(cast("str", settings.valkey_url))
         )
     return _arq_pool
 

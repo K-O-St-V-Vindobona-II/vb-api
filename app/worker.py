@@ -5,7 +5,7 @@ vb-deploy's `vb-api-worker` Quadlet, `Exec=arq app.worker.WorkerSettings`
 — arq's CLI resolves this dotted path). Holds every scheduled (cron) job
 and ad-hoc background task that used to run inside the web container's
 `app/core/scheduler.py`/FastAPI `BackgroundTasks` — split out for
-resource isolation from request-serving and for durable, Redis-backed
+resource isolation from request-serving and for durable, Valkey-backed
 execution instead of in-process, fire-and-forget work.
 
 Every `task_*` function below is a thin async wrapper around a plain sync
@@ -219,8 +219,10 @@ class WorkerSettings:
     # migration's design notes) — arq's Worker only supports one global
     # timezone, unlike APScheduler's former per-job override.
     timezone = get_app_timezone()
-    # Settings._validate_tier1 already exits the process if redis_url is
+    # Settings._validate_tier1 already exits the process if valkey_url is
     # unset, so by the time get_settings() returns, it is guaranteed
     # non-None (see app/services/system_service.py's get_app_environment()
-    # for the same pattern).
-    redis_settings = RedisSettings.from_dsn(cast("str", get_settings().redis_url))
+    # for the same pattern). Attribute is named redis_settings, not
+    # valkey_settings -- arq's own Worker class looks it up by this exact
+    # name (wire-compatible, protocol-level API, not ours to rename).
+    redis_settings = RedisSettings.from_dsn(cast("str", get_settings().valkey_url))
