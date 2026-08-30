@@ -53,6 +53,11 @@ COPY --chown=app:app . .
 
 RUN chmod +x docker-entrypoint.sh
 
+# WeasyPrint (PDF export) triggers Fontconfig's cache init at import time
+# for every worker; the app user has no writable $HOME (--no-create-home
+# above), so point XDG's cache dir at /tmp instead of creating one.
+ENV XDG_CACHE_HOME=/tmp
+
 USER app
 
 EXPOSE 8000
@@ -66,4 +71,11 @@ CMD ["gunicorn", "main:app", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "2", \
      "--timeout", "120", \
-     "--access-logfile", "-"]
+     "--access-logfile", "-", \
+     "--no-control-socket"]
+# --no-control-socket: this feature (gunicorn >= 25.1.0) is for gunicornc,
+# a CLI tool for runtime worker management - unused here (Podman/systemd
+# own the container lifecycle instead). Without this flag, gunicorn tries
+# to create $HOME/.gunicorn/gunicorn.ctl by default, which fails with a
+# permission error on every start: the app user above is created with
+# --no-create-home, so its $HOME (/home/app) was never actually created.
