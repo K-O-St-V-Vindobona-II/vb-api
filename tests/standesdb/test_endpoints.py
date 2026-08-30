@@ -1,7 +1,6 @@
 """Tests für Standesdb API-Endpoints — Member/Contact CRUD, Search, Reference-Data."""
 
 from datetime import date
-from unittest.mock import patch
 
 import bcrypt
 
@@ -236,8 +235,7 @@ class TestSearch:
 
 
 class TestMemberDetail:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_get_member_active(self, mock_mail, client, db_session):
+    def test_get_member_active(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -259,8 +257,7 @@ class TestMemberDetail:
         assert data["cn"] is not None
         assert "org_label" in data
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_get_member_dismissed_gdpr(self, mock_mail, client, db_session):
+    def test_get_member_dismissed_gdpr(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -291,8 +288,7 @@ class TestMemberDetail:
 
 
 class TestMemberCRUD:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_member(self, mock_mail, client, db_session):
+    def test_create_member(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -304,9 +300,8 @@ class TestMemberCRUD:
         assert resp.status_code == 201
         assert "id" in resp.json()
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
     def test_create_member_without_parent_stores_null_not_zero(
-        self, mock_mail, client, db_session
+        self, client, db_session
     ):
         """The API contract uses 0 as the "no parent" sentinel
         (MemberSaveRequest.parent_id defaults to 0), but parent_id is a
@@ -328,8 +323,7 @@ class TestMemberCRUD:
         member = db_session.get(Member, resp.json()["id"])
         assert member.parent_id is None
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_member_duplicate_rejected(self, mock_mail, client, db_session):
+    def test_create_member_duplicate_rejected(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -339,8 +333,7 @@ class TestMemberCRUD:
         )
         assert resp2.status_code == 409
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_member(self, mock_mail, client, db_session):
+    def test_update_member(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -359,8 +352,7 @@ class TestMemberCRUD:
         )
         assert resp.status_code == 200
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_member_not_found(self, mock_mail, client, db_session):
+    def test_update_member_not_found(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -371,8 +363,7 @@ class TestMemberCRUD:
         )
         assert resp.status_code == 404
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_entlassen_locks_account(self, mock_mail, client, db_session):
+    def test_entlassen_locks_account(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -403,8 +394,7 @@ class TestMemberCRUD:
 
 
 class TestContactCRUD:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_get_contact(self, mock_mail, client, db_session):
+    def test_get_contact(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -415,8 +405,7 @@ class TestContactCRUD:
         assert resp.status_code == 200
         assert resp.json()["name"] == "KontaktTest"
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_contact(self, mock_mail, client, db_session):
+    def test_create_contact(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -427,8 +416,7 @@ class TestContactCRUD:
         )
         assert resp.status_code == 201
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_contact_duplicate_rejected(self, mock_mail, client, db_session):
+    def test_create_contact_duplicate_rejected(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -444,8 +432,7 @@ class TestContactCRUD:
         )
         assert resp2.status_code == 409
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_contact(self, mock_mail, client, db_session):
+    def test_update_contact(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -471,8 +458,7 @@ class TestContactCRUD:
 
 
 class TestSearchParent:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_search_parent(self, mock_mail, client, db_session):
+    def test_search_parent(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -491,10 +477,7 @@ class TestSearchParent:
         assert resp.status_code == 200
         assert len(resp.json()["data"]) >= 1
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_search_parent_combines_vorname_and_nachname(
-        self, mock_mail, client, db_session
-    ):
+    def test_search_parent_combines_vorname_and_nachname(self, client, db_session):
         """Regression: mirrors the same multi-field fix as the main search
         - "Vater Test" only matches via vorname+nachname combined."""
         _seed(db_session)
@@ -516,8 +499,7 @@ class TestSearchParent:
         assert resp.status_code == 200
         assert any(r["id"] == parent.id for r in resp.json()["data"])
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_search_parent_excludes_other_org(self, mock_mail, client, db_session):
+    def test_search_parent_excludes_other_org(self, client, db_session):
         """Regression: org scoping must survive the tsvector/pg_trgm
         rewrite - a same-named member in the other org is never a valid
         Bürge candidate."""

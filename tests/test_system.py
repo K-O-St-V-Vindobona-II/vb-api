@@ -291,32 +291,28 @@ class TestTriggerDownsync:
         resp = client.post("/api/system/downsync/trigger", headers=headers)
         assert resp.status_code == 403
 
-    def test_starts_as_background_task_on_non_production(self, client, db_session):
+    def test_enqueues_task_on_non_production(self, client, db_session, mock_arq_pool):
         # The test suite's own app_environment is "test" (see
         # TestEnvironment above) - already non-production, no patching
         # needed to exercise the success path.
         _seed(db_session)
         headers = _login_admin(db_session)
-        with patch("app.api.router_includes.system.job_downsync") as mock_job_downsync:
-            resp = client.post("/api/system/downsync/trigger", headers=headers)
+        resp = client.post("/api/system/downsync/trigger", headers=headers)
         assert resp.status_code == 202
         assert resp.json() == {"status": "started"}
-        mock_job_downsync.assert_called_once_with()
+        mock_arq_pool.enqueue_job.assert_called_once_with("task_downsync")
 
-    def test_rejected_in_production(self, client, db_session):
+    def test_rejected_in_production(self, client, db_session, mock_arq_pool):
         _seed(db_session)
         headers = _login_admin(db_session)
-        with (
-            patch(
-                "app.services.system_service.get_app_environment",
-                return_value="production",
-            ),
-            patch("app.api.router_includes.system.job_downsync") as mock_job_downsync,
+        with patch(
+            "app.services.system_service.get_app_environment",
+            return_value="production",
         ):
             resp = client.post("/api/system/downsync/trigger", headers=headers)
         assert resp.status_code == 409
         assert "Production" in resp.json()["detail"]
-        mock_job_downsync.assert_not_called()
+        mock_arq_pool.enqueue_job.assert_not_called()
 
 
 class TestTableBrowser:

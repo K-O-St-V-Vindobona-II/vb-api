@@ -1,8 +1,8 @@
 from typing import Annotated, cast
 
+from arq.connections import ArqRedis
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -11,18 +11,14 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
+from app.core.arq_pool import get_arq_pool
 from app.core.datetime_utils import local_today
-from app.core.mailer import (
-    send_entry_changed_email,
-    send_member_change_request_resolved_email,
-    send_member_change_request_submitted_email,
-    send_own_image_changed_email,
-)
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.contact import Contact
@@ -71,6 +67,33 @@ from app.services.permission_service import (
 )
 
 standesdb_router = APIRouter()
+
+# Fields captured for the "task_send_entry_changed_email" ARQ task: the
+# admin email list, the "member" or "contact" literal, the entry's cn,
+# the field diff, and the change_type/modifier_cn pair — shared by every
+# endpoint that notifies admins of a member/contact create-or-update.
+# The last two are keyword-only on the task itself (matching
+# send_entry_changed_email's own signature), so callers destructure this
+# tuple explicitly rather than *-unpacking it straight into
+# enqueue_job() — see _enqueue_entry_changed_email() below.
+_EntryChangedNotification = tuple[
+    list[str], str, str, dict[str, dict[str, object]], str, str
+]
+
+
+async def _enqueue_entry_changed_email(
+    arq_pool: ArqRedis, notification: _EntryChangedNotification
+) -> None:
+    to_emails, entry_type, entry_cn, diff, change_type, modifier_cn = notification
+    await arq_pool.enqueue_job(
+        "task_send_entry_changed_email",
+        to_emails,
+        entry_type,
+        entry_cn,
+        diff,
+        change_type=change_type,
+        modifier_cn=modifier_cn,
+    )
 
 
 @standesdb_router.get("/stats")
@@ -302,15 +325,9 @@ def get_member_auth_activity(
     )
 
 
-@standesdb_router.post("/members", status_code=status.HTTP_201_CREATED)
-def create_member(
-    data: MemberSaveRequest,
-    background_tasks: BackgroundTasks,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse:
-    """Create a new member record. Requires the standesdb admin permission for the
-    target org (data.org_id) - checked at runtime, not via a route dependency."""
+def _create_member_sync(
+    db: Session, data: MemberSaveRequest, current_user: Member
+) -> tuple[Member, _EntryChangedNotification | None]:
     _require_standesdb_admin(current_user, data.org_id)
     standesdb_service.validate_member_org(data, current_user)
     standesdb_service.validate_member_uniqueness(db, data)
@@ -320,33 +337,34 @@ def create_member(
     member = Member()
     diff = standesdb_service.apply_member_input(db, member, data, current_user)
 
-    if diff:
-        perm = f"standesdb{data.org_id.capitalize()}Admin"
-        recipients = get_emails_with_permission(db, perm)
-        background_tasks.add_task(
-            send_entry_changed_email,
-            recipients,
-            "member",
-            member.cn,
-            diff,
-            change_type="store",
-            modifier_cn=current_user.cn,
-        )
+    if not diff:
+        return member, None
 
-    return StatusIdResponse(status="ok", id=member.id)
+    perm = f"standesdb{data.org_id.capitalize()}Admin"
+    recipients = get_emails_with_permission(db, perm)
+    return member, (recipients, "member", member.cn, diff, "store", current_user.cn)
 
 
-@standesdb_router.put("/members/{member_id}")
-def update_member(
-    member_id: int,
+@standesdb_router.post("/members", status_code=status.HTTP_201_CREATED)
+async def create_member(
     data: MemberSaveRequest,
-    background_tasks: BackgroundTasks,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusIdResponse:
-    """Update an existing member's data and notify the org's standesdb admins by email
-    if anything actually changed. Requires the standesdb admin permission for the
-    member's own org - checked at runtime, not via a route dependency."""
+    """Create a new member record. Requires the standesdb admin permission for the
+    target org (data.org_id) - checked at runtime, not via a route dependency."""
+    member, notification = await run_in_threadpool(
+        _create_member_sync, db, data, current_user
+    )
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
+    return StatusIdResponse(status="ok", id=member.id)
+
+
+def _update_member_sync(
+    db: Session, member_id: int, data: MemberSaveRequest, current_user: Member
+) -> tuple[Member, _EntryChangedNotification | None]:
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -367,19 +385,30 @@ def update_member(
 
     diff = standesdb_service.apply_member_input(db, member, data, current_user)
 
-    if diff:
-        perm = f"standesdb{member.org_id.capitalize()}Admin"
-        recipients = get_emails_with_permission(db, perm)
-        background_tasks.add_task(
-            send_entry_changed_email,
-            recipients,
-            "member",
-            member.cn,
-            diff,
-            change_type="update",
-            modifier_cn=current_user.cn,
-        )
+    if not diff:
+        return member, None
 
+    perm = f"standesdb{member.org_id.capitalize()}Admin"
+    recipients = get_emails_with_permission(db, perm)
+    return member, (recipients, "member", member.cn, diff, "update", current_user.cn)
+
+
+@standesdb_router.put("/members/{member_id}")
+async def update_member(
+    member_id: int,
+    data: MemberSaveRequest,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> StatusIdResponse:
+    """Update an existing member's data and notify the org's standesdb admins by email
+    if anything actually changed. Requires the standesdb admin permission for the
+    member's own org - checked at runtime, not via a route dependency."""
+    member, notification = await run_in_threadpool(
+        _update_member_sync, db, member_id, data, current_user
+    )
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
     return StatusIdResponse(status="ok", id=member.id)
 
 
@@ -480,17 +509,9 @@ def get_own_change_request(
     )
 
 
-@standesdb_router.post("/members/me/change-request")
-def submit_own_change_request(
-    data: MemberSelfServiceSaveRequest,
-    background_tasks: BackgroundTasks,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusResponse:
-    """Submit (or update, if one is already pending) a self-service
-    Stammdaten change request. No admin permission required - every member
-    may propose changes to their own account.
-    """
+def _submit_own_change_request_sync(
+    db: Session, data: MemberSelfServiceSaveRequest, current_user: Member
+) -> tuple[list[str], str, dict[str, dict[str, object]]] | None:
     if not current_user.org_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -505,15 +526,36 @@ def submit_own_change_request(
     )
 
     if request is None:
-        return StatusResponse(status="no_changes")
+        return None
 
     perm = f"standesdb{current_user.org_id.capitalize()}Admin"
     recipients = get_emails_with_permission(db, perm)
-    background_tasks.add_task(
-        send_member_change_request_submitted_email,
+    return (
         recipients,
         current_user.cn,
         cast("dict[str, dict[str, object]]", request.proposed_data),
+    )
+
+
+@standesdb_router.post("/members/me/change-request")
+async def submit_own_change_request(
+    data: MemberSelfServiceSaveRequest,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> StatusResponse:
+    """Submit (or update, if one is already pending) a self-service
+    Stammdaten change request. No admin permission required - every member
+    may propose changes to their own account.
+    """
+    notification = await run_in_threadpool(
+        _submit_own_change_request_sync, db, data, current_user
+    )
+    if notification is None:
+        return StatusResponse(status="no_changes")
+
+    await arq_pool.enqueue_job(
+        "task_send_member_change_request_submitted_email", *notification
     )
     return StatusResponse(status="submitted")
 
@@ -532,49 +574,46 @@ def get_contact(
     return standesdb_service.get_contact_detail(db, contact_id)
 
 
-@standesdb_router.post("/contacts", status_code=status.HTTP_201_CREATED)
-def create_contact(
-    data: ContactSaveRequest,
-    background_tasks: BackgroundTasks,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        Member, Depends(require_permission("standesdbContactAdmin"))
-    ],
-) -> StatusIdResponse:
-    """Create a new contact record. Requires standesdbContactAdmin."""
+def _create_contact_sync(
+    db: Session, data: ContactSaveRequest, current_user: Member
+) -> tuple[Contact, _EntryChangedNotification | None]:
     standesdb_service.validate_contact_uniqueness(db, data.name)
 
     contact = Contact()
     input_dict = data.model_dump()
     diff = standesdb_service.apply_contact_input(db, contact, input_dict, current_user)
 
-    if diff:
-        recipients = get_emails_with_permission(db, "standesdbContactAdmin")
-        background_tasks.add_task(
-            send_entry_changed_email,
-            recipients,
-            "contact",
-            contact.cn,
-            diff,
-            change_type="store",
-            modifier_cn=current_user.cn,
-        )
+    if not diff:
+        return contact, None
 
-    return StatusIdResponse(status="ok", id=contact.id)
+    recipients = get_emails_with_permission(db, "standesdbContactAdmin")
+    return contact, (recipients, "contact", contact.cn, diff, "store", current_user.cn)
 
 
-@standesdb_router.put("/contacts/{contact_id}")
-def update_contact(
-    contact_id: int,
+@standesdb_router.post("/contacts", status_code=status.HTTP_201_CREATED)
+async def create_contact(
     data: ContactSaveRequest,
-    background_tasks: BackgroundTasks,
-    db: Annotated[Session, Depends(get_db)],
+    # Permission check first: FastAPI resolves dependencies in parameter
+    # order, so an unprivileged caller gets rejected before the (real,
+    # connection-acquiring) arq pool dependency ever runs.
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> StatusIdResponse:
-    """Update an existing contact's data and notify subscribers by email if anything
-    actually changed. Requires standesdbContactAdmin."""
+    """Create a new contact record. Requires standesdbContactAdmin."""
+    contact, notification = await run_in_threadpool(
+        _create_contact_sync, db, data, current_user
+    )
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
+    return StatusIdResponse(status="ok", id=contact.id)
+
+
+def _update_contact_sync(
+    db: Session, contact_id: int, data: ContactSaveRequest, current_user: Member
+) -> tuple[Contact, _EntryChangedNotification | None]:
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
         raise HTTPException(
@@ -587,18 +626,30 @@ def update_contact(
     input_dict = data.model_dump()
     diff = standesdb_service.apply_contact_input(db, contact, input_dict, current_user)
 
-    if diff:
-        recipients = get_emails_with_permission(db, "standesdbContactAdmin")
-        background_tasks.add_task(
-            send_entry_changed_email,
-            recipients,
-            "contact",
-            contact.cn,
-            diff,
-            change_type="update",
-            modifier_cn=current_user.cn,
-        )
+    if not diff:
+        return contact, None
 
+    recipients = get_emails_with_permission(db, "standesdbContactAdmin")
+    return contact, (recipients, "contact", contact.cn, diff, "update", current_user.cn)
+
+
+@standesdb_router.put("/contacts/{contact_id}")
+async def update_contact(
+    contact_id: int,
+    data: ContactSaveRequest,
+    current_user: Annotated[
+        Member, Depends(require_permission("standesdbContactAdmin"))
+    ],
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
+    db: Annotated[Session, Depends(get_db)],
+) -> StatusIdResponse:
+    """Update an existing contact's data and notify subscribers by email if anything
+    actually changed. Requires standesdbContactAdmin."""
+    contact, notification = await run_in_threadpool(
+        _update_contact_sync, db, contact_id, data, current_user
+    )
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
     return StatusIdResponse(status="ok", id=contact.id)
 
 
@@ -671,10 +722,10 @@ def list_own_member_images(
 
 
 @standesdb_router.post("/members/me/images", status_code=status.HTTP_201_CREATED)
-def upload_own_member_image(
+async def upload_own_member_image(
     file: Annotated[UploadFile, File()],
     *,
-    background_tasks: BackgroundTasks,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
@@ -684,7 +735,8 @@ def upload_own_member_image(
     account. No admin permission required - every member may manage their
     own profile images; org admins are notified by email afterward,
     purely informational (no approval gate)."""
-    img = image_service.upload_image(
+    img = await run_in_threadpool(
+        image_service.upload_image,
         db,
         "member",
         current_user.id,
@@ -693,15 +745,15 @@ def upload_own_member_image(
         created_by=current_user.id,
         storage=storage,
     )
-    _notify_own_image_changed(db, background_tasks, current_user, "upload")
+    await _notify_own_image_changed(db, arq_pool, current_user, "upload")
     return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/members/me/images/{image_id}")
-def update_own_member_image(
+async def update_own_member_image(
     image_id: int,
     data: ImageUpdateRequest,
-    background_tasks: BackgroundTasks,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusResponse:
@@ -709,18 +761,22 @@ def update_own_member_image(
     member's own profile images. No admin permission required - every
     member may manage their own profile images; org admins are notified
     by email afterward, purely informational (no approval gate)."""
-    img = image_service.get_image_record(db, "member", current_user.id, image_id)
-    image_service.update_image(db, img, data.description, data.default)
-    _notify_own_image_changed(db, background_tasks, current_user, "update")
+
+    def _update_sync() -> None:
+        img = image_service.get_image_record(db, "member", current_user.id, image_id)
+        image_service.update_image(db, img, data.description, data.default)
+
+    await run_in_threadpool(_update_sync)
+    await _notify_own_image_changed(db, arq_pool, current_user, "update")
     return StatusResponse(status="ok")
 
 
 @standesdb_router.delete(
     "/members/me/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_own_member_image(
+async def delete_own_member_image(
     image_id: int,
-    background_tasks: BackgroundTasks,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -728,9 +784,13 @@ def delete_own_member_image(
     storage. No admin permission required - every member may manage their
     own profile images; org admins are notified by email afterward,
     purely informational (no approval gate)."""
-    img = image_service.get_image_record(db, "member", current_user.id, image_id)
-    image_service.delete_image(db, img)
-    _notify_own_image_changed(db, background_tasks, current_user, "delete")
+
+    def _delete_sync() -> None:
+        img = image_service.get_image_record(db, "member", current_user.id, image_id)
+        image_service.delete_image(db, img)
+
+    await run_in_threadpool(_delete_sync)
+    await _notify_own_image_changed(db, arq_pool, current_user, "delete")
 
 
 # --- Member Images: Admin / shared reads ---
@@ -1137,17 +1197,12 @@ def get_member_change_request(
     )
 
 
-@standesdb_router.post("/member-change-requests/{request_id}/decide")
-def decide_member_change_request(
+def _decide_member_change_request_sync(
+    db: Session,
     request_id: int,
     data: MemberChangeRequestDecisionRequest,
-    background_tasks: BackgroundTasks,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusResponse:
-    """Atomically resolve a change request: every proposed field must have
-    a decision in one submission (enforced in the service layer) - there is
-    no partially-decided state to save and resume later."""
+    current_user: Member,
+) -> tuple[str, dict[str, dict[str, object]], dict[str, str]] | None:
     request = member_change_request_service.get_change_request_or_404(db, request_id)
     _require_standesdb_admin(current_user, request.member.org_id)
 
@@ -1157,12 +1212,28 @@ def decide_member_change_request(
         db, request, decisions_snapshot, current_user
     )
 
-    if member.email:
-        background_tasks.add_task(
-            send_member_change_request_resolved_email,
-            member.email,
-            diff_snapshot,
-            decisions_snapshot,
+    if not member.email:
+        return None
+    return member.email, diff_snapshot, decisions_snapshot
+
+
+@standesdb_router.post("/member-change-requests/{request_id}/decide")
+async def decide_member_change_request(
+    request_id: int,
+    data: MemberChangeRequestDecisionRequest,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Member, Depends(get_current_user)],
+) -> StatusResponse:
+    """Atomically resolve a change request: every proposed field must have
+    a decision in one submission (enforced in the service layer) - there is
+    no partially-decided state to save and resume later."""
+    notification = await run_in_threadpool(
+        _decide_member_change_request_sync, db, request_id, data, current_user
+    )
+    if notification:
+        await arq_pool.enqueue_job(
+            "task_send_member_change_request_resolved_email", *notification
         )
     return StatusResponse(status="resolved")
 
@@ -1197,21 +1268,27 @@ def _require_any_standesdb_admin(user: Member) -> None:
         )
 
 
-def _notify_own_image_changed(
+def _own_image_changed_recipients(db: Session, member: Member) -> list[str] | None:
+    if not member.org_id:
+        return None
+    perm = f"standesdb{member.org_id.capitalize()}Admin"
+    return get_emails_with_permission(db, perm)
+
+
+async def _notify_own_image_changed(
     db: Session,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis,
     member: Member,
     action: str,
 ) -> None:
-    """Fire-and-forget info mail to the member's own org's standesdb
-    admins after a self-service image change. Purely informational -
-    there is no approval gate, the change is already applied by the time
-    this runs. Silently skipped if the member has no org (nobody to
-    notify), the image action itself is never blocked by this."""
-    if not member.org_id:
+    """Enqueue an info mail to the member's own org's standesdb admins
+    after a self-service image change. Purely informational - there is no
+    approval gate, the change is already applied by the time this runs.
+    Silently skipped if the member has no org (nobody to notify), the
+    image action itself is never blocked by this."""
+    recipients = await run_in_threadpool(_own_image_changed_recipients, db, member)
+    if recipients is None:
         return
-    perm = f"standesdb{member.org_id.capitalize()}Admin"
-    recipients = get_emails_with_permission(db, perm)
-    background_tasks.add_task(
-        send_own_image_changed_email, recipients, member.cn, action
+    await arq_pool.enqueue_job(
+        "task_send_own_image_changed_email", recipients, member.cn, action
     )

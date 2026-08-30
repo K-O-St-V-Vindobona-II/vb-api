@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 import bcrypt
 import pytest
@@ -79,8 +78,7 @@ def test_create_access_token_with_delta():
     assert token is not None
 
 
-@patch("app.services.auth_service.send_reset_email")
-def test_forgot_password_unknown_email(mock_send_email, client, db_session):  # noqa: ARG001
+def test_forgot_password_unknown_email(client, db_session):  # noqa: ARG001
     """Ensure unknown emails are silently ignored to prevent enumeration."""
     resp = client.post(
         "/api/auth/forgot-password",

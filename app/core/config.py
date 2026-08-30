@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     cors_origins: str | None = Field(default=None, validation_alias="CORS_ORIGINS")
     secret_key: str | None = Field(default=None, validation_alias="SECRET_KEY")
     database_url: str | None = Field(default=None, validation_alias="DATABASE_URL")
+    # Required unconditionally: both the web container (enqueues ad-hoc
+    # background tasks) and the ARQ worker container (runs cron jobs and
+    # dequeues tasks) depend on Redis for their core functionality.
+    redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
 
     # Tier 3 (session/auth) — optional with defaults, no boot-time validation.
     session_lifetime_minutes: int = Field(
@@ -156,6 +160,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_tier1(self) -> "Settings":
+        # Split into one helper per field (each with its own, smaller
+        # branching) so this stays under the project's max-complexity
+        # limit as the Tier 1 field list grows.
+        self._validate_app_environment()
+        self._validate_cors_origins()
+        self._validate_secret_key()
+        if not self.database_url:
+            _fail("DATABASE_URL is not set.")
+        if not self.redis_url:
+            _fail("REDIS_URL is not set.")
+        return self
+
+    def _validate_app_environment(self) -> None:
         if not self.app_environment:
             _fail(
                 "APP_ENVIRONMENT is not set. "
@@ -166,6 +183,8 @@ class Settings(BaseSettings):
                 f"APP_ENVIRONMENT='{self.app_environment}' is invalid. "
                 f"Valid values: {sorted(_VALID_ENVIRONMENTS)}."
             )
+
+    def _validate_cors_origins(self) -> None:
         if not self.cors_origins:
             _fail(
                 "CORS_ORIGINS is not set. "
@@ -173,13 +192,12 @@ class Settings(BaseSettings):
             )
         if not self.cors_origins_list:
             _fail("CORS_ORIGINS is set but contains no valid origins.")
+
+    def _validate_secret_key(self) -> None:
         if not self.secret_key:
             _fail("SECRET_KEY is not set.")
         if len(self.secret_key) < 32:
             _fail("SECRET_KEY must be at least 32 characters long.")
-        if not self.database_url:
-            _fail("DATABASE_URL is not set.")
-        return self
 
     @property
     def cors_origins_list(self) -> list[str]:

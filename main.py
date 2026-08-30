@@ -20,7 +20,6 @@ from starlette.responses import JSONResponse, Response
 from app.api.system import system_router
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
-from app.core.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -31,9 +30,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(
         "*** Application starting — environment: %s ***", settings.app_environment
     )
-    start_scheduler()
     yield
-    stop_scheduler()
     logger.info("Application shutdown complete.")
 
 

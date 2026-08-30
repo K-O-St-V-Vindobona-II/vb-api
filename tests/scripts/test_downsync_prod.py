@@ -52,6 +52,26 @@ class TestConfirmation:
         mock_db.assert_not_called()
         mock_s3.assert_not_called()
 
+    def test_missing_tty_gives_clear_error_instead_of_traceback(self) -> None:
+        """`podman exec` without `-it` has no stdin attached to a terminal -
+        input() raises EOFError immediately. This must surface as a clean
+        error message + exit(1), not an unhandled traceback."""
+        with (
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
+            patch("builtins.input", side_effect=EOFError),
+            patch.object(downsync_prod, "_run_db_restore") as mock_db,
+            patch.object(downsync_prod, "_run_s3_mirror") as mock_s3,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            _run_main([])
+
+        assert exc_info.value.code == 1
+        mock_db.assert_not_called()
+        mock_s3.assert_not_called()
+
     def test_yes_flag_skips_prompt(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),

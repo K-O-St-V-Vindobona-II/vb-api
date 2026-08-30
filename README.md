@@ -117,7 +117,9 @@ The prod image's `docker-entrypoint.sh` runs `alembic upgrade head` automaticall
 
 ## Scheduler
 
-Background jobs run via a single in-process APScheduler instance (`app/core/scheduler.py`), started once per deployment (a Postgres advisory lock ensures only one gunicorn worker process actually registers/fires jobs, even though every worker boots its own scheduler instance).
+Scheduled (cron) jobs run in a dedicated ARQ worker process — its own container (`vb-api-worker`, see `vb-deploy`), separate from the web container. Job bodies live in `app/core/scheduler.py` (unchanged sync functions — each opens its own `SessionLocal()`, records its own outcome); `app/worker.py` wraps each one in a thin async task and builds arq's real `cron_jobs` list from the declarative schedule in `app/core/job_schedule_registry.py`. Since the worker container is always a single process, there's no cross-worker duplication to guard against (no advisory lock needed, unlike the pre-ARQ, in-web-process design).
+
+All 9 jobs share one configurable timezone (`Settings.app_timezone`, default `Europe/Vienna`) — arq's `Worker` only supports one global timezone, not a per-job override, so `db_backup`/`downsync` are no longer UTC-pinned as they were historically; the `BACKUP_HOUR + 1 = DOWNSYNC_HOUR` relationship stays the same, just computed in the configured timezone instead of UTC.
 
 ### Job registration is gated by `APP_ENVIRONMENT`
 
@@ -128,14 +130,16 @@ Background jobs run via a single in-process APScheduler instance (`app/core/sche
 | Job ID | Schedule | Stage | Purpose |
 |---|---|---|---|
 | `cleanup` | hourly | all | Deletes expired sessions, reset tokens, and tracking data past retention. |
-| `refresh_category_filter_hits` | daily 07:00 (Vienna) | production | Recomputes which transactions match each P4x category filter. |
-| `birthday_mails` | daily 15:53 (Vienna) | production | Sends birthday greetings to VBW members whose birthday is tomorrow. |
-| `debtor_reminder` | monthly, 25th 18:32 (Vienna) | production | Sends fee-arrears reminders (debt > 300€). |
-| `standesdb_chronicles` | weekly, Tue 17:00 (Vienna) | production | Sends the weekly anniversaries digest (birthdays, admissions, ...). |
-| `archive_health_check` | weekly, Tue 01:00 (Vienna) | production | Verifies archive files referenced in the DB exist in S3, reports orphans. |
-| `standesdb_health_check` | weekly, Tue 03:00 (Vienna) | production | Same integrity check for Standesdb images. |
-| `db_backup` | daily, `BACKUP_HOUR` UTC (default 03:00) | production (+ `BACKUP_ENABLED`) | Dumps PostgreSQL, uploads to S3, deletes backups older than `BACKUP_RETENTION_DAYS`. |
-| `downsync` | daily, `DOWNSYNC_HOUR` UTC (`BACKUP_HOUR + 1`, default 04:00) | non-production | See below. |
+| `refresh_category_filter_hits` | daily 07:00 | production | Recomputes which transactions match each P4x category filter. |
+| `birthday_mails` | daily 15:53 | production | Sends birthday greetings to VBW members whose birthday is tomorrow. |
+| `debtor_reminder` | monthly, 25th 18:32 | production | Sends fee-arrears reminders (debt > 300€). |
+| `standesdb_chronicles` | weekly, Tue 17:00 | production | Sends the weekly anniversaries digest (birthdays, admissions, ...). |
+| `archive_health_check` | weekly, Tue 01:00 | production | Verifies archive files referenced in the DB exist in S3, reports orphans. |
+| `standesdb_health_check` | weekly, Tue 03:00 | production | Same integrity check for Standesdb images. |
+| `db_backup` | daily, `BACKUP_HOUR` (default 03:00) | production (+ `BACKUP_ENABLED`) | Dumps PostgreSQL, uploads to S3, deletes backups older than `BACKUP_RETENTION_DAYS`. |
+| `downsync` | daily, `DOWNSYNC_HOUR` (`BACKUP_HOUR + 1`, default 04:00) | non-production | See below. |
+
+(All times are in the configured `APP_TIMEZONE`.)
 
 ### Downsync — keeping non-production stages current with prod
 
@@ -146,11 +150,11 @@ The overall idea: **once a day, every non-production stage (dev, test, qa) autom
 1. Mirrors the **entire** production AWS S3 bucket (`archive/`, `standesdb/`, `public/`, `db-backups/` — everything) down into this stage's own S3-compatible storage (e.g. MinIO on the Dev-VPS).
 2. Immediately restores the local PostgreSQL database from the now freshly-mirrored `db-backups/` prefix (the latest prod dump) and runs `alembic upgrade head`.
 
-This is the same logic `scripts/downsync_prod.py` already performs for manual/interactive use (see [Scripts](#scripts)) — the shared prod-credential-loading and storage-building code lives in `app/services/downsync_service.py`, used by both the CLI script and the automated job. Production never registers this job at all: it's guarded twice — once via the `APP_ENVIRONMENT` check in `start_scheduler()`, and again inside `job_downsync()` itself as a belt-and-suspenders safety net.
+This is the same logic `scripts/downsync_prod.py` already performs for manual/interactive use (see [Scripts](#scripts)) — the shared prod-credential-loading and storage-building code lives in `app/services/downsync_service.py`, used by both the CLI script and the automated job. Production never registers this job at all: it's guarded twice — once via the `APP_ENVIRONMENT` check in `build_cron_jobs()`, and again inside `job_downsync()` itself as a belt-and-suspenders safety net. `POST /api/system/downsync/trigger` (requires `systemAdmin`) enqueues the exact same task on demand (`arq_pool.enqueue_job("task_downsync")`), for an immediate re-run outside the nightly schedule.
 
 ### Inspecting the schedule
 
-`GET /api/system/scheduled-jobs` (requires `systemAdmin`) lists whatever is actually registered on the running instance. Since registration itself is gated per stage, this endpoint always reflects reality — there's no separate "which job applies to which stage" list that could drift out of sync.
+`GET /api/system/scheduled-jobs` (requires `systemAdmin`) computes each applicable job's next run straight from the declarative schedule in `app/core/job_schedule_registry.py` (via arq's own `next_cron()`) — no live worker instance needed for this, so the web and worker containers can never disagree on what's scheduled where.
 
 ## Scripts
 
@@ -315,11 +319,24 @@ Auto-Migration) sowie für das Erzeugen neuer Migrationen.
 
 ## Scheduler
 
-Hintergrund-Jobs laufen über eine einzige In-Process-APScheduler-Instanz
-(`app/core/scheduler.py`), einmal pro Deployment gestartet (ein
-Postgres-Advisory-Lock stellt sicher, dass nur ein gunicorn-Worker-Prozess
-Jobs tatsächlich registriert/auslöst, obwohl jeder Worker seine eigene
-Scheduler-Instanz hochfährt).
+Geplante (Cron-)Jobs laufen in einem eigenen ARQ-Worker-Prozess — einem
+eigenen Container (`vb-api-worker`, siehe `vb-deploy`), getrennt vom
+Web-Container. Die Job-Bodies liegen weiterhin in `app/core/scheduler.py`
+(unveränderte synchrone Funktionen — jede öffnet ihre eigene
+`SessionLocal()`, protokolliert ihr eigenes Ergebnis); `app/worker.py`
+verpackt jede davon in einen dünnen Async-Task und baut arqs echte
+`cron_jobs`-Liste aus dem deklarativen Zeitplan in
+`app/core/job_schedule_registry.py`. Da der Worker-Container immer nur
+ein einzelner Prozess ist, gibt es keine Mehrfach-Registrierung zu
+verhindern (kein Advisory-Lock mehr nötig, anders als im früheren,
+im Web-Prozess laufenden Design).
+
+Alle 9 Jobs teilen sich eine konfigurierbare Zeitzone
+(`Settings.app_timezone`, Standard `Europe/Vienna`) — arqs `Worker`
+unterstützt nur eine globale Zeitzone, kein Per-Job-Override, deshalb
+sind `db_backup`/`downsync` nicht mehr wie historisch auf UTC gepinnt;
+die Beziehung `BACKUP_HOUR + 1 = DOWNSYNC_HOUR` bleibt gleich, wird nur
+jetzt in der konfigurierten Zeitzone statt in UTC berechnet.
 
 ### Job-Registrierung ist über `APP_ENVIRONMENT` gesteuert
 
@@ -331,14 +348,16 @@ Scheduler-Instanz hochfährt).
 | Job-ID | Zeitplan | Stage | Zweck |
 |---|---|---|---|
 | `cleanup` | stündlich | alle | Löscht abgelaufene Sessions, Reset-Tokens und Tracking-Daten nach Ablauf der Aufbewahrungsfrist. |
-| `refresh_category_filter_hits` | täglich 07:00 (Wien) | production | Berechnet neu, welche Transaktionen auf welchen P4x-Kategoriefilter passen. |
-| `birthday_mails` | täglich 15:53 (Wien) | production | Sendet Geburtstagsgrüße an VBW-Mitglieder, die morgen Geburtstag haben. |
-| `debtor_reminder` | monatlich, 25. um 18:32 (Wien) | production | Sendet Beitragsrückstands-Erinnerungen (Schuld > 300 €). |
-| `standesdb_chronicles` | wöchentlich, Di 17:00 (Wien) | production | Sendet die wöchentliche Jubiläums-Übersicht (Geburtstage, Aufnahmen, ...). |
-| `archive_health_check` | wöchentlich, Di 01:00 (Wien) | production | Prüft, ob in der DB referenzierte Archiv-Dateien in S3 existieren, meldet Waisen. |
-| `standesdb_health_check` | wöchentlich, Di 03:00 (Wien) | production | Derselbe Integritätscheck für Standesdb-Bilder. |
-| `db_backup` | täglich, `BACKUP_HOUR` UTC (Standard 03:00) | production (+ `BACKUP_ENABLED`) | Erstellt einen PostgreSQL-Dump, lädt ihn nach S3 hoch, löscht Backups älter als `BACKUP_RETENTION_DAYS`. |
-| `downsync` | täglich, `DOWNSYNC_HOUR` UTC (`BACKUP_HOUR + 1`, Standard 04:00) | non-production | Siehe unten. |
+| `refresh_category_filter_hits` | täglich 07:00 | production | Berechnet neu, welche Transaktionen auf welchen P4x-Kategoriefilter passen. |
+| `birthday_mails` | täglich 15:53 | production | Sendet Geburtstagsgrüße an VBW-Mitglieder, die morgen Geburtstag haben. |
+| `debtor_reminder` | monatlich, 25. um 18:32 | production | Sendet Beitragsrückstands-Erinnerungen (Schuld > 300 €). |
+| `standesdb_chronicles` | wöchentlich, Di 17:00 | production | Sendet die wöchentliche Jubiläums-Übersicht (Geburtstage, Aufnahmen, ...). |
+| `archive_health_check` | wöchentlich, Di 01:00 | production | Prüft, ob in der DB referenzierte Archiv-Dateien in S3 existieren, meldet Waisen. |
+| `standesdb_health_check` | wöchentlich, Di 03:00 | production | Derselbe Integritätscheck für Standesdb-Bilder. |
+| `db_backup` | täglich, `BACKUP_HOUR` (Standard 03:00) | production (+ `BACKUP_ENABLED`) | Erstellt einen PostgreSQL-Dump, lädt ihn nach S3 hoch, löscht Backups älter als `BACKUP_RETENTION_DAYS`. |
+| `downsync` | täglich, `DOWNSYNC_HOUR` (`BACKUP_HOUR + 1`, Standard 04:00) | non-production | Siehe unten. |
+
+(Alle Uhrzeiten in der konfigurierten `APP_TIMEZONE`.)
 
 ### Downsync — Non-Production-Stages aktuell mit Prod halten
 
@@ -363,16 +382,19 @@ gemeinsame Code zum Laden der Prod-Credentials und zum Aufbau des Storage
 liegt in `app/services/downsync_service.py`, genutzt sowohl vom CLI-Skript
 als auch vom automatisierten Job. Production registriert diesen Job nie:
 Er ist doppelt abgesichert — einmal über den `APP_ENVIRONMENT`-Check in
-`start_scheduler()`, und zusätzlich innerhalb von `job_downsync()` selbst
-als zusätzliches Sicherheitsnetz.
+`build_cron_jobs()`, und zusätzlich innerhalb von `job_downsync()` selbst
+als zusätzliches Sicherheitsnetz. `POST /api/system/downsync/trigger`
+(erfordert `systemAdmin`) stößt denselben Task auf Zuruf an
+(`arq_pool.enqueue_job("task_downsync")`), für einen sofortigen erneuten
+Lauf außerhalb des nächtlichen Zeitplans.
 
 ### Zeitplan einsehen
 
-`GET /api/system/scheduled-jobs` (erfordert `systemAdmin`) listet, was auf
-der laufenden Instanz tatsächlich registriert ist. Da die Registrierung
-selbst pro Stage gesteuert wird, spiegelt dieser Endpunkt immer die
-Realität wider — es gibt keine separate "welcher Job gilt für welche
-Stage"-Liste, die aus dem Tritt geraten könnte.
+`GET /api/system/scheduled-jobs` (erfordert `systemAdmin`) berechnet für
+jeden anwendbaren Job den nächsten Lauf direkt aus dem deklarativen
+Zeitplan in `app/core/job_schedule_registry.py` (über arqs eigenes
+`next_cron()`) — dafür ist keine laufende Worker-Instanz nötig, Web- und
+Worker-Container können also nie uneinig darüber sein, was wo geplant ist.
 
 ## Skripte
 

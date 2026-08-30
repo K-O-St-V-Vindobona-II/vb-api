@@ -252,7 +252,15 @@ def _print_impact_note(candidate: PurgeCandidate) -> None:
 
 
 def _ask_yes(prompt: str) -> bool:
-    return input(prompt).strip().lower() == "yes"
+    try:
+        answer = input(prompt)
+    except EOFError:
+        print(
+            "ERROR: no interactive terminal attached to confirm "
+            "(rerun with 'podman exec -it ...')."
+        )
+        sys.exit(1)
+    return answer.strip().lower() == "yes"
 
 
 def _confirm(candidate: PurgeCandidate) -> None:

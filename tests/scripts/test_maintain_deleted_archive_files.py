@@ -295,6 +295,28 @@ def test_purge_aborts_on_non_yes_answer(capsys) -> None:
     assert "Aborted." in capsys.readouterr().out
 
 
+def test_purge_aborts_on_missing_tty(capsys) -> None:
+    """`podman exec` without `-it` has no stdin attached to a terminal -
+    input() raises EOFError immediately. This must surface as a clean
+    error message + exit(1), not an unhandled traceback."""
+    mock_db = MagicMock()
+
+    with (
+        patch.object(maintain_script, "SessionLocal", return_value=mock_db),
+        patch.object(
+            maintain_script, "list_deleted_files", return_value=[_candidate(1)]
+        ),
+        patch.object(maintain_script, "purge_file") as mock_purge_file,
+        patch("builtins.input", side_effect=EOFError),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        _run_main(["purge", "1"])
+
+    assert exc_info.value.code == 1
+    mock_purge_file.assert_not_called()
+    assert "no interactive terminal" in capsys.readouterr().out
+
+
 def test_purge_with_matching_id_prompts_and_purges_on_yes() -> None:
     mock_db = MagicMock()
     candidates = [_candidate(file_id=1), _candidate(file_id=2)]

@@ -117,23 +117,25 @@ it only ever reads local storage, which is why step 1 must run before step
 `APP_ENVIRONMENT=production` (hard guard, no override), since this combines
 two operations that are each individually destructive against whichever
 stage they target. Asks for an interactive "yes" confirmation before doing
-anything, unless `--yes` is passed.
+anything, unless `--yes` is passed. `podman exec` without `-it` has no TTY
+attached, so the prompt has no stdin to read from — it now fails fast with
+a clear error telling you to add `-it` or pass `--yes`, instead of hanging.
 
 Must run **inside the container** — `pg_restore` and `alembic` are only
 installed there, not on the host.
 
 **Usage:**
 ```bash
-# Inside the container
+# Inside the container (an interactive shell already has a TTY)
 python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
 python scripts/downsync_prod.py --yes
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
-# Via podman exec
-podman exec vb-api python scripts/downsync_prod.py
-podman exec -it vb-api python scripts/downsync_prod.py
+# Via podman exec - no TTY attached by default, so pick one:
+podman exec -it vb-api python scripts/downsync_prod.py   # interactive prompt
+podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
 ```
 
 **Parameters:**
@@ -191,7 +193,10 @@ otherwise, before any prompt is shown, nothing deleted). Only after that
 check passes does it ask for interactive confirmation (with an
 impact-specific note or warning, depending on the category above, and the
 confirmation prompt itself states whether this purge affects "DB only" or
-"DB AND S3"); there is no flag to skip it. The database row is then
+"DB AND S3"); there is no flag to skip it. `podman exec` without `-it` has
+no TTY for that prompt — it fails fast with a clear error pointing to `-it`
+instead of hanging (same for `purge-duplicates`'s batch confirmation below,
+both share the same confirmation helper). The database row is then
 hard-deleted first (cascading its comments) and committed — only *after*
 that commit succeeds does the script attempt to delete the underlying S3
 object(s), and only if no other file anywhere still references the same
@@ -409,22 +414,25 @@ komplett, wenn `APP_ENVIRONMENT=production` gesetzt ist (harter Guard, kein
 Override), da hier zwei Operationen kombiniert werden, die jede für sich
 bereits destruktiv gegen die jeweils angezielte Stage sind. Fragt vor jeder
 Aktion interaktiv per "yes"-Bestätigung nach, außer `--yes` wird übergeben.
+`podman exec` ohne `-it` hat kein angebundenes TTY, die Abfrage findet also
+kein stdin zum Lesen — sie bricht dann sofort mit einer klaren Fehlermeldung
+ab (statt zu hängen) und verweist auf `-it` bzw. `--yes`.
 
 Muss **im Container** laufen — `pg_restore` und `alembic` sind nur dort
 installiert, nicht auf dem Host.
 
 **Aufruf:**
 ```bash
-# Im Container
+# Im Container (eine interaktive Shell hat bereits ein TTY)
 python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
 python scripts/downsync_prod.py --yes
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
-# Via podman exec
-podman exec vb-api python scripts/downsync_prod.py
-podman exec -it vb-api python scripts/downsync_prod.py
+# Via podman exec - standardmäßig kein TTY angebunden, also eine Variante wählen:
+podman exec -it vb-api python scripts/downsync_prod.py    # interaktive Abfrage
+podman exec vb-api python scripts/downsync_prod.py --yes  # non-interaktiv
 ```
 
 **Parameter:**
@@ -486,7 +494,11 @@ wird gelöscht. Erst nach dieser Prüfung fragt das Script interaktiv nach
 Bestätigung (mit einem kategorieabhängigen Hinweis bzw. einer Warnung,
 siehe oben; die Bestätigungszeile selbst nennt außerdem, ob der Purge nur
 die DB oder DB UND S3 betrifft); einen Parameter zum Überspringen gibt es
-nicht. Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
+nicht. `podman exec` ohne `-it` hat kein TTY für diese Abfrage — sie bricht
+dann sofort mit einer klaren Fehlermeldung ab, die auf `-it` verweist,
+statt zu hängen (gilt genauso für die Batch-Bestätigung von
+`purge-duplicates` weiter unten, beide teilen sich denselben
+Bestätigungs-Helper). Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
 Kommentare) und committet — **erst danach** versucht das Script, das
 zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
 im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)

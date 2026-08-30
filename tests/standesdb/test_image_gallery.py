@@ -2,7 +2,6 @@
 
 import io
 from datetime import date
-from unittest.mock import patch
 
 import bcrypt
 from PIL import Image as PILImage
@@ -701,9 +700,8 @@ class TestSelfService:
         )
         assert resp.status_code == 201
 
-    @patch("app.api.router_includes.standesdb.send_own_image_changed_email")
     def test_self_upload_notifies_org_admin_by_email(
-        self, mock_send, client, db_session
+        self, client, db_session, mock_arq_pool
     ):
         _seed(db_session)
         _admin(db_session)  # org admin recipient
@@ -716,14 +714,14 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 201
-        mock_send.assert_called_once()
-        args = mock_send.call_args[0]
-        assert "admin@vbw.at" in args[0]
-        assert args[2] == "upload"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        args = mock_arq_pool.enqueue_job.call_args[0]
+        assert args[0] == "task_send_own_image_changed_email"
+        assert "admin@vbw.at" in args[1]
+        assert args[3] == "upload"
 
-    @patch("app.api.router_includes.standesdb.send_own_image_changed_email")
     def test_self_update_notifies_org_admin_by_email(
-        self, mock_send, client, db_session
+        self, client, db_session, mock_arq_pool
     ):
         _seed(db_session)
         _admin(db_session)
@@ -736,19 +734,18 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         img_id = resp.json()["id"]
-        mock_send.reset_mock()
+        mock_arq_pool.enqueue_job.reset_mock()
 
         client.put(
             f"/api/standesdb/members/me/images/{img_id}",
             headers=headers,
             json={"description": "x", "default": False},
         )
-        mock_send.assert_called_once()
-        assert mock_send.call_args[0][2] == "update"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        assert mock_arq_pool.enqueue_job.call_args[0][3] == "update"
 
-    @patch("app.api.router_includes.standesdb.send_own_image_changed_email")
     def test_self_delete_notifies_org_admin_by_email(
-        self, mock_send, client, db_session
+        self, client, db_session, mock_arq_pool
     ):
         _seed(db_session)
         _admin(db_session)
@@ -761,15 +758,14 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         img_id = resp.json()["id"]
-        mock_send.reset_mock()
+        mock_arq_pool.enqueue_job.reset_mock()
 
         client.delete(f"/api/standesdb/members/me/images/{img_id}", headers=headers)
-        mock_send.assert_called_once()
-        assert mock_send.call_args[0][2] == "delete"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        assert mock_arq_pool.enqueue_job.call_args[0][3] == "delete"
 
-    @patch("app.api.router_includes.standesdb.send_own_image_changed_email")
     def test_self_upload_no_email_when_member_has_no_org(
-        self, mock_send, client, db_session
+        self, client, db_session, mock_arq_pool
     ):
         _seed(db_session)
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
@@ -791,4 +787,4 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 201
-        mock_send.assert_not_called()
+        mock_arq_pool.enqueue_job.assert_not_called()
