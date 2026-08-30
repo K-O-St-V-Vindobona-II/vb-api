@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None, validation_alias="DATABASE_URL")
     # Required unconditionally: both the web container (enqueues ad-hoc
     # background tasks) and the ARQ worker container (runs cron jobs and
-    # dequeues tasks) depend on Redis for their core functionality.
-    redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
+    # dequeues tasks) depend on Valkey for their core functionality.
+    valkey_url: str | None = Field(default=None, validation_alias="VALKEY_URL")
 
     # Tier 3 (session/auth) — optional with defaults, no boot-time validation.
     session_lifetime_minutes: int = Field(
@@ -168,8 +168,8 @@ class Settings(BaseSettings):
         self._validate_secret_key()
         if not self.database_url:
             _fail("DATABASE_URL is not set.")
-        if not self.redis_url:
-            _fail("REDIS_URL is not set.")
+        if not self.valkey_url:
+            _fail("VALKEY_URL is not set.")
         return self
 
     def _validate_app_environment(self) -> None:
