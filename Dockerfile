@@ -56,6 +56,13 @@ RUN chmod +x docker-entrypoint.sh
 # WeasyPrint (PDF export) triggers Fontconfig's cache init at import time
 # for every worker; the app user has no writable $HOME (--no-create-home
 # above), so point XDG's cache dir at /tmp instead of creating one.
+# XDG_CACHE_HOME alone isn't enough: empirically, Fontconfig's own early
+# init still probes a $HOME-based cache path (~/.fontconfig) before
+# falling back to the XDG one, logging "No writable cache directories"
+# even though the XDG path itself works fine. Redirecting HOME itself to
+# /tmp (already world-writable, no real home directory needed) covers
+# that path too, without creating one for the app user.
+ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp
 
 USER app
