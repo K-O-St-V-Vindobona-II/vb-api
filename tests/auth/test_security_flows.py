@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 import bcrypt
 import jwt
@@ -79,8 +78,7 @@ def test_rate_limiter_blocks_brute_force(client, db_session):  # noqa: ARG001
     assert response.status_code == 429  # Too Many Requests
 
 
-@patch("app.services.auth_service.send_reset_email")
-def test_password_reset_flow(mock_send_email, client, db_session):  # noqa: ARG001
+def test_password_reset_flow(client, db_session):
     """Tests the entire password reset cycle (forgot -> reset -> new login)."""
     # 1. Arrange: Create user
     hashed = bcrypt.hashpw(b"oldpassword", bcrypt.gensalt()).decode("utf-8")

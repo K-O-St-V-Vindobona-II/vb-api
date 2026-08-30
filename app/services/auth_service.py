@@ -4,7 +4,6 @@ from typing import NoReturn
 
 import jwt
 import requests
-from fastapi import BackgroundTasks
 from google.auth.exceptions import TransportError
 from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
@@ -13,7 +12,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.mailer import send_reset_email
 from app.core.security import (
     ALGORITHM,
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -117,15 +115,20 @@ def authenticate_user(
 
 def process_forgot_password(
     db: Session,
-    background_tasks: BackgroundTasks,
     email: str,
-) -> None:
+) -> tuple[str, str] | None:
+    """Create a reset token for the given email if a matching member
+    exists, and return (email, token) for the caller to enqueue an ARQ
+    reset-email task from — kept a plain sync function (only touches the
+    DB) so the router can dispatch it via run_in_threadpool rather than
+    running it directly on the event loop.
+    """
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
     )
 
     if not member:
-        return
+        return None
 
     token = secrets.token_urlsafe(32)
     db.query(PasswordResetToken).filter(
@@ -140,8 +143,7 @@ def process_forgot_password(
     db.add(reset_entry)
     db.commit()
 
-    if member.email:
-        background_tasks.add_task(send_reset_email, member.email, token)
+    return (member.email, token) if member.email else None
 
 
 def execute_password_reset(

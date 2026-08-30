@@ -1,11 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from arq.connections import ArqRedis
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, oauth2_scheme
+from app.core.arq_pool import get_arq_pool
 from app.core.rate_limit import limiter
 from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -89,10 +92,10 @@ def login(
 
 @auth_router.post("/forgot-password")
 @limiter.limit("3/minute")  # type: ignore[reportUntypedFunctionDecorator]
-def forgot_password(
+async def forgot_password(
     request: Request,  # noqa: ARG001
     data: ForgotPasswordRequest,
-    background_tasks: BackgroundTasks,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
 ) -> StatusMessageResponse:
     """Request a password reset email.
@@ -100,7 +103,12 @@ def forgot_password(
     Always returns 200 to prevent email enumeration.
     Rate limit: 3/min.
     """
-    auth_service.process_forgot_password(db, background_tasks, data.email)
+    result = await run_in_threadpool(
+        auth_service.process_forgot_password, db, data.email
+    )
+    if result is not None:
+        email, token = result
+        await arq_pool.enqueue_job("task_send_reset_email", email, token)
     return StatusMessageResponse(
         status="ok",
         message=(

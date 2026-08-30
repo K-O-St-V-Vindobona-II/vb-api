@@ -2,13 +2,15 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from arq.connections import ArqRedis
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, PlainSerializer
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
-from app.core.scheduler import get_scheduled_jobs, job_downsync
+from app.core.arq_pool import get_arq_pool
+from app.core.job_schedule_registry import get_scheduled_jobs
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
@@ -162,9 +164,12 @@ def trigger_backup(
 
 
 @system_router.post("/downsync/trigger", status_code=status.HTTP_202_ACCEPTED)
-def trigger_downsync(
-    background_tasks: BackgroundTasks,
+async def trigger_downsync(
+    # Permission check first: FastAPI resolves dependencies in parameter
+    # order, so an unprivileged caller gets rejected before the (real,
+    # connection-acquiring) arq pool dependency ever runs.
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
 ) -> StatusResponse:
     """Manually trigger an immediate downsync on this non-production stage:
     mirrors production's S3 storage down, then restores the freshest
@@ -174,15 +179,16 @@ def trigger_downsync(
     meant to be refreshable from it on demand (this endpoint), in addition
     to the nightly automated "downsync" job. Refuses to run in production
     (409) rather than silently no-oping - job_downsync() itself already
-    guards against this too (belt-and-suspenders), but a background task
+    guards against this too (belt-and-suspenders), but an enqueued task
     that silently does nothing would otherwise look like a successful
     trigger to the caller.
 
-    Runs as a background task, unlike POST /backups/trigger's synchronous
-    pg_dump - S3 mirror + DB restore + Alembic migration can run well past
-    a request's timeout on non-trivial data volumes. Progress/outcome is
-    visible via the existing scheduled-job history (job id "downsync"),
-    the same table the nightly automated run also writes to.
+    Runs in the dedicated ARQ worker container, unlike POST
+    /backups/trigger's synchronous pg_dump - S3 mirror + DB restore +
+    Alembic migration can run well past a request's timeout on
+    non-trivial data volumes. Progress/outcome is visible via the
+    existing scheduled-job history (job id "downsync"), the same table
+    the nightly automated run also writes to.
     """
     if system_service.get_app_environment() == "production":
         raise HTTPException(
@@ -192,7 +198,7 @@ def trigger_downsync(
                 "die führende Datenquelle."
             ),
         )
-    background_tasks.add_task(job_downsync)
+    await arq_pool.enqueue_job("task_downsync")
     return StatusResponse(status="started")
 
 
@@ -201,8 +207,9 @@ def list_scheduled_jobs(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> list[ScheduledJobResponse]:
-    """List all registered APScheduler jobs with trigger info, next run time,
-    and each job's most recent recorded run (if any).
+    """List all applicable scheduled jobs (see app/core/job_schedule_registry.py)
+    with trigger info, next run time, and each job's most recent recorded
+    run (if any).
 
     Requires systemAdmin.
     """

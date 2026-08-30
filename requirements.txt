@@ -15,6 +15,6 @@ slowapi
 Pillow
 openpyxl
 weasyprint
-apscheduler
+arq
 boto3
 pydantic-settings

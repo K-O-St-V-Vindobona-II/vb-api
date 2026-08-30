@@ -6,10 +6,8 @@ queries.py for the dedicated N+1 query-count test.
 """
 
 from datetime import UTC, date, datetime
-from unittest.mock import patch
 
 import bcrypt
-import pytest
 
 from app.models.badge import Badge
 from app.models.key import Key
@@ -23,31 +21,6 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
-
-
-@pytest.fixture(autouse=True)
-def _block_change_request_emails():
-    """BackgroundTasks run synchronously within TestClient's request cycle,
-    so an unmocked call here would both attempt a real SMTP send and
-    permanently pollute the sent_emails table via _log_sent_email()'s own
-    independent SessionLocal() (not part of this test's transactional
-    rollback - see app/core/mailer.py). The project's conftest.py
-    `_block_all_emails` autouse fixture does not cover send_to_recipients()
-    (which these two functions use), so this file needs its own. Tests
-    that specifically assert on these calls layer their own @patch on top,
-    which nests safely over this one.
-    """
-    with (
-        patch(
-            "app.api.router_includes.standesdb"
-            ".send_member_change_request_submitted_email"
-        ),
-        patch(
-            "app.api.router_includes.standesdb"
-            ".send_member_change_request_resolved_email"
-        ),
-    ):
-        yield
 
 
 def _seed_base(db) -> None:
@@ -281,11 +254,8 @@ class TestSubmitOwnChangeRequest:
 
         assert resp.status_code == 422
 
-    @patch(
-        "app.api.router_includes.standesdb.send_member_change_request_submitted_email"
-    )
     def test_notifies_org_admins_with_correct_recipients(
-        self, mock_send, db_session, client
+        self, db_session, client, mock_arq_pool
     ):
         _seed_base(db_session)
         member = _create_member(db_session, email="member7@test.at")
@@ -299,8 +269,9 @@ class TestSubmitOwnChangeRequest:
             headers=headers,
         )
 
-        mock_send.assert_called_once()
-        recipients, member_cn, diff = mock_send.call_args[0]
+        mock_arq_pool.enqueue_job.assert_called_once()
+        task_name, recipients, member_cn, diff = mock_arq_pool.enqueue_job.call_args[0]
+        assert task_name == "task_send_member_change_request_submitted_email"
         assert recipients == [vbw_admin.email]
         assert member_cn == member.cn
         assert diff["nachname"]["new"] == "Geaendert"
@@ -706,16 +677,17 @@ class TestDecideMemberChangeRequest:
 
         assert resp.status_code == 409
 
-    @patch(
-        "app.api.router_includes.standesdb.send_member_change_request_resolved_email"
-    )
-    def test_notifies_member_of_resolution(self, mock_send, db_session, client):
+    def test_notifies_member_of_resolution(self, db_session, client, mock_arq_pool):
         _seed_base(db_session)
         member = _create_member(db_session, email="member21@test.at")
         admin = _create_admin(db_session, email="admin21@test.at")
         request = self._submit_and_get_request(
             db_session, client, member, nachname="Geaendert"
         )
+        # _submit_and_get_request() already triggered one enqueue_job()
+        # call for the "submitted" notification — reset so this test only
+        # observes the "resolved" notification from the decide call below.
+        mock_arq_pool.enqueue_job.reset_mock()
 
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
@@ -723,8 +695,9 @@ class TestDecideMemberChangeRequest:
             headers=_login(db_session, admin),
         )
 
-        mock_send.assert_called_once()
-        to_email, diff, decisions = mock_send.call_args[0]
+        mock_arq_pool.enqueue_job.assert_called_once()
+        task_name, to_email, diff, decisions = mock_arq_pool.enqueue_job.call_args[0]
+        assert task_name == "task_send_member_change_request_resolved_email"
         assert to_email == "member21@test.at"
         assert diff["nachname"]["new"] == "Geaendert"
         assert decisions == {"nachname": "approved"}

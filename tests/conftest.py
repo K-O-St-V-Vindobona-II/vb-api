@@ -11,7 +11,7 @@ ORM session) that is always rolled back afterward for isolation.
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 os.environ["APP_ENVIRONMENT"] = "test"
 os.environ["CORS_ORIGINS"] = "http://localhost:20001,http://127.0.0.1:20001"
@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
 from app.core import storage as storage_module
+from app.core.arq_pool import get_arq_pool
 from app.core.config import get_settings
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
@@ -127,19 +128,39 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
 def _block_all_emails():
-    # auth_service imports send_reset_email by name (`from app.core.mailer
-    # import send_reset_email`), so it holds its own reference to the
-    # original function — patching `app.core.mailer.send_reset_email` alone
-    # does not intercept calls made through that reference. Patch it at
-    # its actual call site too, or a background task can slip through and
-    # write a real SentEmail row via its own SessionLocal(), which isn't
-    # covered by the per-test transaction rollback and leaks into later
-    # tests' counts.
+    # app.worker imports every send_*_email function by name (`from
+    # app.core.mailer import send_reset_email, ...`), so it holds its own
+    # references to the original functions — patching
+    # `app.core.mailer.send_x` alone does not intercept calls made through
+    # those references (e.g. a test that calls a task_send_x_email
+    # wrapper directly). Patch each one at its actual call site too, or a
+    # task can slip through and write a real SentEmail row via its own
+    # SessionLocal(), which isn't covered by the per-test transaction
+    # rollback and leaks into later tests' counts.
     with (
         patch("app.core.mailer.send_reset_email"),
-        patch("app.services.auth_service.send_reset_email"),
+        patch("app.worker.send_reset_email"),
+        patch("app.worker.send_entry_changed_email"),
+        patch("app.worker.send_member_change_request_submitted_email"),
+        patch("app.worker.send_member_change_request_resolved_email"),
+        patch("app.worker.send_own_image_changed_email"),
         patch("app.core.mailer._send_to_multiple"),
     ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _block_real_arq_connections():
+    """Guards against any test accidentally reaching a real Redis
+    connection through the un-overridden get_arq_pool() dependency —
+    every test exercising it must override
+    app.dependency_overrides[get_arq_pool] instead (see
+    tests/test_system.py's TestTriggerDownsync for the pattern)."""
+    with patch("app.core.arq_pool.create_pool") as mock_create_pool:
+        mock_create_pool.side_effect = AssertionError(
+            "A test reached the real get_arq_pool()/create_pool() — "
+            "override app.dependency_overrides[get_arq_pool] instead."
+        )
         yield
 
 
@@ -183,6 +204,21 @@ def mock_s3(_moto_env):
     yield storage
     app.dependency_overrides.pop(get_storage, None)
     storage_module._storage = old_singleton
+
+
+@pytest.fixture(autouse=True)
+def mock_arq_pool():
+    """Overrides get_arq_pool for every test with a plain AsyncMock, the
+    same way mock_s3 does for get_storage — most tests that create/update
+    a member/contact/image/change-request touch this dependency (it's
+    resolved on every request, not just ones that end up enqueueing
+    anything), so this stays autouse rather than opt-in. Tests that want
+    to assert on the actual enqueue_job(...) call request this fixture
+    by name to get the same mock instance."""
+    pool = AsyncMock()
+    app.dependency_overrides[get_arq_pool] = lambda: pool
+    yield pool
+    app.dependency_overrides.pop(get_arq_pool, None)
 
 
 @pytest.fixture(scope="module")

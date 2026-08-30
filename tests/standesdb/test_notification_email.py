@@ -9,7 +9,6 @@ Geprüft werden:
 """
 
 from datetime import date
-from unittest.mock import patch
 
 import bcrypt
 
@@ -147,8 +146,7 @@ class TestGetEmailsWithPermission:
 
 
 class TestMemberCreateNotification:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_member_sends_email(self, mock_send, client, db_session):
+    def test_create_member_sends_email(self, client, db_session, mock_arq_pool):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -160,13 +158,15 @@ class TestMemberCreateNotification:
         )
         assert resp.status_code == 201
 
-        mock_send.assert_called_once()
-        args = mock_send.call_args
-        assert args[0][1] == "member"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        args = mock_arq_pool.enqueue_job.call_args
+        assert args[0][0] == "task_send_entry_changed_email"
+        assert args[0][2] == "member"
         assert args.kwargs["change_type"] == "store"
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_member_email_has_correct_cn(self, mock_send, client, db_session):
+    def test_create_member_email_has_correct_cn(
+        self, client, db_session, mock_arq_pool
+    ):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -181,8 +181,8 @@ class TestMemberCreateNotification:
             headers=headers,
         )
 
-        args = mock_send.call_args
-        entry_cn = args[0][2]
+        args = mock_arq_pool.enqueue_job.call_args
+        entry_cn = args[0][3]
         assert "Franz" in entry_cn or "Testikus" in entry_cn
 
 
@@ -190,8 +190,9 @@ class TestMemberCreateNotification:
 
 
 class TestMemberUpdateNotification:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_member_with_change_sends_email(self, mock_send, client, db_session):
+    def test_update_member_with_change_sends_email(
+        self, client, db_session, mock_arq_pool
+    ):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -212,13 +213,15 @@ class TestMemberUpdateNotification:
         )
         assert resp.status_code == 200
 
-        mock_send.assert_called_once()
-        args = mock_send.call_args
-        assert args[0][1] == "member"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        args = mock_arq_pool.enqueue_job.call_args
+        assert args[0][0] == "task_send_entry_changed_email"
+        assert args[0][2] == "member"
         assert args.kwargs["change_type"] == "update"
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_member_without_change_no_email(self, mock_send, client, db_session):
+    def test_update_member_without_change_no_email(
+        self, client, db_session, mock_arq_pool
+    ):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -244,10 +247,9 @@ class TestMemberUpdateNotification:
             headers=headers,
         )
         assert resp.status_code == 200
-        mock_send.assert_not_called()
+        mock_arq_pool.enqueue_job.assert_not_called()
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_email_contains_diff(self, mock_send, client, db_session):
+    def test_update_email_contains_diff(self, client, db_session, mock_arq_pool):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -267,8 +269,8 @@ class TestMemberUpdateNotification:
             headers=headers,
         )
 
-        args = mock_send.call_args
-        diff = args[0][3]
+        args = mock_arq_pool.enqueue_job.call_args
+        diff = args[0][4]
         assert "vorname" in diff
         assert diff["vorname"]["old"] == "Alt"
         assert diff["vorname"]["new"] == "Neu"
@@ -278,8 +280,7 @@ class TestMemberUpdateNotification:
 
 
 class TestContactNotification:
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_create_contact_sends_email(self, mock_send, client, db_session):
+    def test_create_contact_sends_email(self, client, db_session, mock_arq_pool):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -294,13 +295,13 @@ class TestContactNotification:
         )
         assert resp.status_code == 201
 
-        mock_send.assert_called_once()
-        args = mock_send.call_args
-        assert args[0][1] == "contact"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        args = mock_arq_pool.enqueue_job.call_args
+        assert args[0][0] == "task_send_entry_changed_email"
+        assert args[0][2] == "contact"
         assert args.kwargs["change_type"] == "store"
 
-    @patch("app.api.router_includes.standesdb.send_entry_changed_email")
-    def test_update_contact_sends_email(self, mock_send, client, db_session):
+    def test_update_contact_sends_email(self, client, db_session, mock_arq_pool):
         _setup(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
@@ -314,7 +315,7 @@ class TestContactNotification:
             headers=headers,
         )
         contact_id = resp_create.json()["id"]
-        mock_send.reset_mock()
+        mock_arq_pool.enqueue_job.reset_mock()
 
         resp = client.put(
             f"/api/standesdb/contacts/{contact_id}",
@@ -326,7 +327,8 @@ class TestContactNotification:
         )
         assert resp.status_code == 200
 
-        mock_send.assert_called_once()
-        args = mock_send.call_args
-        assert args[0][1] == "contact"
+        mock_arq_pool.enqueue_job.assert_called_once()
+        args = mock_arq_pool.enqueue_job.call_args
+        assert args[0][0] == "task_send_entry_changed_email"
+        assert args[0][2] == "contact"
         assert args.kwargs["change_type"] == "update"

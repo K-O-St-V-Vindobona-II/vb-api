@@ -1,12 +1,16 @@
-"""Background jobs run by the process-wide APScheduler instance.
+"""Job bodies for every scheduled (cron) job and the manual downsync
+re-run, run by the dedicated ARQ worker process (see app/worker.py, which
+wraps each function below in a thin async task and wires it into either
+arq's cron_jobs or its ad-hoc-enqueueable functions — see
+app/core/job_schedule_registry.py for the declarative "when does each job
+run" data).
 
 Every job function below catches a broad `Exception` around its body by
-design: jobs run unattended, and one job's failure must never take down
-the shared scheduler thread or block the other jobs from firing on their
-own schedule. Each catch logs via `logger.exception(...)` (not
-`logger.warning`), which Ruff's BLE001 specifically exempts from the
-blind-except check since it preserves the full traceback rather than
-silently swallowing it.
+design: jobs run unattended, and one job's failure must never block the
+worker from picking up the next job. Each catch logs via
+`logger.exception(...)` (not `logger.warning`), which Ruff's BLE001
+specifically exempts from the blind-except check since it preserves the
+full traceback rather than silently swallowing it.
 """
 
 import logging
@@ -14,16 +18,11 @@ import subprocess
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from apscheduler.job import Job
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import text
-
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Connection
     from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.datetime_utils import get_app_timezone, local_today
+from app.core.datetime_utils import local_today
 from app.core.mailer import render_template, send_to_recipients
 from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -31,7 +30,7 @@ from app.core.security import (
 )
 from app.core.storage import get_storage
 from app.core.tasks import TRACKING_RETENTION_MONTHS
-from app.db.database import SessionLocal, engine
+from app.db.database import SessionLocal
 from app.models.auth_session import AuthSession
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
@@ -59,10 +58,6 @@ from app.services.storage_integrity_service import (
     check_standesdb_integrity,
 )
 
-BACKUP_ENABLED: bool = get_settings().backup_enabled
-BACKUP_HOUR: int = get_settings().backup_hour
-DOWNSYNC_HOUR: int = (BACKUP_HOUR + 1) % 24
-
 logger = logging.getLogger(__name__)
 
 MONTHS_DE = [
@@ -80,53 +75,6 @@ MONTHS_DE = [
     "November",
     "Dezember",
 ]
-
-APP_TZ = get_app_timezone()
-
-# All cron trigger hour/minute values below are wall-clock time in the
-# configured app timezone (Settings.app_timezone, default Europe/Vienna;
-# human-facing mails), not UTC — the machine-facing db_backup job further
-# below stays UTC-based and is documented as such.
-scheduler = AsyncIOScheduler(timezone=APP_TZ)
-
-# Arbitrary fixed key identifying "the vb-api scheduler" for
-# pg_try_advisory_lock. Any int64 works as long as it stays constant.
-_SCHEDULER_LOCK_KEY = 8_872_501
-
-# Held open for the process lifetime once acquired, so the advisory lock
-# stays taken until this worker process exits (Postgres releases advisory
-# locks automatically when the holding connection closes).
-_scheduler_lock_conn: "Connection | None" = None
-
-
-def _acquire_scheduler_lock() -> bool:
-    """Ensure only one process runs the scheduler.
-
-    Production runs vb-api as multiple gunicorn worker processes, each with
-    its own in-memory AsyncIOScheduler. Without this lock, every worker
-    registers and fires the same cron jobs independently, so each scheduled
-    job (health-check mails, chronicles, backups, ...) runs once per worker
-    instead of once per deployment. SQLite (dev-only fallback) never runs
-    with multiple workers, so it skips the lock and always starts.
-    """
-    global _scheduler_lock_conn  # noqa: PLW0603 -- lazy singleton, holds the advisory-lock connection open for process lifetime
-
-    if engine.dialect.name != "postgresql":
-        return True
-
-    conn = engine.connect()
-    acquired = bool(
-        conn.execute(
-            text("SELECT pg_try_advisory_lock(:key)"),
-            {"key": _SCHEDULER_LOCK_KEY},
-        ).scalar()
-    )
-    if not acquired:
-        conn.close()
-        return False
-
-    _scheduler_lock_conn = conn
-    return True
 
 
 # -------------------------------------------------------------------
@@ -300,7 +248,7 @@ def job_birthday_mails() -> None:
                 subject="Geburtstagsgruß Deiner Bundesbrüder",
                 html_content=html,
                 template_key="birthday",
-                from_addr="philchc@mg.vindobona2.at",
+                from_addr="philchc@vindobona2.at",
                 from_name="Philister-ChC Vindobona II",
                 reply_to="philchc@vindobona2.at",
                 bcc_emails=bcc_emails,
@@ -451,7 +399,7 @@ def _send_debtor_reminders(
             subject="Erinnerung an Deine Mitgliedsbeiträge",
             html_content=html,
             template_key="debtor_reminder",
-            from_addr="philisterkassier@mg.vindobona2.at",
+            from_addr="philisterkassier@vindobona2.at",
             from_name=sender_name,
             reply_to=sender_email,
             bcc_emails=bcc_emails,
@@ -703,7 +651,7 @@ def job_standesdb_health_check() -> None:
 # -------------------------------------------------------------------
 
 
-async def job_db_backup() -> None:
+def job_db_backup() -> None:
     storage = get_storage()
     started = datetime.now(UTC)
     try:
@@ -768,8 +716,9 @@ def _run_alembic_upgrade_head() -> None:
 
 def job_downsync() -> None:
     # Belt-and-suspenders: this job is only ever registered in
-    # non-production (see start_scheduler()), but a future registration
-    # bug must never let it run against a real production database.
+    # non-production (see app/worker.py's build_cron_jobs()), but a
+    # future registration bug must never let it run against a real
+    # production database.
     if get_settings().app_environment == "production":
         logger.error("Downsync job invoked in production — refusing to run.")
         return
@@ -841,238 +790,3 @@ def job_downsync() -> None:
             f"{restored_backup_name}."
         ),
     )
-
-
-# -------------------------------------------------------------------
-# Register all jobs
-# -------------------------------------------------------------------
-
-JOB_DESCRIPTIONS: dict[str, str] = {
-    "cleanup": (
-        "Bereinigt abgelaufene Sessions,"
-        " Password-Reset-Tokens, alte"
-        " Aktivitätsprotokolle und versandte"
-        " Emails sowie verwaiste User-Agents."
-    ),
-    "refresh_category_filter_hits": (
-        "Berechnet die Treffer aller"
-        " Kategorie-Filter in den AH-Kassen"
-        " neu. Bereits direkt zugeordnete"
-        " Transaktionen werden übersprungen."
-    ),
-    "birthday_mails": (
-        "Sendet Geburtstagsgrüße an"
-        " VBW-Mitglieder, die morgen"
-        " Geburtstag haben. BCC an den"
-        " Philister-ChC."
-    ),
-    "debtor_reminder": (
-        "Sendet vierteljährlich Erinnerungen"
-        " an Mitglieder mit einem"
-        " Beitragsrückstand von über 300 Euro."
-        " Enthält IBAN, BIC und aktuelle"
-        " Beitragshöhe."
-    ),
-    "standesdb_chronicles": (
-        "Versendet die wöchentliche"
-        " Jubiläums-Chronik (Geburtstage,"
-        " Aufnahmen, Burschungen,"
-        " Philistrierungen) an alle"
-        " Mitglieder, die den Versand"
-        " aktiviert haben."
-    ),
-    "archive_health_check": (
-        "Prüft wöchentlich, ob alle im Archiv"
-        " referenzierten Dateien in S3 vorhanden"
-        " sind, meldet verwaiste S3-Objekte und"
-        " unsortierte Uploads. Versendet einen"
-        " Bericht an alle Mitglieder mit der"
-        " Berechtigung 'archiveAdmin'."
-    ),
-    "standesdb_health_check": (
-        "Prüft wöchentlich, ob alle in der"
-        " Standesdatenbank referenzierten Bilder"
-        " in S3 vorhanden sind, und meldet"
-        " verwaiste S3-Objekte. Versendet einen"
-        " Bericht an alle Mitglieder mit der"
-        " Berechtigung 'standesdbVbwAdmin'."
-    ),
-    "db_backup": (
-        "Erstellt täglich um BACKUP_HOUR Uhr"
-        " (Default 03:00 UTC) eine vollständige"
-        " PostgreSQL-Sicherung und lädt sie auf S3 hoch."
-        " Dateiname: [environment]-YYYY-MM-DD_HH-MM-SS.dump."
-        " Löscht anschließend Backups, die älter als"
-        " BACKUP_RETENTION_DAYS (Default 29) sind."
-    ),
-    "downsync": (
-        "Nur auf Non-Production-Stages: spiegelt einmal täglich"
-        " (DOWNSYNC_HOUR, Default 04:00 UTC, eine Stunde nach dem"
-        " Prod-Backup) den kompletten Produktions-S3-Bucket auf die"
-        " Storage dieser Stage und restored anschließend das gerade"
-        " gespiegelte, frischeste Backup lokal (inkl."
-        " 'alembic upgrade head'). Sorgt dafür, dass Non-Production"
-        " einmal täglich mit aktuellen Produktivdaten versorgt wird."
-    ),
-}
-
-
-def _register_production_jobs() -> None:
-    scheduler.add_job(
-        job_refresh_category_filter_hits,
-        "cron",
-        hour=7,
-        minute=0,
-        id="refresh_category_filter_hits",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        job_birthday_mails,
-        "cron",
-        hour=15,
-        minute=53,
-        id="birthday_mails",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        job_debtor_reminder,
-        "cron",
-        day=25,
-        hour=18,
-        minute=32,
-        id="debtor_reminder",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        job_standesdb_chronicles,
-        "cron",
-        day_of_week="tue",
-        hour=17,
-        minute=0,
-        id="standesdb_chronicles",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        job_archive_health_check,
-        "cron",
-        day_of_week="tue",
-        hour=1,
-        minute=0,
-        id="archive_health_check",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        job_standesdb_health_check,
-        "cron",
-        day_of_week="tue",
-        hour=3,
-        minute=0,
-        id="standesdb_health_check",
-        replace_existing=True,
-    )
-    if BACKUP_ENABLED:
-        scheduler.add_job(
-            job_db_backup,
-            "cron",
-            hour=BACKUP_HOUR,
-            minute=0,
-            timezone=UTC,
-            id="db_backup",
-            replace_existing=True,
-        )
-    else:
-        logger.info("DB backup job disabled via BACKUP_ENABLED=false.")
-
-
-def _register_non_production_jobs() -> None:
-    scheduler.add_job(
-        job_downsync,
-        "cron",
-        hour=DOWNSYNC_HOUR,
-        minute=0,
-        timezone=UTC,
-        id="downsync",
-        replace_existing=True,
-    )
-
-
-def start_scheduler() -> None:
-    # Every worker registers the same jobs, lock or no lock — this is what
-    # makes get_scheduled_jobs() below return identical results regardless
-    # of which of the (production: 2) gunicorn workers handles the request.
-    # Registering a job on a scheduler that never starts is inert: nothing
-    # fires, only the trigger's schedule becomes introspectable.
-    scheduler.add_job(
-        job_cleanup,
-        "cron",
-        minute=0,
-        id="cleanup",
-        replace_existing=True,
-    )
-
-    # Read fresh (not a module-level constant like BACKUP_ENABLED/BACKUP_HOUR
-    # above) so tests can flip APP_ENVIRONMENT per test case and observe
-    # different registration behavior from the same running process.
-    if get_settings().app_environment == "production":
-        _register_production_jobs()
-    else:
-        _register_non_production_jobs()
-
-    if not _acquire_scheduler_lock():
-        logger.info(
-            "Scheduler lock held by another worker process — jobs are"
-            " registered for introspection, but execution stays disabled"
-            " in this process."
-        )
-        return
-
-    scheduler.start()
-    logger.info(
-        "Scheduler started with %d jobs.",
-        len(scheduler.get_jobs()),
-    )
-
-
-def _format_next_run(job: Job, now: datetime) -> str | None:
-    """Compute a job's next fire time fresh from its trigger, not its cache.
-
-    Job.next_run_time only keeps advancing while the scheduler that added
-    it is actually ticking (scheduler.start()) — in production that is
-    exactly one of the two gunicorn workers (see _acquire_scheduler_lock).
-    The other worker's copy of the same job freezes at whatever
-    next_run_time was computed at add_job() time on process startup, which
-    goes stale (shows a past date) once that moment passes. Deriving it
-    from the trigger and the current time instead keeps every worker's
-    answer correct and identical.
-    """
-    next_run = job.trigger.get_next_fire_time(None, now)
-    if next_run is None:
-        return None
-    return next_run.strftime("%d.%m.%Y, %H:%M")
-
-
-def get_scheduled_jobs() -> list[dict[str, str | None]]:
-    now = datetime.now(APP_TZ)
-    return [
-        {
-            "id": job.id,
-            "name": job.name,
-            "trigger": str(job.trigger),
-            "next_run": _format_next_run(job, now),
-            "description": JOB_DESCRIPTIONS.get(job.id),
-        }
-        for job in scheduler.get_jobs()
-    ]
-
-
-def stop_scheduler() -> None:
-    global _scheduler_lock_conn  # noqa: PLW0603 -- releases the singleton set up in ensure_single_scheduler_instance()
-
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-
-    if _scheduler_lock_conn is not None:
-        _scheduler_lock_conn.close()
-        _scheduler_lock_conn = None
-
-    logger.info("Scheduler stopped.")

@@ -47,6 +47,12 @@ jobs:
     env:
       DATABASE_URL: postgresql://test:test@localhost:5432/test
       TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
+      # A syntactically valid but never-actually-contacted value is enough:
+      # the ARQ Redis pool is a lazy singleton (see app/core/arq_pool.py),
+      # so nothing connects to it unless a test explicitly exercises an
+      # enqueue path (those tests mock the pool) - no `services: redis:`
+      # container needed here.
+      REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-minimum-32-chars!!
       APP_ENVIRONMENT: test
       CORS_ORIGINS: http://localhost:20001

@@ -11,7 +11,7 @@ anyio==4.14.1
     #   httpx2
     #   starlette
     #   watchfiles
-apscheduler==3.11.3
+arq==0.28.0
     # via -r requirements.txt
 bcrypt==5.0.0
     # via -r requirements.txt
@@ -35,7 +35,9 @@ cffi==2.0.0
 charset-normalizer==3.4.7
     # via requests
 click==8.4.2
-    # via uvicorn
+    # via
+    #   arq
+    #   uvicorn
 coverage==7.14.3
     # via pytest-cov
 cryptography==49.0.0
@@ -66,6 +68,8 @@ h11==0.16.0
     # via
     #   httpcore2
     #   uvicorn
+hiredis==3.4.1
+    # via redis
 httpcore2==2.5.0
     # via httpx2
 httptools==0.8.0
@@ -137,7 +141,9 @@ pydyf==0.12.1
 pygments==2.20.0
     # via pytest
 pyjwt==2.13.0
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   redis
 pyphen==0.17.2
     # via weasyprint
 pyright==1.1.411
@@ -161,6 +167,8 @@ pyyaml==6.0.3
     #   moto
     #   responses
     #   uvicorn
+redis==5.3.1
+    # via arq
 requests==2.34.2
     # via
     #   -r requirements.txt
@@ -210,8 +218,6 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
-tzlocal==5.4.4
-    # via apscheduler
 urllib3==2.7.0
     # via
     #   botocore

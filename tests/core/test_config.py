@@ -115,6 +115,17 @@ def test_missing_database_url_aborts_with_fatal_message() -> None:
     assert "DATABASE_URL is not set" in result.stderr
 
 
+def test_missing_redis_url_aborts_with_fatal_message() -> None:
+    result = _run(
+        "from app.core.config import get_settings; get_settings()",
+        {"APP_ENVIRONMENT": "test", "CORS_ORIGINS": "https://a.example.com"},
+        unset=["REDIS_URL"],
+    )
+
+    assert result.returncode == 1
+    assert "REDIS_URL is not set" in result.stderr
+
+
 def test_valid_cors_origins_are_split_and_stripped() -> None:
     result = _run(
         "from app.core.config import get_settings; "
