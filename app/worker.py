@@ -15,9 +15,18 @@ are unchanged (still open their own `SessionLocal()`, still call
 body). `asyncio.to_thread()` moves the actual (blocking DB/SMTP/S3/
 subprocess) work off arq's event loop, so one slow job never blocks
 another job from being picked up concurrently.
+
+`install_task_origin_log_filter()` tags every job-lifecycle log line
+arq itself prints with `[scheduled]`/`[triggered]` (see
+app/core/worker_logging.py) — installed once here at import time, since
+this module is what arq's CLI imports to load `WorkerSettings`.
+`task_downsync()` additionally logs its own origin explicitly (see its
+own docstring below) — the one task where that filter can't tell the
+two apart.
 """
 
 import asyncio
+import logging
 from typing import Any, ClassVar, cast
 
 from arq import cron
@@ -52,6 +61,11 @@ from app.core.scheduler import (
     job_standesdb_chronicles,
     job_standesdb_health_check,
 )
+from app.core.worker_logging import describe_job_origin, install_task_origin_log_filter
+
+install_task_origin_log_filter()
+
+logger = logging.getLogger(__name__)
 
 
 async def task_health_check(ctx: dict[str, Any]) -> str:  # noqa: ARG001 -- ctx is arq's required task signature
@@ -93,11 +107,24 @@ async def task_db_backup(ctx: dict[str, Any]) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_db_backup)
 
 
-async def task_downsync(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_downsync(ctx: dict[str, Any]) -> None:
     """Shared by the nightly non-production cron entry (see
     build_cron_jobs()) AND the manual `POST /api/system/downsync/trigger`
     endpoint (`arq_pool.enqueue_job("task_downsync")`) — one execution
-    path regardless of how it was triggered."""
+    path regardless of how it was triggered.
+
+    Registering the same name as both a cron job and an ad-hoc enqueue
+    target means arq's own job-lifecycle log line can't tell the two
+    apart here (see app/core/worker_logging.py's module docstring) — it
+    always logs a bare, job-id-less ref for this task, cron-triggered or
+    not. This function logs its own origin explicitly instead, since
+    `ctx["job_id"]` still carries the real distinction.
+    """
+    logger.info(
+        "[%s] task_downsync starting (job_id=%s)",
+        describe_job_origin(ctx["job_id"]),
+        ctx["job_id"],
+    )
     await asyncio.to_thread(job_downsync)
 
 

@@ -7,10 +7,11 @@ per-stage cron_jobs construction, and the timezone/Redis configuration.
 """
 
 import asyncio
+from unittest.mock import Mock
 
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
-from app.worker import WorkerSettings, build_cron_jobs, task_health_check
+from app.worker import WorkerSettings, build_cron_jobs, task_downsync, task_health_check
 
 
 class TestWorkerSettings:
@@ -72,3 +73,54 @@ class TestBuildCronJobs:
 
         names = {j.name for j in jobs}
         assert "task_db_backup" not in names
+
+
+class TestTaskDownsync:
+    # task_downsync is registered under the same name as both a cron job
+    # and an ad-hoc enqueue target (see build_cron_jobs()/its own
+    # docstring) -- arq's own job-lifecycle log line can't tell those two
+    # apart for this one task, so it logs its origin itself from
+    # ctx["job_id"]. These regression-guard that classification directly,
+    # since a flipped comparison here would silently mislabel every run.
+
+    def test_logs_scheduled_for_a_cron_generated_job_id(self, monkeypatch) -> None:
+        # Mocks app.worker's own logger reference directly rather than
+        # asserting via caplog -- alembic/env.py's fileConfig() call
+        # (run once per test session by the _create_schema fixture)
+        # disables every logger that already existed at that point,
+        # which includes every module-level logger created at test
+        # collection time, app.worker's among them.
+        monkeypatch.setattr("app.worker.job_downsync", lambda: None)
+        mock_logger = Mock()
+        monkeypatch.setattr("app.worker.logger", mock_logger)
+
+        asyncio.run(task_downsync({"job_id": "task_downsync:1735689600000"}))
+
+        mock_logger.info.assert_called_once_with(
+            "[%s] task_downsync starting (job_id=%s)",
+            "scheduled",
+            "task_downsync:1735689600000",
+        )
+
+    def test_logs_triggered_for_a_random_hex_job_id(self, monkeypatch) -> None:
+        # Shape of the default job_id arq assigns to enqueue_job() calls
+        # that omit _job_id -- every ad-hoc trigger in this codebase.
+        monkeypatch.setattr("app.worker.job_downsync", lambda: None)
+        mock_logger = Mock()
+        monkeypatch.setattr("app.worker.logger", mock_logger)
+
+        asyncio.run(task_downsync({"job_id": "5f46437f49894025acc145be5d22df28"}))
+
+        mock_logger.info.assert_called_once_with(
+            "[%s] task_downsync starting (job_id=%s)",
+            "triggered",
+            "5f46437f49894025acc145be5d22df28",
+        )
+
+    def test_still_runs_job_downsync(self, monkeypatch) -> None:
+        calls: list[None] = []
+        monkeypatch.setattr("app.worker.job_downsync", lambda: calls.append(None))
+
+        asyncio.run(task_downsync({"job_id": "task_downsync:1735689600000"}))
+
+        assert len(calls) == 1
