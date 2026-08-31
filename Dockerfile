@@ -65,6 +65,14 @@ RUN chmod +x docker-entrypoint.sh
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp
 
+# The container filesystem is mounted read-only in production/QA/test
+# (only /tmp is a writable tmpfs, see the deploy repo's Quadlet files).
+# Python silently skips writing __pycache__/*.pyc when it can't - not a
+# crash risk - but disabling it outright avoids relying on that fallback
+# and keeps every process attempt to touch the read-only source tree out
+# of the picture entirely.
+ENV PYTHONDONTWRITEBYTECODE=1
+
 USER app
 
 EXPOSE 8000
@@ -78,6 +86,8 @@ CMD ["gunicorn", "main:app", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "2", \
      "--timeout", "120", \
+     "--graceful-timeout", "30", \
+     "--worker-tmp-dir", "/tmp", \
      "--access-logfile", "-", \
      "--no-control-socket"]
 # --no-control-socket: this feature (gunicorn >= 25.1.0) is for gunicornc,
@@ -86,3 +96,14 @@ CMD ["gunicorn", "main:app", \
 # to create $HOME/.gunicorn/gunicorn.ctl by default, which fails with a
 # permission error on every start: the app user above is created with
 # --no-create-home, so its $HOME (/home/app) was never actually created.
+# --graceful-timeout: gunicorn's own default (30s) made explicit - the
+# time in-flight requests get to finish on shutdown before a worker is
+# force-killed. Matched by the Quadlet's TimeoutStopSec so systemd never
+# sends SIGKILL before gunicorn's own grace period has run out.
+# --worker-tmp-dir: every gunicorn worker creates a small heartbeat file
+# here on start (gunicorn.workers.base.Worker, inherited by
+# UvicornWorker) - required for the worker to boot at all, not optional.
+# Pointed explicitly at /tmp (the container's writable tmpfs mount in
+# production/QA/test) instead of relying on the implicit system-temp-dir
+# default; gunicorn's own docs recommend a memory-backed filesystem here
+# to avoid os.fchmod blocking on a disk-backed one.
