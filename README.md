@@ -156,6 +156,12 @@ This is the same logic `scripts/downsync_prod.py` already performs for manual/in
 
 `GET /api/system/scheduled-jobs` (requires `systemAdmin`) computes each applicable job's next run straight from the declarative schedule in `app/core/job_schedule_registry.py` (via arq's own `next_cron()`) — no live worker instance needed for this, so the web and worker containers can never disagree on what's scheduled where.
 
+### Reading the worker container's logs
+
+The `vb-api-worker` container logs every job start/success/retry/failure via arq's own default logging — a cron run and an ad-hoc `enqueue_job()` run (e.g. a mail triggered by a request) otherwise look almost identical there. `app/core/worker_logging.py` tags each of these lines with `[scheduled]` or `[triggered]`, so a container log viewer (e.g. Dozzle) makes the distinction obvious at a glance without needing to know arq's own job-id-prefix convention.
+
+`downsync` is the one exception: since it's registered under the same name as both a cron job and a manual-trigger target (see above), arq itself can no longer tell those two apart in its log line once a name is cron-registered — `task_downsync()` therefore logs its own `[scheduled]`/`[triggered]` line explicitly instead, from the actual job it was given.
+
 ## Scripts
 
 Operational scripts, re-run on demand as part of regular ops:
@@ -395,6 +401,24 @@ jeden anwendbaren Job den nächsten Lauf direkt aus dem deklarativen
 Zeitplan in `app/core/job_schedule_registry.py` (über arqs eigenes
 `next_cron()`) — dafür ist keine laufende Worker-Instanz nötig, Web- und
 Worker-Container können also nie uneinig darüber sein, was wo geplant ist.
+
+### Logs des Worker-Containers lesen
+
+Der `vb-api-worker`-Container loggt jeden Job-Start/-Erfolg/-Retry/
+-Fehlschlag über arqs eigenes Default-Logging — ein Cron-Lauf und ein
+per `enqueue_job()` angestoßener Ad-hoc-Lauf (z. B. eine durch einen
+Request ausgelöste Mail) sehen dort sonst fast identisch aus.
+`app/core/worker_logging.py` markiert jede dieser Zeilen mit
+`[scheduled]` bzw. `[triggered]`, sodass ein Container-Log-Viewer (z. B.
+Dozzle) die Unterscheidung auf einen Blick zeigt, ohne dass man arqs
+eigene Job-ID-Präfix-Konvention kennen muss.
+
+`downsync` ist die eine Ausnahme: Da er unter demselben Namen sowohl als
+Cron-Job als auch als manuelles Trigger-Ziel registriert ist (siehe
+oben), kann arq selbst die beiden Fälle in seiner Log-Zeile nicht mehr
+unterscheiden, sobald ein Name Cron-registriert ist — `task_downsync()`
+loggt seine `[scheduled]`/`[triggered]`-Zeile deshalb selbst, anhand des
+tatsächlich übergebenen Jobs.
 
 ## Skripte
 
