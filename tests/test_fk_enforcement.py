@@ -48,7 +48,7 @@ def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTrans
         iban="AT999",
         amount=10.0,
         subject="FK test",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
     )
     db.add(tx)
     db.commit()
@@ -554,8 +554,8 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "two_cols")
-        tx.delegating_member_id = member.id
-        tx.delegating_contact_id = contact.id
+        tx.delegating_member_id = member.id_uuid
+        tx.delegating_contact_id = contact.id_uuid
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -569,7 +569,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     def test_inserting_with_unknown_delegating_member_id_is_rejected(self, db_session):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_member")
-        tx.delegating_member_id = 999999
+        tx.delegating_member_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -577,7 +577,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     def test_inserting_with_unknown_delegating_contact_id_is_rejected(self, db_session):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_contact")
-        tx.delegating_contact_id = 999999
+        tx.delegating_contact_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -587,7 +587,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     ):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_account")
-        tx.delegating_p4x_account_id = 999999
+        tx.delegating_p4x_account_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -597,7 +597,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     ):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_special")
-        tx.delegating_p4x_specialcontact_id = 999999
+        tx.delegating_p4x_specialcontact_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -611,7 +611,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_member")
-        tx.delegating_member_id = member.id
+        tx.delegating_member_id = member.id_uuid
         db_session.commit()
         tx_id = tx.id
 
@@ -629,7 +629,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_special")
-        tx.delegating_p4x_specialcontact_id = special.id
+        tx.delegating_p4x_specialcontact_id = special.id_uuid
         db_session.commit()
         tx_id = tx.id
 

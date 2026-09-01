@@ -259,7 +259,7 @@ class TestCategoryUsage:
             iban="AT00",
             amount=10.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

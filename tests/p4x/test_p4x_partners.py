@@ -14,7 +14,6 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.p4x_partner_service import (
     find_partner_entity,
-    find_partner_entity_by_legacy_id,
     search_partners,
     set_transaction_partner,
 )
@@ -75,7 +74,7 @@ def _create_tx(db, account: P4xAccount, iban: str = "DE001") -> P4xTransaction:
         iban=iban,
         amount=15.0,
         subject="test",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -183,41 +182,6 @@ class TestFindPartnerEntity:
     def test_find_nonexistent_id(self, db_session):
         _seed(db_session)
         assert find_partner_entity(db_session, "member", uuid.uuid4()) is None
-
-
-class TestFindPartnerEntityByLegacyId:
-    """find_partner_entity_by_legacy_id() is the same lookup as
-    find_partner_entity(), keyed by the target's still-integer primary
-    key instead of id_uuid - used only for a transaction's delegating
-    partner until p4x_transactions' own UUID cutover unifies both."""
-
-    def test_find_member(self, db_session):
-        _, member, _, _ = _seed(db_session)
-        entity = find_partner_entity_by_legacy_id(db_session, "member", member.id)
-        assert entity is not None
-        assert entity.id == member.id
-
-    def test_find_contact(self, db_session):
-        _, _, contact, _ = _seed(db_session)
-        entity = find_partner_entity_by_legacy_id(db_session, "contact", contact.id)
-        assert entity is not None
-
-    def test_find_special(self, db_session):
-        _, _, _, special = _seed(db_session)
-        entity = find_partner_entity_by_legacy_id(db_session, "special", special.id)
-        assert entity is not None
-
-    def test_find_account(self, db_session):
-        account, _, _, _ = _seed(db_session)
-        entity = find_partner_entity_by_legacy_id(db_session, "account", account.id)
-        assert entity is not None
-
-    def test_find_unknown_type(self, db_session):
-        assert find_partner_entity_by_legacy_id(db_session, "unknown", 1) is None
-
-    def test_find_nonexistent_id(self, db_session):
-        _seed(db_session)
-        assert find_partner_entity_by_legacy_id(db_session, "member", 99999) is None
 
 
 class TestSetTransactionPartner:
@@ -371,7 +335,7 @@ class TestDelegatingPartner:
 
         db_session.refresh(tx)
         assert tx.delegating_partner_type == "contact"
-        assert tx.delegating_partner_id == contact.id
+        assert tx.delegating_partner_id == contact.id_uuid
 
     def test_unset_delegating(self, db_session):
         account, member, contact, _ = _seed(db_session)

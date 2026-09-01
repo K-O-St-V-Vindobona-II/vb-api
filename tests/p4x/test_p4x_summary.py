@@ -64,7 +64,7 @@ def _seed(db) -> P4xAccount:
         iban="DE001",
         amount=15.0,
         subject="MB Kopernikus",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -85,7 +85,7 @@ def _seed(db) -> P4xAccount:
         iban="DE002",
         amount=-28.39,
         subject="Telekom",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -207,7 +207,7 @@ class TestSummaryXlsx:
             iban="AT999",
             amount=-10.0,
             subject="Beleg",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             attachment=base64.b64encode(b"%PDF-1.4 test").decode(),
             created_at=_now(),
             updated_at=_now(),
@@ -250,7 +250,7 @@ class TestSummaryXlsxEdgeCases:
             iban="DE003",
             amount=50.0,
             subject="Gemischte Buchung",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -301,7 +301,7 @@ class TestSummaryXlsxEdgeCases:
             iban="AT777",
             amount=-5.0,
             subject="Bad attach",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             attachment="!!!not-valid-base64!!!",
             created_at=_now(),
             updated_at=_now(),
@@ -342,7 +342,7 @@ class TestSummaryXlsxEdgeCases:
             iban="AT888",
             amount=42.0,
             subject="FilterOnly",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -380,7 +380,7 @@ class TestSummaryXlsxEdgeCases:
             iban="DE001",
             amount=10.0,
             subject="Dezember Buchung",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

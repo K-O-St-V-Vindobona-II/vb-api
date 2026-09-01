@@ -107,7 +107,7 @@ class TestP4xTransaction:
             iban="DE49100110012624770917",
             amount=15.00,
             subject="monatlicher MB v. Kopernikus",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             raw='{"test": true}',
             created_at=_now(),
             updated_at=_now(),
@@ -128,7 +128,7 @@ class TestP4xTransaction:
             iban="AT00TEST",
             amount=-100.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             attachment="dGVzdA==",
             created_at=_now(),
             updated_at=_now(),
@@ -146,7 +146,7 @@ class TestP4xTransaction:
             iban="AT00TEST",
             amount=50.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -241,7 +241,7 @@ class TestP4xCategoryDirect:
             iban="AT00TEST",
             amount=30.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -271,7 +271,7 @@ class TestP4xCategoryFilterHit:
             iban="AT00TEST",
             amount=15.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -456,7 +456,7 @@ class TestPartnerTransactionRelationship:
             iban="DE49100110012624770917",
             amount=15.0,
             subject="test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

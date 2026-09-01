@@ -50,7 +50,7 @@ def _add_tx(
     iban: str = "AT001",
     subject: str = "Test",
     hash_suffix: str = "",
-    delegating_member_id: int | None = None,
+    delegating_member_id: uuid.UUID | None = None,
 ) -> P4xTransaction:
     tx = P4xTransaction(
         sha256_hash=f"q_{booking}_{amount}_{iban}_{hash_suffix}",
@@ -59,7 +59,7 @@ def _add_tx(
         iban=iban,
         amount=amount,
         subject=subject,
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         delegating_member_id=delegating_member_id,
         created_at=_now(),
         updated_at=_now(),
@@ -152,14 +152,14 @@ class TestGetTransactionsByPartner:
             date(2026, 3, 10),
             15.0,
             iban="AT999",
-            delegating_member_id=member.id,
+            delegating_member_id=member.id_uuid,
         )
 
         items, total = get_transactions_by_partner(
             db_session, account, "member", member.id_uuid, 1
         )
         assert total == 1
-        assert items[0].delegating_partner_id == member.id
+        assert items[0].delegating_partner_id == member.id_uuid
 
     def test_empty_when_no_partner_match(self, db_session):
         account = _create_account(db_session)

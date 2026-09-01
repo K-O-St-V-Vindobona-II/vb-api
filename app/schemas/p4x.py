@@ -38,24 +38,6 @@ class PartnerRef(BaseModel):
     cn: str
 
 
-class LegacyPartnerRef(BaseModel):
-    """Same shape as PartnerRef, but keyed by the referenced entity's
-    still-integer primary key - used only for a transaction's delegating
-    partner, since p4x_transactions.delegating_* stays integer until that
-    table's own UUID cutover unifies it back with PartnerRef. id_uuid is
-    included alongside id so the frontend can re-submit an unchanged
-    delegating partner as a PartnerRef (the set-partner endpoint always
-    resolves by id_uuid) without a fresh search round-trip."""
-
-    type: str = Field(
-        ...,
-        description="Either 'member' or 'contact' - which of the two `id` refers to.",
-    )
-    id: int
-    id_uuid: uuid.UUID
-    cn: str
-
-
 class CategoryDirectResponse(BaseModel):
     id: int
     p4x_category_id: int
@@ -169,7 +151,7 @@ class TransactionResponse(BaseModel):
     comment: str | None = None
     has_attachment: bool = False
     partner: PartnerRef | None = None
-    delegating_partner: LegacyPartnerRef | None = None
+    delegating_partner: PartnerRef | None = None
     p4x_category_directs: list[CategoryDirectResponse] = Field(
         default=[],
         description=(

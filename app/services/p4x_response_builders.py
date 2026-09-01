@@ -16,7 +16,6 @@ from app.schemas.p4x import (
     CategoryFilterResponse,
     CategoryFilterShortResponse,
     CategoryWithUsageResponse,
-    LegacyPartnerRef,
     PartnerRef,
     TransactionResponse,
 )
@@ -46,16 +45,15 @@ def build_transaction_response(
 
     delegating_partner = None
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity_by_legacy_id(
+        entity = p4x_partner_service.find_partner_entity(
             db,
             tx.delegating_partner_type,
             tx.delegating_partner_id,
         )
         if entity:
-            delegating_partner = LegacyPartnerRef(
+            delegating_partner = PartnerRef(
                 type=tx.delegating_partner_type,
                 id=tx.delegating_partner_id,
-                id_uuid=entity.id_uuid,
                 cn=getattr(entity, "cn", ""),
             )
 
@@ -103,7 +101,10 @@ def build_transaction_response(
         iban=tx.iban,
         amount=tx.amount,
         subject=tx.subject,
-        p4x_account_id=tx.p4x_account_id,
+        # tx.account.id, not tx.p4x_account_id (which now stores id_uuid) -
+        # TransactionTable.vue routes raw/attachment downloads by this
+        # still-integer account id.
+        p4x_account_id=tx.account.id,
         p4x_account_cn=tx.account.cn if tx.account else "",
         p4x_account_iban=tx.account.iban if tx.account else "",
         comment=tx.comment,
@@ -122,7 +123,7 @@ def build_account_response(
     tx_count = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .count()
@@ -130,7 +131,7 @@ def build_account_response(
     latest = (
         db.query(P4xTransaction.booking)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .order_by(P4xTransaction.booking.desc())
@@ -176,11 +177,12 @@ def get_transaction_for_account(
     account_id: int,
     transaction_id: int,
 ) -> P4xTransaction:
+    account = get_account_or_404(db, account_id)
     tx = (
         db.query(P4xTransaction)
         .filter(
             P4xTransaction.id == transaction_id,
-            P4xTransaction.p4x_account_id == account_id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .first()

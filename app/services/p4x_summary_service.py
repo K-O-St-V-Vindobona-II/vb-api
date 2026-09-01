@@ -129,7 +129,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         db.query(P4xTransaction)
         .filter(
             P4xTransaction.id.in_(all_tx_ids),
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .all()
@@ -198,7 +198,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
         for a in db.query(P4xAccount).filter(P4xAccount.deleted_at.is_(None)).all()
         if db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == a.id,
+            P4xTransaction.p4x_account_id == a.id_uuid,
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.booking >= str(start),
             P4xTransaction.booking <= str(end),
@@ -241,7 +241,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
         txs = (
             db.query(P4xTransaction)
             .filter(
-                P4xTransaction.p4x_account_id == a.id,
+                P4xTransaction.p4x_account_id == a.id_uuid,
                 P4xTransaction.deleted_at.is_(None),
                 P4xTransaction.booking >= str(start),
                 P4xTransaction.booking <= str(end),
@@ -537,7 +537,7 @@ def _format_partner_for_xlsx(db: Session, tx: P4xTransaction) -> str:
     }
 
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity_by_legacy_id(
+        entity = p4x_partner_service.find_partner_entity(
             db, tx.delegating_partner_type, tx.delegating_partner_id
         )
         label = type_labels.get(tx.delegating_partner_type, "")

@@ -117,7 +117,7 @@ def _create_transaction(
         iban=iban,
         amount=amount,
         subject=subject,
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -460,7 +460,7 @@ class TestSetTransactionPartnerWithDataHttp:
         assert resp.status_code == 200
         data = resp.json()
         assert data["partner"]["id"] == str(admin.id_uuid)
-        assert data["delegating_partner"]["id"] == delegate.id
+        assert data["delegating_partner"]["id"] == str(delegate.id_uuid)
 
 
 class TestUpdateTransactionValidationHttp:

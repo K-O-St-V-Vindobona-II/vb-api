@@ -48,12 +48,8 @@ def _apply_category_filter_criteria(
         query = query.filter(~P4xTransaction.id.in_(tx_with_directs))
 
     if category_filter.p4x_account_id:
-        # p4x_transactions.p4x_account_id is still the account's legacy
-        # integer id (that table's own UUID cutover is a later slice),
-        # while category_filter.p4x_account_id now stores id_uuid -
-        # bridged here via the already-joined account relationship.
         query = query.filter(
-            P4xTransaction.p4x_account_id == category_filter.account.id
+            P4xTransaction.p4x_account_id == category_filter.p4x_account_id
         )
 
     if category_filter.iban and len(category_filter.iban):

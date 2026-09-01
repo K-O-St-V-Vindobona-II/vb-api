@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, extract, func
-from sqlalchemy import false as sa_false
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import selectinload
 
@@ -25,7 +24,6 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
-from app.services import p4x_partner_service
 
 PAGINATION_SIZE = 100
 
@@ -100,7 +98,7 @@ def delete_account(db: Session, account: P4xAccount) -> None:
     tx_count = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .count()
@@ -134,7 +132,7 @@ def get_account_balance(
     total = (
         db.query(func.sum(P4xTransaction.amount))
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.booking <= up_to_date,
             P4xTransaction.deleted_at.is_(None),
         )
@@ -164,7 +162,7 @@ def get_transactions_by_month(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
             extract("year", P4xTransaction.booking) == year,
             extract("month", P4xTransaction.booking) == month,
@@ -212,19 +210,6 @@ def get_transactions_by_partner(
         msg = f"Unbekannter partner_type: {partner_type!r}"
         raise ValueError(msg)
 
-    # p4x_transactions.delegating_* still stores the target's legacy
-    # integer id - that table's own UUID cutover is a later slice -
-    # resolved here via the same id_uuid identifier so both halves of the
-    # OR below compare against the correct column type. If the identifier
-    # matches no entity at all, the delegating half must contribute
-    # nothing rather than falling back to an "IS NULL" comparison, which
-    # would wrongly match every transaction with no delegating partner
-    # set at all.
-    remote = p4x_partner_service.find_partner_entity(db, partner_type, partner_id)
-    delegating_match = (
-        delegating_column == remote.id if remote is not None else sa_false()
-    )
-
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
@@ -238,13 +223,13 @@ def get_transactions_by_partner(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .filter(
             # (partner matches AND no delegating) OR (delegating matches)
             (P4xTransaction.iban.in_(partner_ibans) & no_delegation_filter())
-            | delegating_match
+            | (delegating_column == partner_id)
         )
         .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
@@ -314,7 +299,7 @@ def get_transactions_by_category(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(all_tx_ids),
         )
@@ -357,7 +342,7 @@ def get_transactions_by_filter(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(tx_ids),
         )
@@ -451,7 +436,7 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         r[0]
         for r in db.query(P4xTransaction.id)
         .filter(
-            P4xTransaction.p4x_account_id == account.id,
+            P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
         .all()

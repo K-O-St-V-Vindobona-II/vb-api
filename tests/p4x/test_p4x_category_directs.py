@@ -50,7 +50,7 @@ def _seed(db) -> tuple[P4xAccount, P4xCategory, P4xTransaction]:
         iban="AT001",
         amount=100.0,
         subject="Test Transaktion",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )

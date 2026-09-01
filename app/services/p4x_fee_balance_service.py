@@ -305,10 +305,9 @@ def _get_fee_payments_sum(
     Fee payments = byPartner('member', id)
     AND byCategory(FEE_CATEGORY_ID) AND amount > 0
 
-    P4xPartner.member_id references members.id_uuid (not members.id -
-    members' own Final-Cutover is a later slice), while
-    P4xTransaction.delegating_member_id below still stores the legacy
-    integer id - hence using both of the member's id flavors here.
+    Both P4xPartner.member_id and P4xTransaction.delegating_member_id
+    reference members.id_uuid, not members.id - members' own
+    Final-Cutover is a later slice.
     """
     partner_ibans = [
         r[0]
@@ -377,7 +376,7 @@ def _get_fee_payments_sum(
             P4xTransaction.iban.in_(partner_ibans)
             & p4x_account_service.no_delegation_filter()
         )
-        | (P4xTransaction.delegating_member_id == member.id),
+        | (P4xTransaction.delegating_member_id == member.id_uuid),
     )
 
     if inclusive_end:
@@ -397,7 +396,7 @@ def _get_fee_payments_list(
 ) -> list[dict[str, str | Decimal]]:
     """Get individual fee payments as list for the progress view.
 
-    Same dual-id-flavor reasoning as _get_fee_payments_sum() above.
+    Same id_uuid reasoning as _get_fee_payments_sum() above.
     """
     partner_ibans = [
         r[0]
@@ -469,7 +468,7 @@ def _get_fee_payments_list(
                 P4xTransaction.iban.in_(partner_ibans)
                 & p4x_account_service.no_delegation_filter()
             )
-            | (P4xTransaction.delegating_member_id == member.id),
+            | (P4xTransaction.delegating_member_id == member.id_uuid),
         )
         .all()
     )
@@ -663,7 +662,7 @@ class _FeeCategoryTxRow(NamedTuple):
     iban: str | None
     booking: date
     amount: Decimal
-    delegating_member_id: int | None
+    delegating_member_id: uuid.UUID | None
     no_delegation: bool
 
 
@@ -834,6 +833,7 @@ def _attribute_payment(
     states: dict[int, _MemberFeeState],
     iban_map: dict[str, int],
     members_with_own_iban: set[int],
+    id_by_uuid: dict[uuid.UUID, int],
     row: _FeeCategoryTxRow,
 ) -> None:
     """Same attribution rule as p4x_account_service.no_delegation_filter()
@@ -848,8 +848,16 @@ def _attribute_payment(
     a single registered iban of their own never receives credit for a
     payment, not even one explicitly delegated to them. See
     TestGetFeeBalancesMatchesCalculateFeeBalance's "T" (delegated_target)
-    case, which caught this."""
-    target_id = row.delegating_member_id
+    case, which caught this.
+
+    row.delegating_member_id is the target member's id_uuid; id_by_uuid
+    translates it back to the member's legacy integer id, the flavor
+    states/members_with_own_iban are keyed by."""
+    target_id = (
+        id_by_uuid.get(row.delegating_member_id)
+        if row.delegating_member_id is not None
+        else None
+    )
     if target_id is not None and target_id not in members_with_own_iban:
         target_id = None
     if target_id is None and row.no_delegation and row.iban is not None:
@@ -890,7 +898,7 @@ def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
         db, _fee_category_tx_ids(db), booking_from, booking_to
     )
     for row in tx_rows:
-        _attribute_payment(states, iban_map, members_with_own_iban, row)
+        _attribute_payment(states, iban_map, members_with_own_iban, id_by_uuid, row)
 
     entries: list[FeeBalanceListEntry] = [
         {

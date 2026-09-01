@@ -58,7 +58,7 @@ class TestGetAccountBalancePrecision:
                     iban="AT001",
                     amount=Decimal("0.10"),
                     subject="Test",
-                    p4x_account_id=account.id,
+                    p4x_account_id=account.id_uuid,
                     created_at=_now(),
                     updated_at=_now(),
                 )
@@ -97,7 +97,7 @@ class TestSetCategoryDirectPrecision:
             iban="AT001",
             amount=amount,
             subject="Split test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -136,7 +136,7 @@ class TestSetCategoryDirectPrecision:
             iban="AT001",
             amount=Decimal("1.00"),
             subject="Split test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -301,7 +301,7 @@ class TestGetFeeBalancesPrecision:
                 iban="AT001",
                 amount=Decimal("0.10"),
                 subject="Test",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 created_at=_now(),
                 updated_at=_now(),
             )

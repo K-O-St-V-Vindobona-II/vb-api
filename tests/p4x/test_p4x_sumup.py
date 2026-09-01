@@ -51,7 +51,7 @@ def _add_sumup_tx(
         iban="",
         amount=amount,
         subject="SumUp",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )

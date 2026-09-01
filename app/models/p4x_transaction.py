@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,30 +43,42 @@ class P4xTransaction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # p4x_transactions_id_uuid_and_fk_cutover.py) - not yet the primary
+    # key. This table's own Final-Cutover is a later slice.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     booking: Mapped[date] = mapped_column(Date, index=True)
     valuation: Mapped[date] = mapped_column(Date, index=True)
     iban: Mapped[str] = mapped_column(String, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
-    p4x_account_id: Mapped[int] = mapped_column(
-        ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    # References p4x_accounts.id_uuid, not p4x_accounts.id - p4x_accounts
+    # itself won't have a UUID primary key until its own Final-Cutover.
+    p4x_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("p4x_accounts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    delegating_member_id: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+    # The four delegating_* columns below each reference their target
+    # table's id_uuid, not its own (still-integer) id - members/contacts/
+    # p4x_accounts/p4x_special_contacts each keep their own Final-Cutover
+    # for a later slice.
+    delegating_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_contact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+    delegating_contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_p4x_account_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_accounts.id", ondelete="SET NULL", onupdate="CASCADE"),
+    delegating_p4x_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("p4x_accounts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_p4x_specialcontact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+    delegating_p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "p4x_special_contacts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"
+        ),
         index=True,
     )
     comment: Mapped[str | None]
@@ -109,7 +123,7 @@ class P4xTransaction(Base):
         return None
 
     @property
-    def delegating_partner_id(self) -> int | None:
+    def delegating_partner_id(self) -> uuid.UUID | None:
         for col in (
             self.delegating_member_id,
             self.delegating_contact_id,

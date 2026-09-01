@@ -124,33 +124,6 @@ def find_partner_entity(
     return None
 
 
-def find_partner_entity_by_legacy_id(
-    db: Session,
-    partner_type: str,
-    partner_id: int,
-) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
-    """Same lookup as find_partner_entity(), but keyed by the target's
-    still-integer primary key - used only for a transaction's delegating
-    partner, since p4x_transactions.delegating_* stores that legacy id
-    until that table's own UUID cutover unifies it with the identifier
-    used above."""
-    if partner_type == "member":
-        return db.query(Member).filter(Member.id == partner_id).first()
-    if partner_type == "contact":
-        return db.query(Contact).filter(Contact.id == partner_id).first()
-    if partner_type == "account":
-        return db.query(P4xAccount).filter(P4xAccount.id == partner_id).first()
-    if partner_type == "special":
-        return (
-            db.query(P4xSpecialcontact)
-            .filter(
-                P4xSpecialcontact.id == partner_id,
-            )
-            .first()
-        )
-    return None
-
-
 def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_member_id = None
     transaction.delegating_contact_id = None
@@ -174,10 +147,9 @@ def set_transaction_partner(  # noqa: C901, PLR0912
     Both partner_data["id"] and delegating_data["id"] are the target
     entity's id_uuid - the same identifier search_partners() hands out
     for both fields, since the frontend reuses one partner-search widget
-    for both. What differs is the write target: partner.member_id (etc.)
-    is itself UUID now, so remote.id_uuid is stored; transaction.
-    delegating_member_id (etc.) stays a legacy integer column until that
-    table's own UUID cutover, so remote.id is stored there instead."""
+    for both. Both halves now also store that same id_uuid on their
+    respective exclusive-arc columns (p4x_partners.* and
+    p4x_transactions.delegating_*)."""
     now = datetime.now(UTC)
 
     if partner_data:
@@ -233,13 +205,13 @@ def set_transaction_partner(  # noqa: C901, PLR0912
             )
         _clear_delegating(transaction)
         if d_type == "member":
-            transaction.delegating_member_id = remote.id
+            transaction.delegating_member_id = remote.id_uuid
         elif d_type == "contact":
-            transaction.delegating_contact_id = remote.id
+            transaction.delegating_contact_id = remote.id_uuid
         elif d_type == "account":
-            transaction.delegating_p4x_account_id = remote.id
+            transaction.delegating_p4x_account_id = remote.id_uuid
         else:
-            transaction.delegating_p4x_specialcontact_id = remote.id
+            transaction.delegating_p4x_specialcontact_id = remote.id_uuid
     else:
         _clear_delegating(transaction)
 

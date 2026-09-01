@@ -290,8 +290,8 @@ def import_transactions(
             existing.amount = amount_decimal
             existing.subject = payload["subject"]
             existing.raw = raw
-            if existing.p4x_account_id != account.id:
-                existing.p4x_account_id = account.id
+            if existing.p4x_account_id != account.id_uuid:
+                existing.p4x_account_id = account.id_uuid
                 status = "existing_with_new_binding"
         else:
             status = "new"
@@ -302,7 +302,7 @@ def import_transactions(
                 iban=payload["iban"],
                 amount=amount_decimal,
                 subject=payload["subject"],
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 raw=raw,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),

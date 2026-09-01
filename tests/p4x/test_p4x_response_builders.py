@@ -75,7 +75,7 @@ def _create_tx(db, account: P4xAccount, iban: str = "DE001") -> P4xTransaction:
         iban=iban,
         amount=Decimal("15.00"),
         subject="test",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -146,8 +146,7 @@ class TestBuildTransactionResponse:
 
         assert resp.delegating_partner is not None
         assert resp.delegating_partner.type == "contact"
-        assert resp.delegating_partner.id == contact.id
-        assert resp.delegating_partner.id_uuid == contact.id_uuid
+        assert resp.delegating_partner.id == contact.id_uuid
         assert resp.delegating_partner.cn == contact.cn
 
     def test_includes_active_category_directs_only(self, db_session):

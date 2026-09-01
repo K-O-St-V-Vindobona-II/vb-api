@@ -58,7 +58,7 @@ def _seed_data(db) -> tuple[P4xAccount, P4xCategory, list[P4xTransaction]]:
             iban=iban,
             amount=amount,
             subject=subject,
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

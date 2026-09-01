@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import bcrypt
+
+if TYPE_CHECKING:
+    import uuid
 
 from app.core.datetime_utils import local_today
 from app.models.member import Member
@@ -110,7 +116,7 @@ def _add_fee_payment(
     booking: date,
     amount: float,
     iban: str = "DE001",
-    delegating_member_id: int | None = None,
+    delegating_member_id: uuid.UUID | None = None,
 ) -> None:
     """Add a transaction that counts as a fee payment for this member -
     or, if delegating_member_id is set, a payment made via `member`'s own
@@ -141,7 +147,7 @@ def _add_fee_payment(
         iban=iban,
         amount=amount,
         subject=f"MB {member.couleurname}",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         delegating_member_id=delegating_member_id,
         created_at=_now(),
         updated_at=_now(),
@@ -564,7 +570,7 @@ class TestGetFeeBalancesPaymentAttribution:
             payer,
             date(2017, 1, 15),
             50.0,
-            delegating_member_id=target.id,
+            delegating_member_id=target.id_uuid,
         )
 
         balances = {b["id"]: b["end_balance"] for b in get_fee_balances(db_session)}
@@ -759,7 +765,7 @@ class TestGetFeeBalancesMatchesCalculateFeeBalance:
             payer,
             date(2017, 1, 15),
             40.0,
-            delegating_member_id=delegated_target.id,
+            delegating_member_id=delegated_target.id_uuid,
         )
         rate_change = _create_fee_member(
             db_session,

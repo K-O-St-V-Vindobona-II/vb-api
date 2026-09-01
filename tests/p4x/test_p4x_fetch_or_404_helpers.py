@@ -88,7 +88,7 @@ def _create_transaction(db) -> P4xTransaction:
         iban="AT001",
         amount=42.0,
         subject="Test",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )

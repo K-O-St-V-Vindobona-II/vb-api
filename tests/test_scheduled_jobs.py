@@ -100,12 +100,13 @@ class TestValidateLatestBooking:
         assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
 
     def test_stale_booking_returns_false(self, db_session):
-        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
+        account = P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX")
+        db_session.add(account)
         db_session.commit()
         db_session.add(
             P4xTransaction(
                 sha256_hash="stale",
-                p4x_account_id=1,
+                p4x_account_id=account.id_uuid,
                 booking=date(2026, 5, 1),
                 valuation=date(2026, 5, 1),
                 amount=10,
@@ -118,12 +119,13 @@ class TestValidateLatestBooking:
         assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
 
     def test_current_month_booking_returns_true(self, db_session):
-        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
+        account = P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX")
+        db_session.add(account)
         db_session.commit()
         db_session.add(
             P4xTransaction(
                 sha256_hash="fresh",
-                p4x_account_id=1,
+                p4x_account_id=account.id_uuid,
                 booking=date(2026, 7, 10),
                 valuation=date(2026, 7, 10),
                 amount=10,
@@ -157,7 +159,7 @@ class TestRefreshCategoryFilterHits:
         db_session.add(
             P4xTransaction(
                 sha256_hash="abc123",
-                p4x_account_id=1,
+                p4x_account_id=account.id_uuid,
                 booking=datetime.now(UTC).date(),
                 valuation=datetime.now(UTC).date(),
                 amount=100,

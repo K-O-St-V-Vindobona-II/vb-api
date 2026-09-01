@@ -138,7 +138,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
         iban=f"DE00{member.id}",
         amount=amount,
         subject="MB Zahlung",
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
