@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -10,7 +11,10 @@ class P4xPartner(Base):
     """member_id/contact_id/p4x_account_id/p4x_specialcontact_id is an
     exclusive-arc polymorphic association: exactly one is set, enforced by
     the CHECK below. Real FKs per target table since Postgres can't point a
-    single FK at "whichever table a discriminator column names"."""
+    single FK at "whichever table a discriminator column names". Each FK
+    references its target's id_uuid column, not its own (still-integer)
+    id - members/contacts/p4x_accounts/p4x_special_contacts each keep
+    their own Final-Cutover for a later slice."""
 
     __tablename__ = "p4x_partners"
     __table_args__ = (
@@ -21,22 +25,24 @@ class P4xPartner(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     iban: Mapped[str | None] = mapped_column(unique=True)
-    member_id: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    contact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("contacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    p4x_account_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    p4x_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("p4x_accounts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    p4x_specialcontact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("p4x_special_contacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "p4x_special_contacts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"
+        ),
         index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -57,7 +63,7 @@ class P4xPartner(Base):
         raise ValueError(msg)
 
     @property
-    def partner_id(self) -> int:
+    def partner_id(self) -> uuid.UUID:
         for col in (
             self.member_id,
             self.contact_id,

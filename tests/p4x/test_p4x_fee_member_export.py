@@ -102,7 +102,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     db.add(
         P4xPartner(
             iban="DE001",
-            member_id=member.id,
+            member_id=member.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

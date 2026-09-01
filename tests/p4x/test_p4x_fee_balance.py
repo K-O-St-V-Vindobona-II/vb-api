@@ -127,7 +127,7 @@ def _add_fee_payment(
     if not partner:
         partner = P4xPartner(
             iban=iban,
-            member_id=member.id,
+            member_id=member.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -553,7 +553,7 @@ class TestGetFeeBalancesPaymentAttribution:
         db_session.add(
             P4xPartner(
                 iban="DE-TARGET-OWN",
-                member_id=target.id,
+                member_id=target.id_uuid,
                 created_at=_now(),
                 updated_at=_now(),
             )

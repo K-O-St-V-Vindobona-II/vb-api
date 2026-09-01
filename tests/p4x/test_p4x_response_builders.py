@@ -104,7 +104,7 @@ class TestBuildTransactionResponse:
         account, member, _contact = _seed(db_session)
         tx = _create_tx(db_session, account)
         p4x_partner_service.set_transaction_partner(
-            db_session, tx, {"type": "member", "id": member.id}, False, None
+            db_session, tx, {"type": "member", "id": member.id_uuid}, False, None
         )
         db_session.refresh(tx)
 
@@ -112,14 +112,14 @@ class TestBuildTransactionResponse:
 
         assert resp.partner is not None
         assert resp.partner.type == "member"
-        assert resp.partner.id == member.id
+        assert resp.partner.id == member.id_uuid
         assert resp.partner.cn == member.cn
 
     def test_soft_deleted_partner_is_excluded(self, db_session):
         account, member, _contact = _seed(db_session)
         tx = _create_tx(db_session, account)
         p4x_partner_service.set_transaction_partner(
-            db_session, tx, {"type": "member", "id": member.id}, False, None
+            db_session, tx, {"type": "member", "id": member.id_uuid}, False, None
         )
         db_session.refresh(tx)
         tx.partner.deleted_at = _now()
@@ -136,9 +136,9 @@ class TestBuildTransactionResponse:
         p4x_partner_service.set_transaction_partner(
             db_session,
             tx,
-            {"type": "member", "id": member.id},
+            {"type": "member", "id": member.id_uuid},
             True,
-            {"type": "contact", "id": contact.id},
+            {"type": "contact", "id": contact.id_uuid},
         )
         db_session.refresh(tx)
 
@@ -147,6 +147,7 @@ class TestBuildTransactionResponse:
         assert resp.delegating_partner is not None
         assert resp.delegating_partner.type == "contact"
         assert resp.delegating_partner.id == contact.id
+        assert resp.delegating_partner.id_uuid == contact.id_uuid
         assert resp.delegating_partner.cn == contact.cn
 
     def test_includes_active_category_directs_only(self, db_session):

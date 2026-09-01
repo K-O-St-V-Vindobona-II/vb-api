@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 from app.models.member import Member
@@ -123,7 +124,7 @@ class TestGetTransactionsByPartner:
 
         partner = P4xPartner(
             iban="DE001",
-            member_id=member.id,
+            member_id=member.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -134,7 +135,7 @@ class TestGetTransactionsByPartner:
         _add_tx(db_session, account, date(2026, 3, 11), 25.0, iban="AT999")
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", member.id, 1
+            db_session, account, "member", member.id_uuid, 1
         )
         assert total == 1
         assert items[0].iban == "DE001"
@@ -155,7 +156,7 @@ class TestGetTransactionsByPartner:
         )
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", member.id, 1
+            db_session, account, "member", member.id_uuid, 1
         )
         assert total == 1
         assert items[0].delegating_partner_id == member.id
@@ -165,7 +166,7 @@ class TestGetTransactionsByPartner:
         _add_tx(db_session, account, date(2026, 3, 10), 15.0)
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", 999, 1
+            db_session, account, "member", uuid.uuid4(), 1
         )
         assert total == 0
         assert items == []

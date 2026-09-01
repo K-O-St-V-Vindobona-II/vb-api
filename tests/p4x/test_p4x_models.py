@@ -285,7 +285,7 @@ class TestP4xPartner:
 
         partner = P4xPartner(
             iban="AT761200023423416700",
-            member_id=member.id,
+            member_id=member.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -294,6 +294,22 @@ class TestP4xPartner:
         assert partner.id is not None
         assert partner.partner_type == "member"
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        ddc0a9d04eef_p4x_partners_id_uuid_and_fk_cutover.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
+        member = Member(vorname="Test", nachname="Partner")
+        db_session.add(member)
+        db_session.commit()
+
+        partner = P4xPartner(iban="AT00UUIDGUARD", member_id=member.id_uuid)
+        db_session.add(partner)
+        db_session.flush()
+
+        assert isinstance(partner.id, uuid.UUID)
+        assert partner.id.version == 7
+
     def test_soft_delete(self, db_session):
         contact = Contact(kontakttyp="person", name="Soft Delete Contact")
         db_session.add(contact)
@@ -301,7 +317,7 @@ class TestP4xPartner:
 
         partner = P4xPartner(
             iban="AT00SOFTDELETE",
-            contact_id=contact.id,
+            contact_id=contact.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -406,7 +422,7 @@ class TestPartnerTransactionRelationship:
 
         partner = P4xPartner(
             iban="DE49100110012624770917",
-            member_id=member.id,
+            member_id=member.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -428,4 +444,4 @@ class TestPartnerTransactionRelationship:
         db_session.refresh(tx)
         assert tx.partner is not None
         assert tx.partner.partner_type == "member"
-        assert tx.partner.partner_id == member.id
+        assert tx.partner.partner_id == member.id_uuid

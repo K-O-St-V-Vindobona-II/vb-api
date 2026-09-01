@@ -6,10 +6,13 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, extract, func
+from sqlalchemy import false as sa_false
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
     from app.schemas.p4x import AccountSaveRequest
@@ -22,6 +25,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
+from app.services import p4x_partner_service
 
 PAGINATION_SIZE = 100
 
@@ -187,7 +191,7 @@ def get_transactions_by_partner(
     db: Session,
     account: P4xAccount,
     partner_type: str,
-    partner_id: int,
+    partner_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
     # Translates the partner_type/partner_id pair callers still use into the
@@ -208,6 +212,19 @@ def get_transactions_by_partner(
         msg = f"Unbekannter partner_type: {partner_type!r}"
         raise ValueError(msg)
 
+    # p4x_transactions.delegating_* still stores the target's legacy
+    # integer id - that table's own UUID cutover is a later slice -
+    # resolved here via the same id_uuid identifier so both halves of the
+    # OR below compare against the correct column type. If the identifier
+    # matches no entity at all, the delegating half must contribute
+    # nothing rather than falling back to an "IS NULL" comparison, which
+    # would wrongly match every transaction with no delegating partner
+    # set at all.
+    remote = p4x_partner_service.find_partner_entity(db, partner_type, partner_id)
+    delegating_match = (
+        delegating_column == remote.id if remote is not None else sa_false()
+    )
+
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
@@ -227,7 +244,7 @@ def get_transactions_by_partner(
         .filter(
             # (partner matches AND no delegating) OR (delegating matches)
             (P4xTransaction.iban.in_(partner_ibans) & no_delegation_filter())
-            | (delegating_column == partner_id)
+            | delegating_match
         )
         .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())

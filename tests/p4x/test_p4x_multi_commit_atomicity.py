@@ -109,7 +109,7 @@ class TestFilterToDirectAtomicity:
         db.add(
             P4xPartner(
                 iban="AT001",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 created_at=_now(),
                 updated_at=_now(),
             )

@@ -125,7 +125,7 @@ class TestFilterToDirect:
             if not existing:
                 p = P4xPartner(
                     iban=tx.iban,
-                    member_id=member.id,
+                    member_id=member.id_uuid,
                     created_at=_now(),
                     updated_at=_now(),
                 )

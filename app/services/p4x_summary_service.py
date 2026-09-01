@@ -533,7 +533,7 @@ def _format_partner_for_xlsx(db: Session, tx: P4xTransaction) -> str:
     }
 
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity(
+        entity = p4x_partner_service.find_partner_entity_by_legacy_id(
             db, tx.delegating_partner_type, tx.delegating_partner_id
         )
         label = type_labels.get(tx.delegating_partner_type, "")

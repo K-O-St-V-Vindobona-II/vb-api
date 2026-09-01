@@ -9,6 +9,7 @@ lookups, SumUp balance, and the summary export.
 import base64
 import io
 import json
+import uuid
 import zipfile
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
@@ -327,7 +328,7 @@ class TestTransactionListingsHttp:
         _create_transaction(db_session, account)
 
         resp = client.get(
-            f"/api/p4x/accounts/{account.id}/transactions/by-partner/member/1",
+            f"/api/p4x/accounts/{account.id}/transactions/by-partner/member/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 200
@@ -442,11 +443,15 @@ class TestSetTransactionPartnerWithDataHttp:
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-partner",
             json={
-                "partner": {"type": "member", "id": admin.id, "cn": "Admin"},
+                "partner": {
+                    "type": "member",
+                    "id": str(admin.id_uuid),
+                    "cn": "Admin",
+                },
                 "hasDelegatingPartner": True,
                 "delegatingPartner": {
                     "type": "member",
-                    "id": delegate.id,
+                    "id": str(delegate.id_uuid),
                     "cn": "Delegate",
                 },
             },
@@ -454,7 +459,7 @@ class TestSetTransactionPartnerWithDataHttp:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["partner"]["id"] == admin.id
+        assert data["partner"]["id"] == str(admin.id_uuid)
         assert data["delegating_partner"]["id"] == delegate.id
 
 

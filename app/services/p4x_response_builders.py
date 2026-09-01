@@ -16,6 +16,7 @@ from app.schemas.p4x import (
     CategoryFilterResponse,
     CategoryFilterShortResponse,
     CategoryWithUsageResponse,
+    LegacyPartnerRef,
     PartnerRef,
     TransactionResponse,
 )
@@ -45,15 +46,16 @@ def build_transaction_response(
 
     delegating_partner = None
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity(
+        entity = p4x_partner_service.find_partner_entity_by_legacy_id(
             db,
             tx.delegating_partner_type,
             tx.delegating_partner_id,
         )
         if entity:
-            delegating_partner = PartnerRef(
+            delegating_partner = LegacyPartnerRef(
                 type=tx.delegating_partner_type,
                 id=tx.delegating_partner_id,
+                id_uuid=entity.id_uuid,
                 cn=getattr(entity, "cn", ""),
             )
 

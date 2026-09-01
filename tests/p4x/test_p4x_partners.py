@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 import pytest
@@ -13,6 +14,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.p4x_partner_service import (
     find_partner_entity,
+    find_partner_entity_by_legacy_id,
     search_partners,
     set_transaction_partner,
 )
@@ -156,31 +158,66 @@ class TestSearchPartners:
 class TestFindPartnerEntity:
     def test_find_member(self, db_session):
         _, member, _, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "member", member.id)
+        entity = find_partner_entity(db_session, "member", member.id_uuid)
         assert entity is not None
         assert entity.id == member.id
 
     def test_find_contact(self, db_session):
         _, _, contact, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "contact", contact.id)
+        entity = find_partner_entity(db_session, "contact", contact.id_uuid)
         assert entity is not None
 
     def test_find_special(self, db_session):
         _, _, _, special = _seed(db_session)
-        entity = find_partner_entity(db_session, "special", special.id)
+        entity = find_partner_entity(db_session, "special", special.id_uuid)
         assert entity is not None
 
     def test_find_account(self, db_session):
         account, _, _, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "account", account.id)
+        entity = find_partner_entity(db_session, "account", account.id_uuid)
         assert entity is not None
 
     def test_find_unknown_type(self, db_session):
-        assert find_partner_entity(db_session, "unknown", 1) is None
+        assert find_partner_entity(db_session, "unknown", uuid.uuid4()) is None
 
     def test_find_nonexistent_id(self, db_session):
         _seed(db_session)
-        assert find_partner_entity(db_session, "member", 99999) is None
+        assert find_partner_entity(db_session, "member", uuid.uuid4()) is None
+
+
+class TestFindPartnerEntityByLegacyId:
+    """find_partner_entity_by_legacy_id() is the same lookup as
+    find_partner_entity(), keyed by the target's still-integer primary
+    key instead of id_uuid - used only for a transaction's delegating
+    partner until p4x_transactions' own UUID cutover unifies both."""
+
+    def test_find_member(self, db_session):
+        _, member, _, _ = _seed(db_session)
+        entity = find_partner_entity_by_legacy_id(db_session, "member", member.id)
+        assert entity is not None
+        assert entity.id == member.id
+
+    def test_find_contact(self, db_session):
+        _, _, contact, _ = _seed(db_session)
+        entity = find_partner_entity_by_legacy_id(db_session, "contact", contact.id)
+        assert entity is not None
+
+    def test_find_special(self, db_session):
+        _, _, _, special = _seed(db_session)
+        entity = find_partner_entity_by_legacy_id(db_session, "special", special.id)
+        assert entity is not None
+
+    def test_find_account(self, db_session):
+        account, _, _, _ = _seed(db_session)
+        entity = find_partner_entity_by_legacy_id(db_session, "account", account.id)
+        assert entity is not None
+
+    def test_find_unknown_type(self, db_session):
+        assert find_partner_entity_by_legacy_id(db_session, "unknown", 1) is None
+
+    def test_find_nonexistent_id(self, db_session):
+        _seed(db_session)
+        assert find_partner_entity_by_legacy_id(db_session, "member", 99999) is None
 
 
 class TestSetTransactionPartner:
@@ -191,7 +228,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -206,7 +243,7 @@ class TestSetTransactionPartner:
         )
         assert partner is not None
         assert partner.partner_type == "member"
-        assert partner.partner_id == member.id
+        assert partner.partner_id == member.id_uuid
 
     def test_unset_partner(self, db_session):
         account, member, _, _ = _seed(db_session)
@@ -215,7 +252,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -244,14 +281,14 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "contact", "id": contact.id},
+            partner_data={"type": "contact", "id": contact.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -265,7 +302,7 @@ class TestSetTransactionPartner:
             .first()
         )
         assert partner.partner_type == "contact"
-        assert partner.partner_id == contact.id
+        assert partner.partner_id == contact.id_uuid
 
     def test_restore_soft_deleted_partner(self, db_session):
         account, member, _, _ = _seed(db_session)
@@ -274,7 +311,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -288,7 +325,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -312,7 +349,7 @@ class TestSetTransactionPartner:
             set_transaction_partner(
                 db_session,
                 tx,
-                partner_data={"type": "member", "id": 999999},
+                partner_data={"type": "member", "id": uuid.uuid4()},
                 has_delegating=False,
                 delegating_data=None,
             )
@@ -327,9 +364,9 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id},
+            delegating_data={"type": "contact", "id": contact.id_uuid},
         )
 
         db_session.refresh(tx)
@@ -343,14 +380,14 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id},
+            delegating_data={"type": "contact", "id": contact.id_uuid},
         )
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=False,
             delegating_data=None,
         )
@@ -367,9 +404,9 @@ class TestDelegatingPartner:
             set_transaction_partner(
                 db_session,
                 tx,
-                partner_data={"type": "member", "id": member.id},
+                partner_data={"type": "member", "id": member.id_uuid},
                 has_delegating=True,
-                delegating_data={"type": "member", "id": 999999},
+                delegating_data={"type": "member", "id": uuid.uuid4()},
             )
         assert exc_info.value.status_code == 404
 
@@ -380,9 +417,9 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id},
+            partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id},
+            delegating_data={"type": "contact", "id": contact.id_uuid},
         )
         set_transaction_partner(
             db_session,

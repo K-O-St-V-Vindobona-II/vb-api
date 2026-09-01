@@ -432,11 +432,14 @@ class TestStandesdbImageExclusiveArc:
 
 class TestP4xPartnerExclusiveArc:
     """p4x_partners.member_id/contact_id/p4x_account_id/
-    p4x_specialcontact_id (Alembic revision 514ac66eb66e) replaces
-    partner_type/partner_id with an exclusive-arc pair of real FKs —
-    exactly one must be set, enforced by a CHECK constraint. ondelete is
-    RESTRICT (not CASCADE like standesdb_images) since a P4xPartner row is
-    a financial/accounting link, not owned content."""
+    p4x_specialcontact_id replaces partner_type/partner_id with an
+    exclusive-arc pair of real FKs - exactly one must be set, enforced by
+    a CHECK constraint. ondelete is RESTRICT (not CASCADE like
+    standesdb_images) since a P4xPartner row is a financial/accounting
+    link, not owned content. Each FK references its target's id_uuid
+    column (Alembic revision ddc0a9d04eef), not its own still-integer id -
+    members/contacts/p4x_accounts/p4x_special_contacts each keep their own
+    Final-Cutover for a later slice."""
 
     def test_two_columns_set_is_rejected(self, db_session):
         member = Member(vorname="Test", nachname="User")
@@ -445,7 +448,9 @@ class TestP4xPartnerExclusiveArc:
         db_session.commit()
 
         db_session.add(
-            P4xPartner(iban="AT001", member_id=member.id, contact_id=contact.id)
+            P4xPartner(
+                iban="AT001", member_id=member.id_uuid, contact_id=contact.id_uuid
+            )
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -458,25 +463,25 @@ class TestP4xPartnerExclusiveArc:
         db_session.rollback()
 
     def test_inserting_with_unknown_member_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT003", member_id=999999))
+        db_session.add(P4xPartner(iban="AT003", member_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_contact_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT004", contact_id=999999))
+        db_session.add(P4xPartner(iban="AT004", contact_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_p4x_account_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT005", p4x_account_id=999999))
+        db_session.add(P4xPartner(iban="AT005", p4x_account_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_p4x_specialcontact_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT006", p4x_specialcontact_id=999999))
+        db_session.add(P4xPartner(iban="AT006", p4x_specialcontact_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -485,7 +490,7 @@ class TestP4xPartnerExclusiveArc:
         member = Member(vorname="Test", nachname="User")
         db_session.add(member)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT007", member_id=member.id))
+        db_session.add(P4xPartner(iban="AT007", member_id=member.id_uuid))
         db_session.commit()
 
         db_session.delete(member)
@@ -497,7 +502,7 @@ class TestP4xPartnerExclusiveArc:
         contact = Contact(kontakttyp="person", name="Test Contact")
         db_session.add(contact)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT008", contact_id=contact.id))
+        db_session.add(P4xPartner(iban="AT008", contact_id=contact.id_uuid))
         db_session.commit()
 
         db_session.delete(contact)
@@ -509,7 +514,7 @@ class TestP4xPartnerExclusiveArc:
         self, db_session
     ):
         account = _seed_p4x_account(db_session)
-        db_session.add(P4xPartner(iban="AT009", p4x_account_id=account.id))
+        db_session.add(P4xPartner(iban="AT009", p4x_account_id=account.id_uuid))
         db_session.commit()
 
         db_session.delete(account)
@@ -523,7 +528,7 @@ class TestP4xPartnerExclusiveArc:
         special = P4xSpecialcontact(cn="Test Special")
         db_session.add(special)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id))
+        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id_uuid))
         db_session.commit()
 
         db_session.delete(special)

@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import re
+import uuid
 import zipfile
 from datetime import date, timedelta
 from decimal import Decimal
@@ -327,7 +328,7 @@ def get_transactions_by_month(
 def get_transactions_by_partner(
     account_id: int,
     partner_type: str,
-    partner_id: int,
+    partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
