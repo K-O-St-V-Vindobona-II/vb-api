@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Text, text
+from sqlalchemy import CheckConstraint, DateTime, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -15,9 +16,11 @@ class PublicSiteAboutTab(Base):
     """One of the 3 fixed "Über uns" tabs on the public www.vindobona2.at
     site (Der Anfang / MKV / Heute) - title + body, both admin-editable.
 
-    Plain integer id, not UUID: id is never exposed on the public endpoint
-    (the public response is shaped by slot, not by id) and nothing else in
-    the schema references it via FK.
+    Uses a UUID primary key for schema-wide consistency (see
+    ad4d9aeff7b8_public_site_content_ids_to_uuid.py), even though id is
+    never itself exposed on any endpoint (lookups go by slot, not id, both
+    in the public response shape and the admin router's path) and nothing
+    else in the schema references it via FK.
     """
 
     __tablename__ = "public_site_about_tabs"
@@ -34,7 +37,7 @@ class PublicSiteAboutTab(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     slot: Mapped[str] = mapped_column(Text, unique=True)
     title: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)

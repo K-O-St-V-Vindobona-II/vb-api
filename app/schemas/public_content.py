@@ -130,7 +130,7 @@ class SiteSettingsUpdateRequest(StrictInputModel):
 
 
 class ProgrammHintResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     # The DB/model column is `content` (see PublicSiteProgrammHint - the DB
     # column is named "text", which would shadow sqlalchemy.text() as a
     # model attribute name), aliased back to the natural API field name.
@@ -149,7 +149,7 @@ class ProgrammHintRequest(StrictInputModel):
 
 
 class QuoteResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     quote: str
     author: str
 

@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
+from app.models.public_site_about_tab import PublicSiteAboutTab
 from app.models.public_site_programm_hint import PublicSiteProgrammHint
 from app.models.public_site_quote import PublicSiteQuote
 from app.models.public_site_social_link import PublicSiteSocialLink
@@ -100,6 +101,26 @@ def _link_id(db, platform: str) -> str:
         .one()
     )
     return str(link.id)
+
+
+def _hint_id(db, sort_order: int) -> str:
+    """Look up a seeded programm hint's (now UUID) id by its stable
+    sort_order - same rationale as _link_id (see
+    ad4d9aeff7b8_public_site_content_ids_to_uuid.py)."""
+    hint = (
+        db.query(PublicSiteProgrammHint)
+        .filter(PublicSiteProgrammHint.sort_order == sort_order)
+        .one()
+    )
+    return str(hint.id)
+
+
+def _quote_id(db, author: str) -> str:
+    """Look up a seeded quote's (now UUID) id by its stable author - same
+    rationale as _link_id (see
+    ad4d9aeff7b8_public_site_content_ids_to_uuid.py)."""
+    quote = db.query(PublicSiteQuote).filter(PublicSiteQuote.author == author).one()
+    return str(quote.id)
 
 
 class TestPublicSiteContent:
@@ -415,7 +436,10 @@ class TestProgrammHintsAdmin:
         assert data["text"] == "Neu"
 
         db_session.expire_all()
-        assert db_session.get(PublicSiteProgrammHint, data["id"]).sort_order == 6
+        assert (
+            db_session.get(PublicSiteProgrammHint, uuid.UUID(data["id"])).sort_order
+            == 6
+        )
 
     def test_create_text_too_long_rejected(self, client, db_session):
         _seed(db_session)
@@ -430,19 +454,20 @@ class TestProgrammHintsAdmin:
     def test_update_changes_text(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        hint_id = _hint_id(db_session, 1)
         resp = client.put(
-            f"{ADMIN_PREFIX}/programm-hints/1",
+            f"{ADMIN_PREFIX}/programm-hints/{hint_id}",
             headers=headers,
             json={"text": "Geändert."},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"id": 1, "text": "Geändert."}
+        assert resp.json() == {"id": hint_id, "text": "Geändert."}
 
     def test_update_not_found(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
         resp = client.put(
-            f"{ADMIN_PREFIX}/programm-hints/99999",
+            f"{ADMIN_PREFIX}/programm-hints/{uuid.uuid4()}",
             headers=headers,
             json={"text": "x"},
         )
@@ -451,40 +476,48 @@ class TestProgrammHintsAdmin:
     def test_move_up_swaps_sort_order(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        second_id = uuid.UUID(_hint_id(db_session, 2))
+        first_id = uuid.UUID(_hint_id(db_session, 1))
         resp = client.post(
-            f"{ADMIN_PREFIX}/programm-hints/2/move",
+            f"{ADMIN_PREFIX}/programm-hints/{second_id}/move",
             headers=headers,
             json={"direction": "up"},
         )
         assert resp.status_code == 200
 
         db_session.expire_all()
-        assert db_session.get(PublicSiteProgrammHint, 2).sort_order == 1
-        assert db_session.get(PublicSiteProgrammHint, 1).sort_order == 2
+        assert db_session.get(PublicSiteProgrammHint, second_id).sort_order == 1
+        assert db_session.get(PublicSiteProgrammHint, first_id).sort_order == 2
 
     def test_move_up_at_top_is_noop(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        first_id = uuid.UUID(_hint_id(db_session, 1))
         resp = client.post(
-            f"{ADMIN_PREFIX}/programm-hints/1/move",
+            f"{ADMIN_PREFIX}/programm-hints/{first_id}/move",
             headers=headers,
             json={"direction": "up"},
         )
         assert resp.status_code == 200
         db_session.expire_all()
-        assert db_session.get(PublicSiteProgrammHint, 1).sort_order == 1
+        assert db_session.get(PublicSiteProgrammHint, first_id).sort_order == 1
 
     def test_delete_removes_row(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
-        resp = client.delete(f"{ADMIN_PREFIX}/programm-hints/5", headers=headers)
+        fifth_id = _hint_id(db_session, 5)
+        resp = client.delete(
+            f"{ADMIN_PREFIX}/programm-hints/{fifth_id}", headers=headers
+        )
         assert resp.status_code == 204
-        assert db_session.get(PublicSiteProgrammHint, 5) is None
+        assert db_session.get(PublicSiteProgrammHint, uuid.UUID(fifth_id)) is None
 
     def test_delete_requires_permission(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _nonadmin(db_session))
-        resp = client.delete(f"{ADMIN_PREFIX}/programm-hints/1", headers=headers)
+        resp = client.delete(
+            f"{ADMIN_PREFIX}/programm-hints/{uuid.uuid4()}", headers=headers
+        )
         assert resp.status_code == 403
 
 
@@ -509,7 +542,7 @@ class TestQuotesAdmin:
         data = resp.json()
 
         db_session.expire_all()
-        assert db_session.get(PublicSiteQuote, data["id"]).sort_order == 3
+        assert db_session.get(PublicSiteQuote, uuid.UUID(data["id"])).sort_order == 3
 
     def test_create_missing_author_rejected(self, client, db_session):
         _seed(db_session)
@@ -524,8 +557,9 @@ class TestQuotesAdmin:
     def test_update_changes_quote_and_author(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        quote_id = _quote_id(db_session, "Ein Fuchs")
         resp = client.put(
-            f"{ADMIN_PREFIX}/quotes/1",
+            f"{ADMIN_PREFIX}/quotes/{quote_id}",
             headers=headers,
             json={"quote": "Geändertes Zitat.", "author": "Neuer Autor"},
         )
@@ -535,34 +569,38 @@ class TestQuotesAdmin:
     def test_move_down_swaps_sort_order(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        fuchs_id = uuid.UUID(_quote_id(db_session, "Ein Fuchs"))
+        aktiver_id = uuid.UUID(_quote_id(db_session, "Ein Junger Aktiver"))
         resp = client.post(
-            f"{ADMIN_PREFIX}/quotes/1/move",
+            f"{ADMIN_PREFIX}/quotes/{fuchs_id}/move",
             headers=headers,
             json={"direction": "down"},
         )
         assert resp.status_code == 200
         db_session.expire_all()
-        assert db_session.get(PublicSiteQuote, 1).sort_order == 2
-        assert db_session.get(PublicSiteQuote, 2).sort_order == 1
+        assert db_session.get(PublicSiteQuote, fuchs_id).sort_order == 2
+        assert db_session.get(PublicSiteQuote, aktiver_id).sort_order == 1
 
     def test_move_down_at_bottom_is_noop(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        aktiver_id = uuid.UUID(_quote_id(db_session, "Ein Junger Aktiver"))
         resp = client.post(
-            f"{ADMIN_PREFIX}/quotes/2/move",
+            f"{ADMIN_PREFIX}/quotes/{aktiver_id}/move",
             headers=headers,
             json={"direction": "down"},
         )
         assert resp.status_code == 200
         db_session.expire_all()
-        assert db_session.get(PublicSiteQuote, 2).sort_order == 2
+        assert db_session.get(PublicSiteQuote, aktiver_id).sort_order == 2
 
     def test_delete_removes_row(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
-        resp = client.delete(f"{ADMIN_PREFIX}/quotes/1", headers=headers)
+        fuchs_id = uuid.UUID(_quote_id(db_session, "Ein Fuchs"))
+        resp = client.delete(f"{ADMIN_PREFIX}/quotes/{fuchs_id}", headers=headers)
         assert resp.status_code == 204
-        assert db_session.get(PublicSiteQuote, 1) is None
+        assert db_session.get(PublicSiteQuote, fuchs_id) is None
 
 
 class TestSocialLinksAdmin:
@@ -730,3 +768,39 @@ class TestSocialLinkUuidDefault:
 
         assert isinstance(link.id, uuid.UUID)
         assert link.id.version == 7
+
+
+class TestAboutTabUuidDefault:
+    """Same guard as TestSocialLinkUuidDefault, for the second UUID-PK
+    migration slice (see ad4d9aeff7b8_public_site_content_ids_to_uuid.py).
+    slot is unique and CHECK-constrained to the 3 known values, so this
+    replaces one of the already-seeded rows rather than adding a 4th."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        db_session.query(PublicSiteAboutTab).filter_by(slot="anfang").delete()
+        tab = PublicSiteAboutTab(slot="anfang", title="Der Anfang", body="Text.")
+        db_session.add(tab)
+        db_session.flush()
+
+        assert isinstance(tab.id, uuid.UUID)
+        assert tab.id.version == 7
+
+
+class TestProgrammHintUuidDefault:
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        hint = PublicSiteProgrammHint(content="Ein neuer Hinweis.", sort_order=99)
+        db_session.add(hint)
+        db_session.flush()
+
+        assert isinstance(hint.id, uuid.UUID)
+        assert hint.id.version == 7
+
+
+class TestQuoteUuidDefault:
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        quote = PublicSiteQuote(quote="Ein Zitat.", author="Jemand", sort_order=99)
+        db_session.add(quote)
+        db_session.flush()
+
+        assert isinstance(quote.id, uuid.UUID)
+        assert quote.id.version == 7

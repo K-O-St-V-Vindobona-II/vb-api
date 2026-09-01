@@ -7,6 +7,8 @@ from app.models.public_site_programm_hint import PublicSiteProgrammHint
 from app.services.reorder_service import find_reorder_neighbor
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -18,7 +20,7 @@ def list_hints(db: Session) -> list[PublicSiteProgrammHint]:
     )
 
 
-def get_hint_or_404(db: Session, hint_id: int) -> PublicSiteProgrammHint:
+def get_hint_or_404(db: Session, hint_id: uuid.UUID) -> PublicSiteProgrammHint:
     hint = db.get(PublicSiteProgrammHint, hint_id)
     if not hint:
         raise HTTPException(

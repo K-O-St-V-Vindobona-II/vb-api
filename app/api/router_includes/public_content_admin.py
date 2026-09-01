@@ -141,7 +141,7 @@ def create_programm_hint(
 
 @public_content_admin_router.put("/programm-hints/{hint_id}")
 def update_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     data: ProgrammHintRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -154,7 +154,7 @@ def update_programm_hint(
 
 @public_content_admin_router.post("/programm-hints/{hint_id}/move")
 def move_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -171,7 +171,7 @@ def move_programm_hint(
     "/programm-hints/{hint_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
@@ -210,7 +210,7 @@ def create_quote(
 
 @public_content_admin_router.put("/quotes/{quote_id}")
 def update_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     data: QuoteRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -223,7 +223,7 @@ def update_quote(
 
 @public_content_admin_router.post("/quotes/{quote_id}/move")
 def move_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -240,7 +240,7 @@ def move_quote(
     "/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:

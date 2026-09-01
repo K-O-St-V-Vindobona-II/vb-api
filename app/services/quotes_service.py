@@ -7,6 +7,8 @@ from app.models.public_site_quote import PublicSiteQuote
 from app.services.reorder_service import find_reorder_neighbor
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -14,7 +16,7 @@ def list_quotes(db: Session) -> list[PublicSiteQuote]:
     return db.query(PublicSiteQuote).order_by(PublicSiteQuote.sort_order).all()
 
 
-def get_quote_or_404(db: Session, quote_id: int) -> PublicSiteQuote:
+def get_quote_or_404(db: Session, quote_id: uuid.UUID) -> PublicSiteQuote:
     quote = db.get(PublicSiteQuote, quote_id)
     if not quote:
         raise HTTPException(
