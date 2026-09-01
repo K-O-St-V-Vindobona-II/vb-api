@@ -15,6 +15,7 @@ from datetime import date
 import bcrypt
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -22,6 +23,7 @@ from app.models.org import Org
 from app.models.public_site_about_tab import PublicSiteAboutTab
 from app.models.public_site_programm_hint import PublicSiteProgrammHint
 from app.models.public_site_quote import PublicSiteQuote
+from app.models.public_site_settings import SETTINGS_ROW_ID, PublicSiteSettings
 from app.models.public_site_social_link import PublicSiteSocialLink
 from app.models.role import Role
 from app.services import about_tabs_service
@@ -804,3 +806,26 @@ class TestQuoteUuidDefault:
 
         assert isinstance(quote.id, uuid.UUID)
         assert quote.id.version == 7
+
+
+class TestSiteSettingsSingleton:
+    """Guards the UUID-PK migration's singleton-specific pattern (see
+    5c9769a76def_public_site_settings_id_to_uuid.py): unlike every other
+    migrated table, this row's id is a fixed literal (SETTINGS_ROW_ID),
+    not a runtime `uuid.uuid7()` default, so the guard here checks that
+    literal instead of a default factory."""
+
+    def test_settings_row_id_addresses_the_seeded_row(self, db_session):
+        assert db_session.get(PublicSiteSettings, SETTINGS_ROW_ID) is not None
+
+    def test_singleton_check_rejects_a_second_row(self, db_session):
+        other = PublicSiteSettings(
+            id=uuid.uuid4(),
+            about_video_heading="Titel",
+            about_video_youtube_id="abcdefghijk",
+            programm_calendar_id="abc@group.calendar.google.com",
+            gallery_heading="Eindrücke",
+        )
+        db_session.add(other)
+        with pytest.raises(IntegrityError):
+            db_session.flush()
