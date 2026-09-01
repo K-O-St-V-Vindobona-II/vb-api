@@ -32,6 +32,8 @@ from app.services.permission_service import (
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
     from app.models.member import Member
@@ -865,7 +867,7 @@ def get_upload_config() -> dict[str, object]:
 
 def get_unfiled_uploads(
     db: Session,
-    user_id: int,
+    user_id: uuid.UUID,
 ) -> list[dict[str, object]]:
     files = (
         db.query(ArchiveFile)
@@ -987,7 +989,7 @@ def upload_file(
     db: Session,
     file: UploadFile,
     description: str,
-    user_id: int,
+    user_id: uuid.UUID,
     storage: StorageClient,
 ) -> dict[str, object]:
     if not file.filename or "." not in file.filename:

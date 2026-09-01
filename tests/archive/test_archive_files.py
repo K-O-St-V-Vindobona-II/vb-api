@@ -1,6 +1,7 @@
 """Tests für Archiv-Dateien (Upload, Download, Kommentare)."""
 
 import os
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -358,7 +359,7 @@ class TestUpload:
                 mime_type="image/jpeg",
                 size=5000,
                 sha256_hash=f"unfiled_{hash_suffix}",
-                created_by=user_a.id,
+                created_by=user_a.id_uuid,
                 created_at=now,
                 updated_at=now,
             )
@@ -378,13 +379,17 @@ class TestUpload:
         _make_unfiled_upload("small-b")
 
         with count_queries() as small:
-            small_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
+            small_result = archive_service.get_unfiled_uploads(
+                db_session, user_a.id_uuid
+            )
 
         for i in range(5):
             _make_unfiled_upload(f"large-{i}")
 
         with count_queries() as large:
-            large_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
+            large_result = archive_service.get_unfiled_uploads(
+                db_session, user_a.id_uuid
+            )
 
         assert len(small_result) == 2
         assert len(large_result) == 7
@@ -745,3 +750,40 @@ class TestMoveAndRestore:
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+class TestArchiveDirIdUuidDefault:
+    """Guards the UUID-PK migration's Phase A assumption (see
+    03e35e3c34bc_archive_dirs_id_uuid_phase_a.py): every insert goes
+    through the ORM instance, so `default=uuid.uuid7` on the additive
+    `id_uuid` column fires without ever needing a server-side default -
+    same guard as every migrated table's primary key, just on a column
+    that isn't the primary key yet."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        d = ArchiveDir(name="Phase A Guard")
+        db_session.add(d)
+        db_session.flush()
+
+        assert isinstance(d.id_uuid, uuid.UUID)
+        assert d.id_uuid.version == 7
+
+
+class TestArchiveStoreItemIdUuidDefault:
+    """Same guard as TestArchiveDirIdUuidDefault, for archive_store_items'
+    additive `id_uuid` column (see
+    31b5c04b297d_archive_store_items_id_uuid_phase_a_and_.py)."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="phase-a-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="phase-a-guard-hash",
+        )
+        db_session.add(item)
+        db_session.flush()
+
+        assert isinstance(item.id_uuid, uuid.UUID)
+        assert item.id_uuid.version == 7

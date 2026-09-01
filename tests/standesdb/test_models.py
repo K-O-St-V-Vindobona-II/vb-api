@@ -396,3 +396,29 @@ class TestContactIdUuidDefault:
 
         assert isinstance(contact.id_uuid, uuid.UUID)
         assert contact.id_uuid.version == 7
+
+
+class TestBadgeIdUuidDefault:
+    """Same guard as TestContactIdUuidDefault, for badges' additive
+    `id_uuid` column (see e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py)."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        badge = Badge(name="Phase A Guard")
+        db_session.add(badge)
+        db_session.flush()
+
+        assert isinstance(badge.id_uuid, uuid.UUID)
+        assert badge.id_uuid.version == 7
+
+
+class TestKeyIdUuidDefault:
+    """Same guard as TestContactIdUuidDefault, for keys' additive
+    `id_uuid` column (see e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py)."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        key = Key(name="Phase A Guard")
+        db_session.add(key)
+        db_session.flush()
+
+        assert isinstance(key.id_uuid, uuid.UUID)
+        assert key.id_uuid.version == 7

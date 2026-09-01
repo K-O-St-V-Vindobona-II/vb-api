@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, String
+from sqlalchemy import CheckConstraint, Computed, DateTime, String, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -27,6 +28,12 @@ class ArchiveDir(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # 03e35e3c34bc_archive_dirs_id_uuid_phase_a.py) - not yet the primary
+    # key. The self-referencing `archive_dir_id` column below is
+    # deliberately left untouched until the Final-Cutover slice, which
+    # also converts its `0`-sentinel to NULL.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str | None]
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)

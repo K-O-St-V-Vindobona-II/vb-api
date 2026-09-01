@@ -4,11 +4,13 @@ test suite was moved off SQLite onto real PostgreSQL. SQLite never enforces
 foreign keys by default, so none of this was ever exercised before."""
 
 import datetime
+import uuid
 
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
 from app.models.contact import Contact
 from app.models.member import Member
@@ -99,6 +101,26 @@ class TestFkInsertEnforcement:
                 member_id=member.id,
                 role_id="does-not-exist",
                 startdate=datetime.date(2020, 1, 1),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_store_item_with_unknown_created_by_is_rejected(
+        self, db_session
+    ):
+        """archive_store_items.created_by -> members.id_uuid (Alembic
+        revision 31b5c04b297d) - the migration series' first real
+        Phase B Referrer-Cutover, so worth its own explicit guard."""
+        db_session.add(
+            ArchiveStoreItem(
+                name="fk-test",
+                extension="jpg",
+                mime_type="image/jpeg",
+                size=1,
+                sha256_hash="fk-enforcement-test-hash",
+                created_by=uuid.uuid4(),
             )
         )
         with pytest.raises(IntegrityError):

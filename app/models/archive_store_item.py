@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,14 +21,21 @@ class ArchiveStoreItem(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # 31b5c04b297d_archive_store_items_id_uuid_phase_a_and_.py) - not yet
+    # the primary key. archive_files cuts over onto this in its own slice.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
     name: Mapped[str]
     description: Mapped[str | None]
     extension: Mapped[str]
     mime_type: Mapped[str]
     size: Mapped[int]
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover (slice 32), see
+    # 31b5c04b297d's docstring.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
