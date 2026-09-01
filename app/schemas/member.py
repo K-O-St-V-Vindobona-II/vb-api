@@ -1,3 +1,5 @@
+import uuid
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
@@ -17,7 +19,7 @@ class MemberResponse(MemberBase):
     id: int
 
     cn: str = ""
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
     permissions: list[str] = []
     google_linked: bool = False
     chroniclemail: bool = False

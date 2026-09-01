@@ -1,6 +1,7 @@
 """Tests for image gallery — upload, update, delete, permissions."""
 
 import io
+import uuid
 from datetime import date
 
 import bcrypt
@@ -131,7 +132,7 @@ class TestUpload:
 
         img = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=target.id)
+            .filter_by(owner_member_id=target.id_uuid)
             .first()
         )
         assert img is not None
@@ -407,7 +408,7 @@ class TestPresignedUrl:
         headers = _headers(client, db_session, admin)
 
         url_resp = client.get(
-            "/api/standesdb/members/999/images/999/url",
+            f"/api/standesdb/members/999/images/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert url_resp.status_code == 404
@@ -479,7 +480,7 @@ class TestPresignedUrl:
 
     def test_presigned_url_unauthenticated(self, client, db_session):
         resp = client.get(
-            "/api/standesdb/members/1/images/1/url",
+            f"/api/standesdb/members/1/images/{uuid.uuid4()}/url",
         )
         assert resp.status_code == 401
 
@@ -525,7 +526,7 @@ class TestSelfService:
         assert resp.status_code == 201
         img = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=member.id)
+            .filter_by(owner_member_id=member.id_uuid)
             .first()
         )
         assert img is not None
@@ -626,7 +627,7 @@ class TestSelfService:
 
         count = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=member.id, deleted_at=None)
+            .filter_by(owner_member_id=member.id_uuid, deleted_at=None)
             .count()
         )
         assert count == 6

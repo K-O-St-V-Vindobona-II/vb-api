@@ -367,7 +367,7 @@ class TestStandesdbHealthCheck:
         )
         db_session.add(
             StandesdbImage(
-                owner_member_id=admin.id,
+                owner_member_id=admin.id_uuid,
                 sha256_hash="missing_img_hash",
             )
         )

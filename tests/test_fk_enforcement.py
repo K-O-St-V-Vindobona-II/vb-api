@@ -376,8 +376,8 @@ class TestStandesdbImageExclusiveArc:
 
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id,
-                owner_contact_id=contact.id,
+                owner_member_id=member.id_uuid,
+                owner_contact_id=contact.id_uuid,
                 sha256_hash="a" * 64,
             )
         )
@@ -392,13 +392,17 @@ class TestStandesdbImageExclusiveArc:
         db_session.rollback()
 
     def test_inserting_with_unknown_owner_member_id_is_rejected(self, db_session):
-        db_session.add(StandesdbImage(owner_member_id=999999, sha256_hash="c" * 64))
+        db_session.add(
+            StandesdbImage(owner_member_id=uuid.uuid4(), sha256_hash="c" * 64)
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_owner_contact_id_is_rejected(self, db_session):
-        db_session.add(StandesdbImage(owner_contact_id=999999, sha256_hash="d" * 64))
+        db_session.add(
+            StandesdbImage(owner_contact_id=uuid.uuid4(), sha256_hash="d" * 64)
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -408,7 +412,7 @@ class TestStandesdbImageExclusiveArc:
         db_session.add(member)
         db_session.commit()
 
-        img = StandesdbImage(owner_member_id=member.id, sha256_hash="e" * 64)
+        img = StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="e" * 64)
         db_session.add(img)
         db_session.commit()
         img_id = img.id
@@ -423,7 +427,7 @@ class TestStandesdbImageExclusiveArc:
         db_session.add(contact)
         db_session.commit()
 
-        img = StandesdbImage(owner_contact_id=contact.id, sha256_hash="f" * 64)
+        img = StandesdbImage(owner_contact_id=contact.id_uuid, sha256_hash="f" * 64)
         db_session.add(img)
         db_session.commit()
         img_id = img.id
@@ -432,6 +436,51 @@ class TestStandesdbImageExclusiveArc:
         db_session.commit()
 
         assert db_session.get(StandesdbImage, img_id) is None
+
+
+class TestStandesdbImageCreatedByFk:
+    """standesdb_images.created_by -> members.id_uuid - a genuinely
+    missing FK added directly (not a Referrer-Cutover of an existing
+    one), same class of fix as slice 20's contacts_logs/members_logs
+    .modified_by and slice 22's request_logs FKs."""
+
+    def test_inserting_with_unknown_created_by_is_rejected(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(
+            StandesdbImage(
+                owner_member_id=member.id_uuid,
+                created_by=uuid.uuid4(),
+                sha256_hash="g" * 64,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_creator_sets_created_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        creator = Member(vorname="Creator", nachname="User")
+        db_session.add_all([member, creator])
+        db_session.commit()
+
+        img = StandesdbImage(
+            owner_member_id=member.id_uuid,
+            created_by=creator.id_uuid,
+            sha256_hash="h" * 64,
+        )
+        db_session.add(img)
+        db_session.commit()
+        img_id = img.id
+
+        db_session.execute(delete(Member).where(Member.id == creator.id))
+        db_session.commit()
+
+        refreshed = db_session.get(StandesdbImage, img_id)
+        assert refreshed is not None
+        assert refreshed.created_by is None
 
 
 class TestP4xPartnerExclusiveArc:

@@ -1,6 +1,7 @@
 """Coverage tests for standesdb router and service."""
 
 import io
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -149,7 +150,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.put(
-            "/api/standesdb/members/99999/images/1",
+            f"/api/standesdb/members/99999/images/{uuid.uuid4()}",
             json={"description": "x"},
             headers=h,
         )
@@ -160,7 +161,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.delete(
-            "/api/standesdb/members/99999/images/1",
+            f"/api/standesdb/members/99999/images/{uuid.uuid4()}",
             headers=h,
         )
         assert resp.status_code == 404

@@ -57,12 +57,15 @@ class IdLabelOption(BaseModel):
     label: str
 
 
-class StatusIdResponse(BaseModel):
+class StatusIdResponse[T](BaseModel):
     """Generic acknowledgement for create endpoints that only need to
-    report the new row's id alongside the status."""
+    report the new row's id alongside the status. Generic since some
+    callers' id is still int (their own table hasn't had its
+    Final-Cutover primary-key promotion yet) while others already
+    report a uuid.UUID."""
 
     status: str
-    id: int
+    id: T
 
 
 class PaginatedResponse[T](BaseModel):

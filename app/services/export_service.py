@@ -393,7 +393,7 @@ def generate_excel_full(  # noqa: C901
 
 def _get_image_base64(
     db: Session,
-    image_id: int | None,
+    image_id: uuid.UUID | None,
     storage: StorageClient,
 ) -> str | None:
     if not image_id:

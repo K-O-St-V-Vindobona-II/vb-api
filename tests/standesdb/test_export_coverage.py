@@ -6,6 +6,7 @@ pagination logic, RuntimeError guards, and contact-only_without_email filter.
 """
 
 import base64
+import uuid
 from datetime import UTC, date, datetime
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -415,7 +416,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id,
+            owner_member_id=member.id_uuid,
             sha256_hash="del_hash",
             deleted_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
@@ -425,7 +426,7 @@ class TestGetImageBase64:
         assert result is None
 
     def test_image_not_found_returns_none(self, db_session: object) -> None:
-        result = _get_image_base64(db_session, 99999, MagicMock())
+        result = _get_image_base64(db_session, uuid.uuid4(), MagicMock())
         assert result is None
 
     def test_cached_image_returns_base64(self, db_session: object) -> None:
@@ -434,7 +435,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id,
+            owner_member_id=member.id_uuid,
             sha256_hash="cached_hash",
         )
         db_session.add(img)
@@ -456,7 +457,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id,
+            owner_member_id=member.id_uuid,
             sha256_hash="no_orig_hash",
         )
         db_session.add(img)
@@ -475,7 +476,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id,
+            owner_member_id=member.id_uuid,
             sha256_hash="thumb_hash",
         )
         db_session.add(img)
@@ -502,7 +503,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id,
+            owner_member_id=member.id_uuid,
             sha256_hash="err_hash",
         )
         db_session.add(img)

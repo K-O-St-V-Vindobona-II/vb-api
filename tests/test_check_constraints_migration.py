@@ -238,7 +238,9 @@ class TestNullablePositiveOnly:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(owner_member_id=member.id, sha256_hash="c" * 64, width=0)
+            StandesdbImage(
+                owner_member_id=member.id_uuid, sha256_hash="c" * 64, width=0
+            )
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -250,7 +252,9 @@ class TestNullablePositiveOnly:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(owner_member_id=member.id, sha256_hash="d" * 64, width=None)
+            StandesdbImage(
+                owner_member_id=member.id_uuid, sha256_hash="d" * 64, width=None
+            )
         )
         db_session.commit()
 

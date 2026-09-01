@@ -212,7 +212,7 @@ class MemberDetailResponse(BaseModel):
         description="id of the member who sponsored this member's admission, or 0.",
     )
     parent_cn: str = ""
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
 
     chroniclemail: bool = False
     auth_locked: bool = True
@@ -645,7 +645,7 @@ class ContactDetailResponse(BaseModel):
     rufnummer: str | None = None
     datum: str | None = None
     datum_accuracy: int = Field(default=0, description=_DATE_ACCURACY_DESCRIPTION)
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
     anmerkungen: str | None = None
 
 
@@ -865,11 +865,11 @@ class ImageOwnerResponse(BaseModel):
     id: int
     cn: str
     org_id: str | None
-    default_image: int | None
+    default_image: uuid.UUID | None
 
 
 class ImageListItem(BaseModel):
-    id: int
+    id: uuid.UUID
     type: str | None
     height: int | None
     width: int | None

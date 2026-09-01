@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -10,7 +11,10 @@ class StandesdbImage(Base):
     """owner_member_id/owner_contact_id is an exclusive-arc polymorphic
     association: exactly one is set, enforced by the CHECK below. Real FKs
     per target table since Postgres can't point a single FK at "whichever
-    table a discriminator column names".
+    table a discriminator column names". Each references its target's
+    id_uuid column, not its own (still-integer) id - members/contacts
+    each keep their own Final-Cutover for a later slice. created_by
+    likewise references members.id_uuid.
 
     sha256_hash is deliberately NOT globally unique (unlike ArchiveStoreItem/
     PublicGalleryImage/P4xTransaction): S3 storage is already content-
@@ -45,12 +49,12 @@ class StandesdbImage(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    owner_member_id: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    owner_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
     )
-    owner_contact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("contacts.id", ondelete="CASCADE", onupdate="CASCADE")
+    owner_contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
     )
     extension: Mapped[str | None]
     type: Mapped[str | None]
@@ -60,7 +64,9 @@ class StandesdbImage(Base):
     sha256_hash: Mapped[str] = mapped_column(String(64))
     description: Mapped[str | None]
     default: Mapped[bool] = mapped_column(default=False)
-    created_by: Mapped[int | None]
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -70,7 +76,7 @@ class StandesdbImage(Base):
         return "member" if self.owner_member_id is not None else "contact"
 
     @property
-    def owner_id(self) -> int:
+    def owner_id(self) -> uuid.UUID:
         if self.owner_member_id is not None:
             return self.owner_member_id
         if self.owner_contact_id is not None:

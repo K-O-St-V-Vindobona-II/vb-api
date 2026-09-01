@@ -237,7 +237,7 @@ class Member(Base):
         return " ".join(name.split())
 
     @property
-    def default_image(self) -> int | None:
+    def default_image(self) -> uuid.UUID | None:
         for img in self.images:
             if img.default and not img.deleted_at:
                 return img.id

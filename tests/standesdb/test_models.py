@@ -331,7 +331,7 @@ def test_standesdb_image_model(db_session):
     db_session.commit()
 
     img = StandesdbImage(
-        owner_member_id=member.id,
+        owner_member_id=member.id_uuid,
         sha256_hash="abc123",
         type="image/jpeg",
         extension="jpeg",
@@ -351,6 +351,25 @@ def test_standesdb_image_model(db_session):
     assert loaded.deleted_at is None
 
 
+class TestStandesdbImageIdDefault:
+    """Guards StandesdbImage's own UUID primary key: every insert goes
+    through the ORM instance, so `default=uuid.uuid7` fires without
+    ever needing a server-side default - same guard as every other
+    Final-Cutover table's primary key in this series."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        img = StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="uuid7test")
+        db_session.add(img)
+        db_session.flush()
+
+        assert isinstance(img.id, uuid.UUID)
+        assert img.id.version == 7
+
+
 def test_member_default_image(db_session):
     """default_image returns the default or oldest."""
     member = Member(
@@ -365,12 +384,12 @@ def test_member_default_image(db_session):
     assert member.default_image is None
 
     img1 = StandesdbImage(
-        owner_member_id=member.id,
+        owner_member_id=member.id_uuid,
         sha256_hash="hash1",
         default=False,
     )
     img2 = StandesdbImage(
-        owner_member_id=member.id,
+        owner_member_id=member.id_uuid,
         sha256_hash="hash2",
         default=True,
     )
