@@ -54,7 +54,7 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PL
 
     try:
         data = json.loads(raw_json)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return ParseResult(success=False, message="failed to parse given raw json data")
 
     if not isinstance(data, list):

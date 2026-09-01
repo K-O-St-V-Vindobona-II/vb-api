@@ -1,10 +1,10 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, literal, select
-from sqlalchemy.orm import Session
 
 from app.core.storage import (
     S3_PATH_ARCHIVE_CACHE,
@@ -24,13 +24,17 @@ from app.models.archive_permission import (
 from app.models.archive_store_item import (
     ArchiveStoreItem,
 )
-from app.models.member import Member
 from app.models.org import Org
 from app.models.state import State
 from app.services.permission_service import (
     calculate_permissions,
 )
 from app.services.search_utils import build_prefix_tsquery_text
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.models.member import Member
 
 THUMB_SIZES = {"xs": 16, "sm": 128, "md": 256, "lg": 550}
 
@@ -840,7 +844,7 @@ def _get_or_create_thumbnail(
             THUMB_SIZES[size],
         )
         storage.upload(cache_key, thumb_bytes, content_type)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     else:
         return thumb_bytes

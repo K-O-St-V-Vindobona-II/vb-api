@@ -14,8 +14,8 @@ their tests build fixtures directly via db_session instead, which stays
 properly isolated.
 """
 
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -28,6 +28,9 @@ from app.services.scheduled_task_run_service import (
     list_job_runs,
     record_job_run,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture

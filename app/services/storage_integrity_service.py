@@ -8,8 +8,7 @@ must be done manually via the S3 web console.
 """
 
 from dataclasses import dataclass, field
-
-from sqlalchemy.orm import InstrumentedAttribute, Session
+from typing import TYPE_CHECKING
 
 from app.core.storage import (
     S3_PATH_ARCHIVE_STORE,
@@ -18,6 +17,9 @@ from app.core.storage import (
 )
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.standesdb_image import StandesdbImage
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import InstrumentedAttribute, Session
 
 
 @dataclass

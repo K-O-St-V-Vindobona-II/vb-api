@@ -1,11 +1,13 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.models.public_site_quote import PublicSiteQuote
 from app.services.reorder_service import find_reorder_neighbor
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def list_quotes(db: Session) -> list[PublicSiteQuote]:

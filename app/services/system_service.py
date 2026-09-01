@@ -1,10 +1,12 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import inspect, text
-from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def get_app_environment() -> str:

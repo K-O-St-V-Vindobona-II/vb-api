@@ -1,5 +1,4 @@
 import logging
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import app.db.base
@@ -7,6 +6,8 @@ from app.api.router import api_router
 from app.core.logging_config import setup_logging
 
 setup_logging()
+from typing import TYPE_CHECKING
+
 from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,19 +15,23 @@ from pydantic import ValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.api.system import system_router
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from starlette.requests import Request
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     logger.info(
         "*** Application starting — environment: %s ***", settings.app_environment
     )

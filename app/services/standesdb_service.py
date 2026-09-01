@@ -1,7 +1,7 @@
 import json
-from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from itertools import combinations
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, literal
@@ -37,6 +37,9 @@ from app.schemas.standesdb import (
     TreeNodeResponse,
 )
 from app.services.search_utils import build_prefix_tsquery_text
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # --- Stats ---
 
@@ -799,7 +802,7 @@ def _validate_ids_exist(
 
 def validate_member_references(
     db: Session,
-    data: "MemberSaveRequest",
+    data: MemberSaveRequest,
 ) -> None:
     if data.state_id and not db.query(State).filter_by(id=data.state_id).first():
         raise HTTPException(

@@ -1,14 +1,13 @@
 import hashlib
 import io
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 from PIL import Image as PILImage
-from sqlalchemy import ColumnElement
-from sqlalchemy.orm import Session
 
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
@@ -18,6 +17,10 @@ from app.core.storage import (
     generate_thumbnail,
 )
 from app.models.standesdb_image import StandesdbImage
+
+if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
+    from sqlalchemy.orm import Session
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -161,7 +164,7 @@ def _ensure_cache(
             preserve_png=True,
             source_mime=img.type,
         )
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return
     storage.upload(cache_key, thumb_bytes, content_type)
 
@@ -195,7 +198,7 @@ def upload_image(
     try:
         pil_img = PILImage.open(io.BytesIO(content))
         width, height = pil_img.size
-    except (OSError, ValueError):
+    except OSError, ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Datei ist kein gültiges Bild.",

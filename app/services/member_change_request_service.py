@@ -5,10 +5,9 @@ persisted "partially decided" state - see MemberChangeRequest's docstring).
 """
 
 from datetime import UTC, date, datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 
 from app.models.enums import MemberChangeRequestStatus, MemberDeliveryPreference
 from app.models.member import Member
@@ -21,6 +20,9 @@ from app.services.standesdb_service import (
     validate_member_uniqueness,
     values_differ,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def _json_safe(value: object) -> object:

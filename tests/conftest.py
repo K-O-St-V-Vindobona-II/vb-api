@@ -9,7 +9,6 @@ ORM session) that is always rolled back afterward for isolation.
 """
 
 import os
-from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
@@ -41,6 +40,8 @@ if _dbname not in _ALLOWED_TEST_DBS:
 
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL  # consulted by alembic/env.py
 
+from typing import TYPE_CHECKING
+
 import bcrypt
 import boto3
 import pytest
@@ -48,7 +49,6 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
@@ -58,6 +58,11 @@ from app.core.config import get_settings
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from main import app
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.engine import Connection
 
 engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 if engine.dialect.name != "postgresql":

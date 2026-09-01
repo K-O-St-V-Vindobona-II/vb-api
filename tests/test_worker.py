@@ -11,7 +11,25 @@ from unittest.mock import Mock
 
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
-from app.worker import WorkerSettings, build_cron_jobs, task_downsync, task_health_check
+from app.worker import (
+    WorkerSettings,
+    build_cron_jobs,
+    task_archive_health_check,
+    task_birthday_mails,
+    task_cleanup,
+    task_db_backup,
+    task_debtor_reminder,
+    task_downsync,
+    task_health_check,
+    task_refresh_category_filter_hits,
+    task_send_entry_changed_email,
+    task_send_member_change_request_resolved_email,
+    task_send_member_change_request_submitted_email,
+    task_send_own_image_changed_email,
+    task_send_reset_email,
+    task_standesdb_chronicles,
+    task_standesdb_health_check,
+)
 
 
 class TestWorkerSettings:
@@ -73,6 +91,135 @@ class TestBuildCronJobs:
 
         names = {j.name for j in jobs}
         assert "task_db_backup" not in names
+
+
+class TestThinTaskWrappers:
+    """Each task_* wrapper is a one-line asyncio.to_thread(job_x) or
+    asyncio.to_thread(send_x, ...) delegation - untested, a typo in the
+    delegated function name or a dropped argument would only surface at
+    runtime, once arq actually dispatches that job."""
+
+    def test_task_cleanup_delegates_to_job_cleanup(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_cleanup", mock_job)
+        asyncio.run(task_cleanup({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_refresh_category_filter_hits_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_refresh_category_filter_hits", mock_job)
+        asyncio.run(task_refresh_category_filter_hits({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_birthday_mails_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_birthday_mails", mock_job)
+        asyncio.run(task_birthday_mails({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_debtor_reminder_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_debtor_reminder", mock_job)
+        asyncio.run(task_debtor_reminder({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_standesdb_chronicles_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_standesdb_chronicles", mock_job)
+        asyncio.run(task_standesdb_chronicles({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_archive_health_check_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_archive_health_check", mock_job)
+        asyncio.run(task_archive_health_check({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_standesdb_health_check_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_standesdb_health_check", mock_job)
+        asyncio.run(task_standesdb_health_check({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_db_backup_delegates(self, monkeypatch) -> None:
+        mock_job = Mock()
+        monkeypatch.setattr("app.worker.job_db_backup", mock_job)
+        asyncio.run(task_db_backup({}))
+        mock_job.assert_called_once_with()
+
+    def test_task_send_reset_email_delegates_with_args(self, monkeypatch) -> None:
+        mock_send = Mock()
+        monkeypatch.setattr("app.worker.send_reset_email", mock_send)
+        asyncio.run(task_send_reset_email({}, "member@test.at", "tok123"))
+        mock_send.assert_called_once_with("member@test.at", "tok123")
+
+    def test_task_send_entry_changed_email_delegates_with_args(
+        self, monkeypatch
+    ) -> None:
+        mock_send = Mock()
+        monkeypatch.setattr("app.worker.send_entry_changed_email", mock_send)
+        asyncio.run(
+            task_send_entry_changed_email(
+                {},
+                ["a@test.at"],
+                "member",
+                "Testikus",
+                {"field": {"old": "a", "new": "b"}},
+                change_type="update",
+                modifier_cn="Admin",
+            )
+        )
+        mock_send.assert_called_once_with(
+            ["a@test.at"],
+            "member",
+            "Testikus",
+            {"field": {"old": "a", "new": "b"}},
+            change_type="update",
+            modifier_cn="Admin",
+        )
+
+    def test_task_send_member_change_request_submitted_email_delegates(
+        self, monkeypatch
+    ) -> None:
+        mock_send = Mock()
+        monkeypatch.setattr(
+            "app.worker.send_member_change_request_submitted_email", mock_send
+        )
+        asyncio.run(
+            task_send_member_change_request_submitted_email(
+                {}, ["a@test.at"], "Testikus", {"field": {"old": "a", "new": "b"}}
+            )
+        )
+        mock_send.assert_called_once_with(
+            ["a@test.at"], "Testikus", {"field": {"old": "a", "new": "b"}}
+        )
+
+    def test_task_send_member_change_request_resolved_email_delegates(
+        self, monkeypatch
+    ) -> None:
+        mock_send = Mock()
+        monkeypatch.setattr(
+            "app.worker.send_member_change_request_resolved_email", mock_send
+        )
+        asyncio.run(
+            task_send_member_change_request_resolved_email(
+                {},
+                "a@test.at",
+                {"field": {"old": "a", "new": "b"}},
+                {"field": "accept"},
+            )
+        )
+        mock_send.assert_called_once_with(
+            "a@test.at", {"field": {"old": "a", "new": "b"}}, {"field": "accept"}
+        )
+
+    def test_task_send_own_image_changed_email_delegates(self, monkeypatch) -> None:
+        mock_send = Mock()
+        monkeypatch.setattr("app.worker.send_own_image_changed_email", mock_send)
+        asyncio.run(
+            task_send_own_image_changed_email({}, ["a@test.at"], "Testikus", "changed")
+        )
+        mock_send.assert_called_once_with(["a@test.at"], "Testikus", "changed")
 
 
 class TestTaskDownsync:

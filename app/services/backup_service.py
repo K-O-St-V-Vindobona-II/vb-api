@@ -4,10 +4,9 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import ClientError
 from sqlalchemy.engine import make_url
@@ -15,6 +14,9 @@ from sqlalchemy.engine import make_url
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone, local_now
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 

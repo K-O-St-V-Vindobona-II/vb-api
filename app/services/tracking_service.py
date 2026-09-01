@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import desc, func
-from sqlalchemy.orm import Session
 
 from app.core.datetime_utils import local_day_bounds_utc, local_today
 from app.models.client_user_agent import ClientUserAgent
@@ -17,6 +17,9 @@ from app.schemas.tracking import (
     EmailTemplateStats,
     SentEmailListItem,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 ACTION_LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/auth/login"): "Anmeldung",

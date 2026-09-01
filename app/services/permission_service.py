@@ -1,13 +1,15 @@
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypedDict
-
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING, TypedDict
 
 from app.core.config import get_settings
 from app.core.datetime_utils import local_today
 from app.models.member import Member
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

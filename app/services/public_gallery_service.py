@@ -1,17 +1,20 @@
 import hashlib
 import io
-import uuid
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image as PILImage
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.core.storage import S3_PATH_PUBLIC_GALLERY, StorageClient
 from app.models.public_gallery_image import PublicGalleryImage
 from app.services.reorder_service import find_reorder_neighbor
+
+if TYPE_CHECKING:
+    import uuid
+
+    from sqlalchemy.orm import Session
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 8 * 1024 * 1024
@@ -79,7 +82,7 @@ def upload_image(
     try:
         pil_img = PILImage.open(io.BytesIO(content))
         width, height = pil_img.size
-    except (OSError, ValueError):
+    except OSError, ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Datei ist kein gültiges Bild.",

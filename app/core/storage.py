@@ -1,6 +1,5 @@
-from datetime import datetime
 from io import BytesIO
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import quote
 
 import boto3
@@ -10,6 +9,9 @@ from PIL import Image as PILImage
 from PIL import ImageOps
 
 from app.core.config import get_settings, require_setting
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 PILImage.MAX_IMAGE_PIXELS = 100_000_000
 

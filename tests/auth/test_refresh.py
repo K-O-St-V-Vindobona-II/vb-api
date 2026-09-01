@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import bcrypt
 import pytest
-from fastapi.testclient import TestClient
 
 from app.core.rate_limit import limiter
 from app.core.security import (
@@ -12,6 +12,9 @@ from app.core.security import (
 )
 from app.models.auth_session import AuthSession
 from app.models.member import Member
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 PASSWORD = "testpass123"
 HASHED = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt()).decode()

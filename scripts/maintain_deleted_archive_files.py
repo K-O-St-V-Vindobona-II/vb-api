@@ -105,11 +105,10 @@ import argparse
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy.orm import Session
 
 import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
 from app.core.storage import StorageClient, get_storage
@@ -129,6 +128,9 @@ from app.services.archive_maintenance_service import (
     purge_file,
     restore_file,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _IMPACT_LABELS = {
     PurgeImpact.DUPLICATE: "duplicate",

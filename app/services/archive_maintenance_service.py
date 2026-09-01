@@ -8,19 +8,22 @@ There is no HTTP endpoint for any of this and there must never be one.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum, auto
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import ClientError
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.core.storage import S3_PATH_ARCHIVE_CACHE, S3_PATH_ARCHIVE_STORE, StorageClient
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_store_item import ArchiveStoreItem
 from app.services.archive_service import dir_path_string
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
 
 
 class PurgeImpact(Enum):

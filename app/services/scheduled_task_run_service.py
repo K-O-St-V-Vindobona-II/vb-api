@@ -9,12 +9,13 @@ be the reason a scheduled job's own error handling breaks.
 
 import logging
 from datetime import UTC, datetime
-from typing import TypedDict
-
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING, TypedDict
 
 from app.db.database import SessionLocal
 from app.models.scheduled_task_run import ScheduledTaskRun
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
