@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Numeric
+from sqlalchemy import CheckConstraint, Date, DateTime, Numeric, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -27,6 +28,11 @@ class P4xAccount(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # e0a57d5a7522_p4x_accounts_id_uuid_phase_a.py) - not yet the primary
+    # key. p4x_partners/p4x_category_filters/p4x_transactions all cut
+    # over onto this, converging in the Final-Cutover slice.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
     iban: Mapped[str] = mapped_column(unique=True)
     bic: Mapped[str | None]
     label: Mapped[str | None]

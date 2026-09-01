@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 import pytest
@@ -84,6 +85,17 @@ class TestP4xAccount:
         db_session.commit()
         assert account.deleted_at is not None
 
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Phase A assumption (see
+        e0a57d5a7522_p4x_accounts_id_uuid_phase_a.py): every insert goes
+        through the ORM instance, so `default=uuid.uuid7` on the
+        additive `id_uuid` column fires without ever needing a
+        server-side default - same guard as every migrated table's
+        primary key, just on a column that isn't the primary key yet."""
+        account = _seed_account(db_session)
+        assert isinstance(account.id_uuid, uuid.UUID)
+        assert account.id_uuid.version == 7
+
 
 class TestP4xTransaction:
     def test_create_with_account(self, db_session):
@@ -163,6 +175,14 @@ class TestP4xCategory:
         db_session.add(dup)
         with pytest.raises(IntegrityError):
             db_session.commit()
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        """Same UUID-PK-migration Phase A guard as TestP4xAccount above,
+        for p4x_categories' additive `id_uuid` column (see
+        a67f0d2a4c5e_p4x_categories_and_p4x_special_contacts_.py)."""
+        cat = _seed_category(db_session)
+        assert isinstance(cat.id_uuid, uuid.UUID)
+        assert cat.id_uuid.version == 7
 
 
 class TestP4xCategoryFilter:
@@ -323,6 +343,16 @@ class TestP4xSpecialcontact:
         db_session.commit()
         assert sc.id is not None
         assert sc.search_label == "Spezial: Konto-Intern(Sparkassen-Information)"
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        """Same UUID-PK-migration Phase A guard as TestP4xAccount above,
+        for p4x_special_contacts' additive `id_uuid` column (see
+        a67f0d2a4c5e_p4x_categories_and_p4x_special_contacts_.py)."""
+        sc = P4xSpecialcontact(cn="Phase A Guard")
+        db_session.add(sc)
+        db_session.flush()
+        assert isinstance(sc.id_uuid, uuid.UUID)
+        assert sc.id_uuid.version == 7
 
 
 class TestP4xSummaryOrder:
