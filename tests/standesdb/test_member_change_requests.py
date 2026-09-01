@@ -77,7 +77,7 @@ def _create_admin(db, *, org_id: str = "vbw", email: str = "admin@test.at") -> M
     db.commit()
     db.add(
         MemberRole(
-            member_id=admin.id,
+            member_id=admin.id_uuid,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -556,24 +556,21 @@ class TestDecideMemberChangeRequest:
         resolve_change_request() would do, since apply_member_input() fully
         replaces these from whatever lists it's given."""
         _seed_base(db_session)
-        db_session.add_all(
-            [
-                Badge(id=1, name="Testabzeichen", group="ehrenzeichen", order=1),
-                Key(id=1, name="Testschluessel"),
-            ]
-        )
+        badge = Badge(id=1, name="Testabzeichen", group="ehrenzeichen", order=1)
+        key = Key(id=1, name="Testschluessel")
+        db_session.add_all([badge, key])
         db_session.commit()
         member = _create_member(db_session, email="member17@test.at")
         db_session.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id="senior",  # NOT standesfuehrer - see _seed_base()
                 startdate=date(2010, 1, 1),
                 enddate=None,
             )
         )
-        db_session.add(MemberBadge(member_id=member.id, badge_id=1))
-        db_session.add(MemberKey(member_id=member.id, key_id=1))
+        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=badge.id_uuid))
+        db_session.add(MemberKey(member_id=member.id_uuid, key_id=key.id_uuid))
         db_session.commit()
         admin = _create_admin(db_session, email="admin17@test.at")
         request = self._submit_and_get_request(
@@ -592,19 +589,23 @@ class TestDecideMemberChangeRequest:
         # actually persisted.
         db_session.expire_all()
         roles = (
-            db_session.query(MemberRole).filter(MemberRole.member_id == member.id).all()
+            db_session.query(MemberRole)
+            .filter(MemberRole.member_id == member.id_uuid)
+            .all()
         )
         badges = (
             db_session.query(MemberBadge)
-            .filter(MemberBadge.member_id == member.id)
+            .filter(MemberBadge.member_id == member.id_uuid)
             .all()
         )
         keys = (
-            db_session.query(MemberKey).filter(MemberKey.member_id == member.id).all()
+            db_session.query(MemberKey)
+            .filter(MemberKey.member_id == member.id_uuid)
+            .all()
         )
         assert [r.role_id for r in roles] == ["senior"]
-        assert [b.badge_id for b in badges] == [1]
-        assert [k.key_id for k in keys] == [1]
+        assert [b.badge_id for b in badges] == [badge.id_uuid]
+        assert [k.key_id for k in keys] == [key.id_uuid]
 
     def test_resolution_produces_members_log_entry(self, db_session, client):
         _seed_base(db_session)

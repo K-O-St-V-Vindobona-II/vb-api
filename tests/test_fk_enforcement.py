@@ -12,9 +12,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
+from app.models.badge import Badge
 from app.models.contact import Contact
+from app.models.key import Key
 from app.models.member import Member
+from app.models.member_badge import MemberBadge
 from app.models.member_change_request import MemberChangeRequest
+from app.models.member_key import MemberKey
 from app.models.member_role import MemberRole
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.p4x_account import P4xAccount
@@ -56,7 +60,7 @@ def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
     db.commit()
 
     member_role = MemberRole(
-        member_id=member.id,
+        member_id=member.id_uuid,
         role_id=role.id,
         startdate=datetime.date(2020, 1, 1),
     )
@@ -102,7 +106,7 @@ class TestFkInsertEnforcement:
 
         db_session.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id="does-not-exist",
                 startdate=datetime.date(2020, 1, 1),
             )
@@ -217,6 +221,83 @@ class TestFkInsertEnforcement:
                 resolved_by=uuid.uuid4(),
             )
         )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_members_role_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """members_roles.member_id -> members.id_uuid (Alembic revision
+        191cba0a57bd) - the composite-PK cutover for the three junction
+        tables without a surrogate id."""
+        role = Role(id="fk-test-role-2", label="FK Test Role 2")
+        db_session.add(role)
+        db_session.commit()
+
+        db_session.add(
+            MemberRole(
+                member_id=uuid.uuid4(),
+                role_id=role.id,
+                startdate=datetime.date(2020, 1, 1),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_badges_member_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """badges_members.member_id -> members.id_uuid (Alembic revision
+        191cba0a57bd)."""
+        badge = Badge(id=1001, name="FK Test Badge")
+        db_session.add(badge)
+        db_session.commit()
+
+        db_session.add(MemberBadge(member_id=uuid.uuid4(), badge_id=badge.id_uuid))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_badges_member_with_unknown_badge_id_is_rejected(
+        self, db_session
+    ):
+        """badges_members.badge_id -> badges.id_uuid (Alembic revision
+        191cba0a57bd) - badges itself keeps its integer primary key until
+        its own Final-Cutover (slice 25)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_keys_member_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """keys_members.member_id -> members.id_uuid (Alembic revision
+        191cba0a57bd)."""
+        key = Key(id=1001, name="FK Test Key")
+        db_session.add(key)
+        db_session.commit()
+
+        db_session.add(MemberKey(member_id=uuid.uuid4(), key_id=key.id_uuid))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_keys_member_with_unknown_key_id_is_rejected(self, db_session):
+        """keys_members.key_id -> keys.id_uuid (Alembic revision
+        191cba0a57bd) - keys itself keeps its integer primary key until
+        its own Final-Cutover (slice 25)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(MemberKey(member_id=member.id_uuid, key_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()

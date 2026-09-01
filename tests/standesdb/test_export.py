@@ -54,7 +54,7 @@ def _admin(db):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -601,18 +601,22 @@ class TestExcelExport:
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
         m = _member(db_session, vorname="X", nachname="Y", email="x@t.at")
+        fuxenband = db_session.query(Badge).filter_by(name="Fuxenband").one()
+        ehrenzeichen_gold = (
+            db_session.query(Badge).filter_by(name="Ehrenzeichen Gold").one()
+        )
         db_session.add(
             MemberBadge(
-                member_id=m.id,
-                badge_id=1,
+                member_id=m.id_uuid,
+                badge_id=fuxenband.id_uuid,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
             )
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id,
-                badge_id=2,
+                member_id=m.id_uuid,
+                badge_id=ehrenzeichen_gold.id_uuid,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
             )

@@ -306,7 +306,7 @@ def _get_role_holder_emails(
         m.email
         for m in db.query(Member)
         .filter(
-            Member.id.in_(member_ids),
+            Member.id_uuid.in_(member_ids),
             Member.org_id == org_id,
             Member.email.isnot(None),
             Member.email != "",

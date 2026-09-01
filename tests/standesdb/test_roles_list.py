@@ -50,7 +50,7 @@ def _login(db, _client, org_id="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="x",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -113,10 +113,10 @@ class TestRolesListEndpoint:
         db_session.commit()
 
         _add_role_assignment(
-            db_session, user.id, "xx", date(2025, 8, 1), date(2026, 1, 31)
+            db_session, user.id_uuid, "xx", date(2025, 8, 1), date(2026, 1, 31)
         )
         _add_role_assignment(
-            db_session, vbn_member.id, "xx", date(2025, 8, 1), date(2026, 1, 31)
+            db_session, vbn_member.id_uuid, "xx", date(2025, 8, 1), date(2026, 1, 31)
         )
 
         with patch(
@@ -137,7 +137,7 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
         _add_role_assignment(
-            db_session, user.id, "xx", date(2024, 2, 1), date(2024, 7, 31)
+            db_session, user.id_uuid, "xx", date(2024, 2, 1), date(2024, 7, 31)
         )
 
         with patch(
@@ -155,7 +155,7 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
         _add_role_assignment(
-            db_session, user.id, "xx", date(2025, 2, 1), date(2025, 7, 31)
+            db_session, user.id_uuid, "xx", date(2025, 2, 1), date(2025, 7, 31)
         )
 
         resp = client.get(
@@ -173,7 +173,7 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
         _add_role_assignment(
-            db_session, user.id, "xx", date(2025, 8, 1), date(2026, 1, 31)
+            db_session, user.id_uuid, "xx", date(2025, 8, 1), date(2026, 1, 31)
         )
 
         resp = client.get(
@@ -188,7 +188,7 @@ class TestRolesListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
         _add_role_assignment(
-            db_session, user.id, "xx", date(2025, 2, 1), date(2025, 7, 31)
+            db_session, user.id_uuid, "xx", date(2025, 2, 1), date(2025, 7, 31)
         )
 
         resp = client.get(
@@ -201,7 +201,9 @@ class TestRolesListEndpoint:
     def test_open_ended_assignment(self, client, db_session):
         _seed(db_session)
         headers, user = _login(db_session, client)
-        _add_role_assignment(db_session, user.id, "archivar", date(2020, 1, 1), None)
+        _add_role_assignment(
+            db_session, user.id_uuid, "archivar", date(2020, 1, 1), None
+        )
 
         resp = client.get(
             "/api/standesdb/roles?year=2025&semester=ss",
@@ -291,10 +293,10 @@ class TestRolesListEndpoint:
         db_session.commit()
 
         _add_role_assignment(
-            db_session, user.id, "phil-x", date(2025, 2, 1), date(2025, 7, 31)
+            db_session, user.id_uuid, "phil-x", date(2025, 2, 1), date(2025, 7, 31)
         )
         _add_role_assignment(
-            db_session, other.id, "phil-x", date(2025, 4, 1), date(2025, 7, 31)
+            db_session, other.id_uuid, "phil-x", date(2025, 4, 1), date(2025, 7, 31)
         )
 
         resp = client.get(
@@ -328,7 +330,7 @@ class TestRolesListEndpoint:
             db_session.add(m)
             db_session.commit()
             _add_role_assignment(
-                db_session, m.id, role_ids[i % len(role_ids)], date(2000, 1, 1)
+                db_session, m.id_uuid, role_ids[i % len(role_ids)], date(2000, 1, 1)
             )
 
         with count_queries() as small:

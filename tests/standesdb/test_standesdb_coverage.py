@@ -55,7 +55,7 @@ def _admin(db, org="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -63,7 +63,7 @@ def _admin(db, org="vbw"):
     )
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -91,7 +91,7 @@ def _system_admin_only(db, org="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,

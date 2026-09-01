@@ -39,6 +39,7 @@ from app.schemas.standesdb import (
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
+    import uuid
     from collections.abc import Sequence
 
 # --- Stats ---
@@ -538,7 +539,7 @@ def apply_member_input(  # noqa: C901
     _sync_badges(db, member, badges_entries, diff)
     _sync_keys(db, member, keys_entries, diff)
 
-    validate_roles_history(db, roles_entries, member.org_id or "", member.id)
+    validate_roles_history(db, roles_entries, member.org_id or "", member.id_uuid)
     _sync_roles(db, member, roles_entries, diff)
 
     if diff:
@@ -565,11 +566,12 @@ def _sync_badges(
     badges_input: list[BadgeEntry],
     diff: dict[str, dict[str, object]],
 ) -> None:
-    def _badge_sort_key(x: dict[str, int | str | None]) -> int:
-        val = x.get("id", 0)
-        return int(str(val)) if val is not None else 0
+    def _badge_sort_key(x: dict[str, uuid.UUID | str | int | None]) -> str:
+        # Purely for deterministic diff comparison, not a meaningful
+        # business order - badge_id is a UUID now, not a sequential int.
+        return str(x.get("id", ""))
 
-    old: list[dict[str, int | str | None]] = sorted(
+    old: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": mb.badge_id,
@@ -582,7 +584,7 @@ def _sync_badges(
         ],
         key=_badge_sort_key,
     )
-    new: list[dict[str, int | str | None]] = sorted(
+    new: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": b.id,
@@ -599,13 +601,13 @@ def _sync_badges(
     if old != new:
         diff["badges"] = {"old": old, "new": new}
 
-    db.query(MemberBadge).filter(MemberBadge.member_id == member.id).delete()
+    db.query(MemberBadge).filter(MemberBadge.member_id == member.id_uuid).delete()
     db.flush()
 
     for b in badges_input:
         db.add(
             MemberBadge(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 badge_id=b.id,
                 presentationdate=b.presentationdate,
                 presentationdate_accuracy=b.presentationdate_accuracy,
@@ -619,11 +621,12 @@ def _sync_keys(
     keys_input: list[KeyEntry],
     diff: dict[str, dict[str, object]],
 ) -> None:
-    def _key_sort_key(x: dict[str, int | str | None]) -> int:
-        val = x.get("id", 0)
-        return int(str(val)) if val is not None else 0
+    def _key_sort_key(x: dict[str, uuid.UUID | str | int | None]) -> str:
+        # Purely for deterministic diff comparison, not a meaningful
+        # business order - key_id is a UUID now, not a sequential int.
+        return str(x.get("id", ""))
 
-    old: list[dict[str, int | str | None]] = sorted(
+    old: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": mk.key_id,
@@ -636,7 +639,7 @@ def _sync_keys(
         ],
         key=_key_sort_key,
     )
-    new: list[dict[str, int | str | None]] = sorted(
+    new: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": k.id,
@@ -653,13 +656,13 @@ def _sync_keys(
     if old != new:
         diff["keys"] = {"old": old, "new": new}
 
-    db.query(MemberKey).filter(MemberKey.member_id == member.id).delete()
+    db.query(MemberKey).filter(MemberKey.member_id == member.id_uuid).delete()
     db.flush()
 
     for k in keys_input:
         db.add(
             MemberKey(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 key_id=k.id,
                 presentationdate=k.presentationdate,
                 presentationdate_accuracy=k.presentationdate_accuracy,
@@ -702,13 +705,13 @@ def _sync_roles(
             "new": new,
         }
 
-    db.query(MemberRole).filter(MemberRole.member_id == member.id).delete()
+    db.query(MemberRole).filter(MemberRole.member_id == member.id_uuid).delete()
     db.flush()
 
     for r in roles_input:
         db.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id=r.id,
                 startdate=r.startdate,
                 enddate=r.enddate,
@@ -855,7 +858,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
     db: Session,
     roles_input: list[RoleHistoryEntry] | list[dict[str, object]],
     org_id: str,
-    member_id: int | None,
+    member_id: uuid.UUID | None,
 ) -> None:
     if not roles_input:
         return
@@ -915,7 +918,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
         # Check if role is already held by another member in overlapping period
         query = (
             db.query(MemberRole)
-            .join(Member, Member.id == MemberRole.member_id)
+            .join(Member, Member.id_uuid == MemberRole.member_id)
             .filter(
                 MemberRole.role_id == entry.id,
                 Member.org_id == org_id,
@@ -938,7 +941,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
             )
 
         for overlap in query.all():
-            owner = db.get(Member, overlap.member_id)
+            owner = db.query(Member).filter(Member.id_uuid == overlap.member_id).first()
             if not owner:
                 continue
             label = entry_labels[idx]
@@ -1291,7 +1294,9 @@ def _build_keys_data(
         .all()
     )
 
-    key_id_to_name = {k.id: k.name for k in all_keys}
+    # Keyed by id_uuid, not the still-integer id: keys_members.key_id
+    # references keys.id_uuid from slice 14 onward.
+    key_id_to_name = {k.id_uuid: k.name for k in all_keys}
     result: list[dict[str, object]] = []
     for m in members:
         held = {

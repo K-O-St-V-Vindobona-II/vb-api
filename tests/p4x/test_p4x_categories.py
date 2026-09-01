@@ -47,7 +47,7 @@ def _login_admin(db, _client) -> dict:
     db.refresh(m)
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,

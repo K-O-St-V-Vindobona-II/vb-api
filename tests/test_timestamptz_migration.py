@@ -53,7 +53,7 @@ def _login_admin(db) -> dict[str, str]:
     db.commit()
     db.add(
         MemberRole(
-            member_id=member.id,
+            member_id=member.id_uuid,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
         )

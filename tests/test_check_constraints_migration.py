@@ -73,7 +73,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 15),
                 enddate=datetime.date(2020, 6, 15),
@@ -87,7 +87,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 14),
                 enddate=datetime.date(2020, 6, 15),
@@ -99,7 +99,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id,
+                member_id=member.id_uuid,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 14),
             )

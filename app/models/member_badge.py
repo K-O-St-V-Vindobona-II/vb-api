@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey
@@ -22,12 +23,15 @@ class MemberBadge(Base):
         ),
     )
 
-    member_id: Mapped[int] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+    # No surrogate id - the primary key is the column combination itself.
+    # References members.id_uuid/badges.id_uuid, not their still-integer
+    # id: members' own Final-Cutover is slice 32, badges' is slice 25.
+    member_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,
     )
-    badge_id: Mapped[int] = mapped_column(
-        ForeignKey("badges.id", ondelete="RESTRICT", onupdate="CASCADE"),
+    badge_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("badges.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
     )
     presentationdate: Mapped[datetime.date | None] = mapped_column(Date)

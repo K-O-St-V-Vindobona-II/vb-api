@@ -1,6 +1,7 @@
 """Tests für GET /api/standesdb/keys — Schlüsselliste."""
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 import bcrypt
 
@@ -12,6 +13,9 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+
+if TYPE_CHECKING:
+    import uuid
 
 
 def _seed(db):
@@ -34,6 +38,14 @@ def _seed(db):
     db.commit()
 
 
+def _key_id(db, name: str) -> uuid.UUID:
+    """Look up a seeded key's (now UUID) id by its stable name - the
+    migration to a UUID primary key means the seed rows' ids are no
+    longer the predictable 1/2/3 an autoincrement sequence would
+    assign."""
+    return db.query(Key).filter_by(name=name).one().id_uuid
+
+
 def _login(db, _client):
     hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
     m = Member(
@@ -48,7 +60,7 @@ def _login(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="x",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -109,8 +121,12 @@ class TestKeysListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
-        db_session.add(MemberKey(member_id=user.id, key_id=2))
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
+        )
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "ChC"))
+        )
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -147,8 +163,12 @@ class TestKeysListEndpoint:
         db_session.add_all([m_alpha, m_zeta])
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=m_zeta.id, key_id=1))
-        db_session.add(MemberKey(member_id=m_alpha.id, key_id=2))
+        db_session.add(
+            MemberKey(member_id=m_zeta.id_uuid, key_id=_key_id(db_session, "Bude"))
+        )
+        db_session.add(
+            MemberKey(member_id=m_alpha.id_uuid, key_id=_key_id(db_session, "ChC"))
+        )
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -173,7 +193,9 @@ class TestKeysListEndpoint:
         db_session.add(no_keys)
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
+        )
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -188,7 +210,9 @@ class TestKeysListEndpoint:
         m.member_keys per member must not issue one query per member."""
         _seed(db_session)
         headers, user = _login(db_session, client)
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
+        )
         db_session.commit()
 
         with count_queries() as small:
@@ -206,7 +230,9 @@ class TestKeysListEndpoint:
             )
             db_session.add(m)
             db_session.commit()
-            db_session.add(MemberKey(member_id=m.id, key_id=1))
+            db_session.add(
+                MemberKey(member_id=m.id_uuid, key_id=_key_id(db_session, "Bude"))
+            )
             db_session.commit()
 
         with count_queries() as large:
@@ -236,8 +262,12 @@ class TestKeysDownloadEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
-        db_session.add(MemberKey(member_id=user.id, key_id=3))
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
+        )
+        db_session.add(
+            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Post"))
+        )
         db_session.commit()
 
         resp = client.get(

@@ -60,7 +60,7 @@ class TestCalculatePermissions:
     def test_standesfuehrer_vbw(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")
-        _assign(db_session, m.id, "standesfuehrer")
+        _assign(db_session, m.id_uuid, "standesfuehrer")
         perms = calculate_permissions(m)
         assert "standesdbVbwAdmin" in perms
         assert "standesdbContactAdmin" in perms
@@ -69,7 +69,7 @@ class TestCalculatePermissions:
     def test_standesfuehrer_vbn(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbn")
-        _assign(db_session, m.id, "standesfuehrer")
+        _assign(db_session, m.id_uuid, "standesfuehrer")
         perms = calculate_permissions(m)
         assert "standesdbVbnAdmin" in perms
         assert "standesdbContactAdmin" in perms
@@ -78,7 +78,7 @@ class TestCalculatePermissions:
     def test_internetreferent_vbw(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")
-        _assign(db_session, m.id, "internetreferent")
+        _assign(db_session, m.id_uuid, "internetreferent")
         perms = calculate_permissions(m)
         assert "archiveAdmin" in perms
         assert "systemAdmin" in perms
@@ -86,28 +86,28 @@ class TestCalculatePermissions:
     def test_internetreferent_vbn_no_archive(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbn")
-        _assign(db_session, m.id, "internetreferent")
+        _assign(db_session, m.id_uuid, "internetreferent")
         perms = calculate_permissions(m)
         assert "archiveAdmin" not in perms
 
     def test_archivar2_vbw(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")
-        _assign(db_session, m.id, "archivar2")
+        _assign(db_session, m.id_uuid, "archivar2")
         perms = calculate_permissions(m)
         assert "archiveAdmin" in perms
 
     def test_archivar2_vbn_no_archive(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbn")
-        _assign(db_session, m.id, "archivar2")
+        _assign(db_session, m.id_uuid, "archivar2")
         perms = calculate_permissions(m)
         assert "archiveAdmin" not in perms
 
     def test_chc_group_gets_export_and_keylist(self, db_session):
         _seed(db_session)
         m = _member(db_session)
-        _assign(db_session, m.id, "senior")
+        _assign(db_session, m.id_uuid, "senior")
         perms = calculate_permissions(m)
         assert "standesdbExport" in perms
         assert "keylist" in perms
@@ -115,14 +115,14 @@ class TestCalculatePermissions:
     def test_philchc_gets_p4x_view(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")
-        _assign(db_session, m.id, "phil-senior")
+        _assign(db_session, m.id_uuid, "phil-senior")
         perms = calculate_permissions(m)
         assert "p4xView" in perms
 
     def test_phil_xxxx_gets_p4x_admin(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")
-        _assign(db_session, m.id, "phil-xxxx")
+        _assign(db_session, m.id_uuid, "phil-xxxx")
         perms = calculate_permissions(m)
         assert "p4xAdmin" in perms
 
@@ -136,7 +136,7 @@ class TestCalculatePermissions:
         _seed(db_session)
         m = _member(db_session)
         yesterday = local_today() - timedelta(days=1)
-        _assign(db_session, m.id, "senior", date(2020, 1, 1), yesterday)
+        _assign(db_session, m.id_uuid, "senior", date(2020, 1, 1), yesterday)
         perms = calculate_permissions(m)
         assert "keylist" not in perms
         assert "standesdbExport" not in perms
@@ -145,14 +145,14 @@ class TestCalculatePermissions:
         _seed(db_session)
         m = _member(db_session)
         tomorrow = local_today() + timedelta(days=1)
-        _assign(db_session, m.id, "senior", tomorrow, None)
+        _assign(db_session, m.id_uuid, "senior", tomorrow, None)
         perms = calculate_permissions(m)
         assert perms == []
 
     def test_ongoing_role_has_permissions(self, db_session):
         _seed(db_session)
         m = _member(db_session)
-        _assign(db_session, m.id, "senior", date(2020, 1, 1), None)
+        _assign(db_session, m.id_uuid, "senior", date(2020, 1, 1), None)
         perms = calculate_permissions(m)
         assert "keylist" in perms
 
@@ -173,6 +173,6 @@ class TestCalculatePermissions:
         )
         _seed(db_session)
         m = _member(db_session)
-        _assign(db_session, m.id, "senior", fixed_today, None)
+        _assign(db_session, m.id_uuid, "senior", fixed_today, None)
         perms = calculate_permissions(m)
         assert "keylist" in perms

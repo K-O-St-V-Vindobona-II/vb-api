@@ -42,7 +42,7 @@ def _create_admin(db) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=admin.id,
+            member_id=admin.id_uuid,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,

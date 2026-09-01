@@ -57,7 +57,7 @@ def _admin_user(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="internetreferent",
             startdate=date(2020, 1, 1),
         )

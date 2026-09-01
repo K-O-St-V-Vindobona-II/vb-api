@@ -82,7 +82,7 @@ def _admin(db: object) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -291,25 +291,27 @@ class TestClassifyBadges:
     def test_classifies_jubelband_and_ehrenzeichen(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="Badge", nachname="Test")
+        fuxenband = db_session.query(Badge).filter_by(id=1).one()
+        ehrenzeichen_gold = db_session.query(Badge).filter_by(id=2).one()
         db_session.add(
             MemberBadge(
-                member_id=m.id,
-                badge_id=1,
+                member_id=m.id_uuid,
+                badge_id=fuxenband.id_uuid,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
             )
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id,
-                badge_id=2,
+                member_id=m.id_uuid,
+                badge_id=ehrenzeichen_gold.id_uuid,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
             )
         )
         db_session.commit()
 
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id_uuid)
         assert len(jubelbaender) == 1
         assert jubelbaender[0]["name"] == "Fuxenband"
         assert len(ehrenzeichen) == 1
@@ -318,7 +320,7 @@ class TestClassifyBadges:
     def test_empty_badges_returns_empty_lists(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="NoBadge", nachname="Test")
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id_uuid)
         assert jubelbaender == []
         assert ehrenzeichen == []
 

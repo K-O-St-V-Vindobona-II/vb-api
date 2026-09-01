@@ -24,6 +24,7 @@ from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 
 if TYPE_CHECKING:
+    import uuid
     from datetime import date
 
     from sqlalchemy.orm import Session
@@ -449,7 +450,7 @@ def _build_org_dates(member: Member) -> list[tuple[str, str]]:
 
 def _classify_badges(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     badges = db.query(MemberBadge).filter(MemberBadge.member_id == member_id).all()
     jubelbaender: list[dict[str, str]] = []
@@ -497,7 +498,7 @@ def _prepare_member_data(
             parent_cn = parent.cn_full
 
     org_dates = _build_org_dates(member)
-    jubelbaender, ehrenzeichen = _classify_badges(db, member.id)
+    jubelbaender, ehrenzeichen = _classify_badges(db, member.id_uuid)
     addr_anschrift, addr_plz_ort, addr_land = _resolve_delivery_address(member)
 
     return {

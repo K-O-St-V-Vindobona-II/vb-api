@@ -224,7 +224,7 @@ def test_member_role_relationship(db_session):
     db_session.commit()
 
     mr = MemberRole(
-        member_id=member.id,
+        member_id=member.id_uuid,
         role_id="testrole",
         startdate=date(2020, 1, 1),
         enddate=None,
@@ -253,8 +253,8 @@ def test_member_badge_relationship(db_session):
     db_session.commit()
 
     mb = MemberBadge(
-        member_id=member.id,
-        badge_id=99,
+        member_id=member.id_uuid,
+        badge_id=badge.id_uuid,
         presentationdate=date(2023, 6, 15),
         presentationdate_accuracy=3,
     )
@@ -282,8 +282,8 @@ def test_member_key_relationship(db_session):
     db_session.commit()
 
     mk = MemberKey(
-        member_id=member.id,
-        key_id=99,
+        member_id=member.id_uuid,
+        key_id=key.id_uuid,
         presentationdate=date(2023, 1, 1),
         presentationdate_accuracy=1,
     )

@@ -229,7 +229,7 @@ def _make_admin_member(db, email: str, role_id: str, role_group: str) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id,
+            member_id=m.id_uuid,
             role_id=role_id,
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -941,7 +941,7 @@ class TestDebtorReminder:
         db_session.commit()
         db_session.add(
             MemberRole(
-                member_id=treasurer.id,
+                member_id=treasurer.id_uuid,
                 role_id="phil-xxxx",
                 startdate=date(2000, 1, 1),
                 enddate=None,
