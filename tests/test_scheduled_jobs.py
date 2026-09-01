@@ -16,10 +16,12 @@ import pytest
 
 from app.core.datetime_utils import local_today
 from app.core.scheduler import (
+    _compute_target_date,
     _parse_month_day,
     _parse_year,
     _run_alembic_upgrade_head,
     _send_debtor_reminders,
+    _validate_latest_booking,
     job_archive_health_check,
     job_birthday_mails,
     job_cleanup,
@@ -31,6 +33,7 @@ from app.core.scheduler import (
     job_standesdb_health_check,
 )
 from app.models.archive_store_item import ArchiveStoreItem
+from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -41,6 +44,7 @@ from app.models.p4x_category_filter_hit import (
     P4xCategoryFilterHit,
 )
 from app.models.p4x_transaction import P4xTransaction
+from app.models.request_log import RequestLog
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
@@ -76,8 +80,60 @@ class TestHelpers:
         assert _parse_month_day("1990-06-15") == (6, 15)
         assert _parse_month_day("2000-12-01") == (12, 1)
 
+    def test_parse_month_day_returns_none_for_malformed_value(self):
+        assert _parse_month_day("1990") is None
+
     def test_parse_year(self):
         assert _parse_year("1990-06-15") == 1990
+
+
+class TestComputeTargetDate:
+    def test_january_rolls_back_to_previous_december(self):
+        assert _compute_target_date(date(2026, 1, 15)) == date(2025, 12, 31)
+
+    def test_other_months_use_last_day_of_previous_month(self):
+        assert _compute_target_date(date(2026, 7, 1)) == date(2026, 6, 30)
+
+
+class TestValidateLatestBooking:
+    def test_no_transactions_returns_false(self, db_session):
+        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
+
+    def test_stale_booking_returns_false(self, db_session):
+        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
+        db_session.commit()
+        db_session.add(
+            P4xTransaction(
+                sha256_hash="stale",
+                p4x_account_id=1,
+                booking=date(2026, 5, 1),
+                valuation=date(2026, 5, 1),
+                amount=10,
+                subject="old",
+                iban="AT001",
+            )
+        )
+        db_session.commit()
+
+        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
+
+    def test_current_month_booking_returns_true(self, db_session):
+        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
+        db_session.commit()
+        db_session.add(
+            P4xTransaction(
+                sha256_hash="fresh",
+                p4x_account_id=1,
+                booking=date(2026, 7, 10),
+                valuation=date(2026, 7, 10),
+                amount=10,
+                subject="current",
+                iban="AT001",
+            )
+        )
+        db_session.commit()
+
+        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is True
 
 
 class TestRefreshCategoryFilterHits:
@@ -136,6 +192,24 @@ class TestRefreshCategoryFilterHits:
 
         mock_record_job_run.assert_called_once_with(
             "refresh_category_filter_hits", ANY, exit_code=0, output=ANY
+        )
+
+    def test_failure_records_exit_code_one(self, db_session, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.apply_all_category_filters",
+                side_effect=RuntimeError("filter engine exploded"),
+            ),
+        ):
+            job_refresh_category_filter_hits()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "refresh_category_filter_hits",
+            ANY,
+            exit_code=1,
+            output="filter engine exploded",
         )
 
 
@@ -236,6 +310,28 @@ class TestArchiveHealthCheck:
             "archive_health_check", ANY, exit_code=1, output=ANY
         )
 
+    def test_send_failure_records_exit_code_one(
+        self, db_session, mock_s3, mock_record_job_run
+    ):
+        _seed_base(db_session)
+        _make_admin_member(
+            db_session, "archiveadmin@vbw.at", "internetreferent", "funktion"
+        )
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.send_to_recipients",
+                side_effect=RuntimeError("smtp unreachable"),
+            ),
+        ):
+            job_archive_health_check()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "archive_health_check", ANY, exit_code=1, output="smtp unreachable"
+        )
+
 
 class TestStandesdbHealthCheck:
     def test_sends_ok_mail_when_healthy(self, db_session, mock_s3, mock_record_job_run):
@@ -300,6 +396,26 @@ class TestStandesdbHealthCheck:
         mock_send.assert_not_called()
         mock_record_job_run.assert_called_once_with(
             "standesdb_health_check", ANY, exit_code=1, output=ANY
+        )
+
+    def test_send_failure_records_exit_code_one(
+        self, db_session, mock_s3, mock_record_job_run
+    ):
+        _seed_base(db_session)
+        _make_admin_member(db_session, "standesdbadmin@vbw.at", "standesfuehrer", "chc")
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.send_to_recipients",
+                side_effect=RuntimeError("smtp unreachable"),
+            ),
+        ):
+            job_standesdb_health_check()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_health_check", ANY, exit_code=1, output="smtp unreachable"
         )
 
 
@@ -389,6 +505,25 @@ class TestJobDownsync:
         mock_mirror.assert_not_called()
         mock_record_job_run.assert_called_once_with(
             "downsync", ANY, exit_code=1, output=ANY
+        )
+
+    def test_mirror_prefix_exception_is_caught_and_logged(self, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.mirror_prefix",
+                side_effect=RuntimeError("s3 connection reset"),
+            ),
+            patch("app.core.scheduler.run_restore") as mock_restore,
+        ):
+            job_downsync()  # must not raise
+
+        mock_restore.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "downsync",
+            ANY,
+            exit_code=1,
+            output="S3 mirror failed: s3 connection reset",
         )
 
     def test_restore_exception_is_caught_and_logged(self, mock_record_job_run):
@@ -499,6 +634,44 @@ class TestStandesdbChronicles:
             "standesdb_chronicles", ANY, exit_code=0, output=ANY
         )
 
+    def test_send_failure_records_exit_code_one(self, db_session, mock_record_job_run):
+        _seed_base(db_session)
+        today = local_today()
+        dow = today.isoweekday()
+        week_start = today + timedelta(days=(8 - dow) % 7)
+        target = week_start + timedelta(days=1)
+
+        db_session.add(
+            Member(
+                email="chronik2@vbw.at",
+                vorname="Test",
+                nachname="User",
+                couleurname="Testikus",
+                org_id="vbw",
+                state_id="fu",
+                geburtsdatum=date(1990, target.month, target.day),
+                geburtsdatum_accuracy=3,
+                entlassen=False,
+                verstorben=False,
+                chroniclemail=True,
+            )
+        )
+        db_session.commit()
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.send_to_recipients",
+                side_effect=RuntimeError("smtp unreachable"),
+            ),
+        ):
+            job_standesdb_chronicles()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "standesdb_chronicles", ANY, exit_code=1, output="smtp unreachable"
+        )
+
 
 class TestBirthdayMails:
     def test_sends_with_personal_from_name(self, db_session, mock_record_job_run):
@@ -553,6 +726,41 @@ class TestBirthdayMails:
             "birthday_mails", ANY, exit_code=0, output=ANY
         )
 
+    def test_send_failure_records_exit_code_one(self, db_session, mock_record_job_run):
+        _seed_base(db_session)
+        tomorrow = local_today() + timedelta(days=1)
+
+        db_session.add(
+            Member(
+                email="geburtstag@vbw.at",
+                vorname="Test",
+                nachname="User",
+                couleurname="Testikus",
+                org_id="vbw",
+                state_id="fu",
+                geburtsdatum=date(1990, tomorrow.month, tomorrow.day),
+                geburtsdatum_accuracy=3,
+                entlassen=False,
+                verstorben=False,
+                zustellungen="adresse_privat",
+            )
+        )
+        db_session.commit()
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.send_to_recipients",
+                side_effect=RuntimeError("smtp unreachable"),
+            ),
+        ):
+            job_birthday_mails()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails", ANY, exit_code=1, output="smtp unreachable"
+        )
+
 
 class TestJobCleanup:
     def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
@@ -576,6 +784,60 @@ class TestJobCleanup:
 
         mock_record_job_run.assert_called_once_with(
             "cleanup", ANY, exit_code=1, output="db exploded"
+        )
+
+    def test_purges_orphaned_client_user_agents(self, db_session, mock_record_job_run):
+        """Once an old RequestLog gets purged, any ClientUserAgent that
+        RequestLog was the sole referrer of becomes orphaned and must be
+        swept in the same run - not left behind indefinitely."""
+        very_old = datetime.now(UTC) - timedelta(days=3650)
+        now = datetime.now(UTC)
+        orphan_agent = ClientUserAgent(string="orphan-ua")
+        referenced_agent = ClientUserAgent(string="still-referenced-ua")
+        db_session.add_all([orphan_agent, referenced_agent])
+        db_session.commit()
+
+        db_session.add_all(
+            [
+                # Old enough to be purged - the request that used to keep
+                # orphan_agent alive.
+                RequestLog(
+                    client_ip="127.0.0.1",
+                    client_user_agent_id=orphan_agent.id,
+                    request_method="GET",
+                    request_path="/",
+                    response_status=200,
+                    created_at=very_old,
+                    updated_at=very_old,
+                ),
+                # Recent - keeps referenced_agent non-orphaned even after
+                # the purge above runs.
+                RequestLog(
+                    client_ip="127.0.0.1",
+                    client_user_agent_id=referenced_agent.id,
+                    request_method="GET",
+                    request_path="/",
+                    response_status=200,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        db_session.commit()
+        orphan_agent_id = orphan_agent.id
+        referenced_agent_id = referenced_agent.id
+
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+        ):
+            job_cleanup()
+
+        remaining_ids = {ua.id for ua in db_session.query(ClientUserAgent).all()}
+        assert orphan_agent_id not in remaining_ids
+        assert referenced_agent_id in remaining_ids
+        mock_record_job_run.assert_called_once_with(
+            "cleanup", ANY, exit_code=0, output=ANY
         )
 
 
@@ -639,6 +901,23 @@ class TestJobDbBackup:
             "retention cleanup failed" in mock_record_job_run.call_args.kwargs["output"]
         )
 
+    def test_expired_backups_are_noted_in_output(self, mock_record_job_run):
+        with (
+            patch("app.core.scheduler.get_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.run_backup",
+                return_value="development-2026-08-04_03-00-00.dump",
+            ),
+            patch(
+                "app.core.scheduler.cleanup_old_backups",
+                return_value=["development-2026-01-01_03-00-00.dump"],
+            ),
+        ):
+            job_db_backup()
+
+        output = mock_record_job_run.call_args.kwargs["output"]
+        assert "1 expired backup(s) cleaned up" in output
+
 
 class TestDebtorReminder:
     def test_sends_with_treasurers_real_name(self, db_session):
@@ -698,6 +977,78 @@ class TestDebtorReminder:
         assert kwargs["to_emails"] == [debtor.email]
         assert kwargs["from_name"] == treasurer.cn
 
+    def test_falls_back_to_generic_sender_name_without_a_treasurer(self, db_session):
+        """_get_phil_xxxx_name()'s "no role holder found" branch: with no
+        phil-xxxx member seeded, the reminder must still go out under a
+        generic sender name instead of crashing."""
+        _seed_base(db_session)
+        debtor = Member(
+            email="schuldner2@vbw.at",
+            vorname="Max",
+            nachname="Schuldner",
+            couleurname="Debitor",
+            org_id="vbw",
+            state_id="up",
+            entlassen=False,
+            verstorben=False,
+        )
+        db_session.add(debtor)
+        db_session.commit()
+
+        with (
+            patch("app.core.scheduler.fee_for_month", return_value=15.0),
+            patch(
+                "app.core.scheduler.calculate_fee_balance",
+                return_value={"end_balance": -400.0},
+            ),
+            patch("app.core.scheduler.send_to_recipients") as mock_send,
+        ):
+            _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+
+        assert mock_send.call_args.kwargs["from_name"] == "Philisterkassier"
+
+    def test_skips_members_without_balance_data_or_below_threshold(self, db_session):
+        _seed_base(db_session)
+        no_balance = Member(
+            email="keine-daten@vbw.at",
+            vorname="Ohne",
+            nachname="Daten",
+            couleurname="Nihil",
+            org_id="vbw",
+            state_id="up",
+            entlassen=False,
+            verstorben=False,
+        )
+        below_threshold = Member(
+            email="wenig-schulden@vbw.at",
+            vorname="Wenig",
+            nachname="Schulden",
+            couleurname="Minor",
+            org_id="vbw",
+            state_id="up",
+            entlassen=False,
+            verstorben=False,
+        )
+        db_session.add_all([no_balance, below_threshold])
+        db_session.commit()
+
+        def fake_balance(_db, member, *_args, **_kwargs):
+            if member.id == no_balance.id:
+                return None
+            return {"end_balance": -50.0}  # below the 300 threshold
+
+        with (
+            patch("app.core.scheduler.fee_for_month", return_value=15.0),
+            patch(
+                "app.core.scheduler.calculate_fee_balance",
+                side_effect=fake_balance,
+            ),
+            patch("app.core.scheduler.send_to_recipients") as mock_send,
+        ):
+            _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+
+        mock_send.assert_not_called()
+
     def test_quarter_skip_month_not_tracked(self, mock_record_job_run):
         """June (%3==0) is a skip month by design — this early return
         happens before a DB session even opens, so it's deliberately not
@@ -733,4 +1084,23 @@ class TestDebtorReminder:
         mock_send_reminders.assert_called_once()
         mock_record_job_run.assert_called_once_with(
             "debtor_reminder", ANY, exit_code=0, output=ANY
+        )
+
+    def test_send_reminders_failure_records_exit_code_one(
+        self, db_session, mock_record_job_run
+    ):
+        with (
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch("app.core.scheduler._validate_latest_booking", return_value=True),
+            patch(
+                "app.core.scheduler._send_debtor_reminders",
+                side_effect=RuntimeError("mailer down"),
+            ),
+        ):
+            job_debtor_reminder()  # must not raise
+
+        mock_record_job_run.assert_called_once_with(
+            "debtor_reminder", ANY, exit_code=1, output="mailer down"
         )
