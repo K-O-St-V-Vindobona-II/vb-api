@@ -88,7 +88,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == category.id,
+            P4xCategoryFilter.p4x_category_id == category.id_uuid,
         )
         .all()
     ]
@@ -287,7 +287,11 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
                         )
                         cat_fonts[i] = Font(color=cat.text_color.lstrip("#"))
             elif len(filter_hits) == 1:
-                cat = categories.get(filter_hits[0].category_filter.p4x_category_id)
+                # categories is keyed by P4xCategory's legacy integer id;
+                # category_filter.p4x_category_id now stores id_uuid, so
+                # the already-joined category relationship is used here
+                # instead.
+                cat = categories.get(filter_hits[0].category_filter.category.id)
                 if cat:
                     cat_cells[0] = cat.label
                     cat_fills[0] = PatternFill(

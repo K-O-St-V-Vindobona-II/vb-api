@@ -191,9 +191,9 @@ class TestCategoryCRUD:
         db_session.add(
             P4xCategoryFilter(
                 name="uses_cat",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 subject_mode="equals",
-                p4x_category_id=cat.id,
+                p4x_category_id=cat.id_uuid,
                 subject="test",
                 created_at=_now(),
                 updated_at=_now(),
@@ -242,9 +242,9 @@ class TestCategoryUsage:
         db_session.add(
             P4xCategoryFilter(
                 name="f1",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 subject_mode="equals",
-                p4x_category_id=cat.id,
+                p4x_category_id=cat.id_uuid,
                 subject="test",
                 created_at=_now(),
                 updated_at=_now(),

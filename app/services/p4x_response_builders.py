@@ -84,6 +84,7 @@ def build_transaction_response(
                 id=cf.id,
                 name=cf.name,
                 p4x_account_id=cf.p4x_account_id,
+                account_id=cf.account.id,
                 p4x_account_label=cf.account.label if cf.account else None,
                 iban=cf.iban,
                 min_amount=cf.min_amount,
@@ -138,6 +139,7 @@ def build_account_response(
 
     return AccountResponse(
         id=account.id,
+        id_uuid=account.id_uuid,
         iban=account.iban,
         bic=account.bic,
         label=account.label,
@@ -198,6 +200,7 @@ def build_category_response(
     usage = p4x_category_service.get_category_usage(db, cat)
     return CategoryWithUsageResponse(
         id=cat.id,
+        id_uuid=cat.id_uuid,
         name=cat.name,
         label=cat.label,
         background_color=cat.background_color,
@@ -215,6 +218,7 @@ def build_filter_response(
         id=f.id,
         name=f.name,
         p4x_account_id=f.p4x_account_id,
+        account_id=f.account.id,
         p4x_account_label=f.account.label if f.account else None,
         iban=f.iban,
         min_amount=f.min_amount,

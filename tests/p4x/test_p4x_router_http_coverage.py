@@ -155,10 +155,10 @@ def _create_filter(
 ) -> P4xCategoryFilter:
     f = P4xCategoryFilter(
         name=name,
-        p4x_account_id=account.id,
+        p4x_account_id=account.id_uuid,
         subject=subject,
         subject_mode=SubjectMode.CONTAINS,
-        p4x_category_id=category.id,
+        p4x_category_id=category.id_uuid,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -530,10 +530,10 @@ class TestCategoryFilterEndpointsHttp:
             "/api/p4x/admin/category-filters",
             json={
                 "name": "Mitgliedsbeitrag",
-                "p4x_account_id": account.id,
+                "p4x_account_id": str(account.id_uuid),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": cat.id,
+                "p4x_category_id": str(cat.id_uuid),
             },
             headers=headers,
         )
@@ -544,10 +544,10 @@ class TestCategoryFilterEndpointsHttp:
             f"/api/p4x/admin/category-filters/{filter_id}",
             json={
                 "name": "Mitgliedsbeitrag geändert",
-                "p4x_account_id": account.id,
+                "p4x_account_id": str(account.id_uuid),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": cat.id,
+                "p4x_category_id": str(cat.id_uuid),
             },
             headers=headers,
         )

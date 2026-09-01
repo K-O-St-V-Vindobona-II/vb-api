@@ -324,10 +324,10 @@ class TestSummaryXlsxEdgeCases:
         cat = db_session.query(P4xCategory).first()
         cf = P4xCategoryFilter(
             name="xlsx_filter_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="FilterOnly",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

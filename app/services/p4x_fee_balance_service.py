@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 from app.core.datetime_utils import local_today
 from app.models.member import Member
+from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
@@ -26,6 +27,16 @@ from app.services import p4x_account_service
 from app.services.search_utils import build_prefix_tsquery_text
 
 FEE_CATEGORY_ID = 1
+
+
+def _fee_category_id_uuid(db: Session) -> uuid.UUID | None:
+    """Bridges the still-integer FEE_CATEGORY_ID constant to
+    p4x_category_filters.p4x_category_id, which now stores id_uuid -
+    a temporary lookup until slice 26 replaces this whole literal-id
+    landmine with a name-based category lookup."""
+    return (
+        db.query(P4xCategory.id_uuid).filter(P4xCategory.id == FEE_CATEGORY_ID).scalar()
+    )
 
 
 class FeeBalanceResult(TypedDict):
@@ -326,7 +337,7 @@ def _get_fee_payments_sum(
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db),
         )
         .all()
     ]
@@ -415,7 +426,7 @@ def _get_fee_payments_list(
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db),
         )
         .all()
     ]
@@ -732,7 +743,7 @@ def _fee_category_tx_ids(db: Session) -> set[int]:
     filter_ids = [
         r[0]
         for r in db.query(P4xCategoryFilter.id)
-        .filter(P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID)
+        .filter(P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db))
         .all()
     ]
     filter_tx_ids = (

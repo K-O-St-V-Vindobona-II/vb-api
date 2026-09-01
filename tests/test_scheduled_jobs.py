@@ -143,7 +143,8 @@ class TestRefreshCategoryFilterHits:
         mock_record_job_run,
     ):
         _seed_base(db_session)
-        db_session.add(P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX"))
+        account = P4xAccount(id=1, iban="AT941234567890123456", bic="GIBAATWWXXX")
+        db_session.add(account)
         cat = P4xCategory(
             name="test",
             label="Test",
@@ -169,8 +170,8 @@ class TestRefreshCategoryFilterHits:
 
         cf = P4xCategoryFilter(
             name="test-filter",
-            p4x_account_id=1,
-            p4x_category_id=cat.id,
+            p4x_account_id=account.id_uuid,
+            p4x_category_id=cat.id_uuid,
             subject="Mitgliedsbeitrag",
             subject_mode="contains",
         )

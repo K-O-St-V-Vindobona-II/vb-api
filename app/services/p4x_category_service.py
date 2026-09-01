@@ -48,8 +48,12 @@ def _apply_category_filter_criteria(
         query = query.filter(~P4xTransaction.id.in_(tx_with_directs))
 
     if category_filter.p4x_account_id:
+        # p4x_transactions.p4x_account_id is still the account's legacy
+        # integer id (that table's own UUID cutover is a later slice),
+        # while category_filter.p4x_account_id now stores id_uuid -
+        # bridged here via the already-joined account relationship.
         query = query.filter(
-            P4xTransaction.p4x_account_id == category_filter.p4x_account_id
+            P4xTransaction.p4x_account_id == category_filter.account.id
         )
 
     if category_filter.iban and len(category_filter.iban):
@@ -146,7 +150,7 @@ def get_category_usage(db: Session, category: P4xCategory) -> dict[str, int]:
     filter_count = (
         db.query(P4xCategoryFilter)
         .filter(
-            P4xCategoryFilter.p4x_category_id == category.id,
+            P4xCategoryFilter.p4x_category_id == category.id_uuid,
         )
         .count()
     )
@@ -311,12 +315,12 @@ def _validate_category_filter_input(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Mindestens ein Filterkriterium muss gesetzt sein.",
         )
-    if not db.query(P4xAccount).filter_by(id=data.p4x_account_id).first():
+    if not db.query(P4xAccount).filter_by(id_uuid=data.p4x_account_id).first():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Konto existiert nicht.",
         )
-    if not db.query(P4xCategory).filter_by(id=data.p4x_category_id).first():
+    if not db.query(P4xCategory).filter_by(id_uuid=data.p4x_category_id).first():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Kategorie existiert nicht.",
@@ -419,7 +423,13 @@ def filter_to_direct(db: Session, category_filter: P4xCategoryFilter) -> str | N
             tx,
             [
                 {
-                    "p4x_category_id": category_filter.p4x_category_id,
+                    # p4x_category_directs.p4x_category_id is still the
+                    # category's legacy integer id (that table's own
+                    # UUID cutover is a later slice), while
+                    # category_filter.p4x_category_id now stores
+                    # id_uuid - bridged via the already-joined category
+                    # relationship.
+                    "p4x_category_id": category_filter.category.id,
                     "amount": tx.amount,
                 },
             ],

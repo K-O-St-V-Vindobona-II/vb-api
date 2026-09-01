@@ -279,10 +279,10 @@ class TestCrossColumnAmountOrdering:
         db_session.add(
             P4xCategoryFilter(
                 name="check-test-filter",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 subject_mode="contains",
                 subject="x",
-                p4x_category_id=category.id,
+                p4x_category_id=category.id_uuid,
                 min_amount=100,
                 max_amount=-77,
             )
@@ -296,10 +296,10 @@ class TestCrossColumnAmountOrdering:
         db_session.add(
             P4xCategoryFilter(
                 name="check-test-filter",
-                p4x_account_id=account.id,
+                p4x_account_id=account.id_uuid,
                 subject_mode="contains",
                 subject="x",
-                p4x_category_id=category.id,
+                p4x_category_id=category.id_uuid,
                 min_amount=50,
                 max_amount=50,
             )

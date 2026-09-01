@@ -65,14 +65,20 @@ class CategoryDirectResponse(BaseModel):
 class CategoryFilterShortResponse(BaseModel):
     id: int
     name: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
+    # The account's own (still-integer) primary key, distinct from
+    # p4x_account_id above - the frontend still needs this to build
+    # links into other account-scoped, integer-keyed views (e.g.
+    # transactions/by-filter), since p4x_account_id itself now only
+    # ever holds id_uuid.
+    account_id: int
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
     subject_mode: SubjectMode
-    p4x_category_id: int
+    p4x_category_id: uuid.UUID
     hitCount: int = Field(  # noqa: N815
         ..., description="Number of transactions this filter rule currently matches."
     )
@@ -85,6 +91,11 @@ class CategoryFilterShortResponse(BaseModel):
 
 class AccountResponse(BaseModel):
     id: int
+    # Additive id_uuid alongside the still-integer id - lets callers
+    # (e.g. the category-filter form) reference this account by the
+    # identifier p4x_category_filters.p4x_account_id now actually
+    # stores, without waiting for this table's own Final-Cutover.
+    id_uuid: uuid.UUID
     iban: str
     bic: str | None
     label: str | None
@@ -239,6 +250,9 @@ class ImportResult(BaseModel):
 
 class CategoryResponse(BaseModel):
     id: int
+    # See AccountResponse.id_uuid above for the same reasoning, applied
+    # to p4x_category_filters.p4x_category_id.
+    id_uuid: uuid.UUID
     name: str
     label: str
     background_color: str
@@ -275,14 +289,17 @@ class CategorySaveRequest(StrictInputModel):
 class CategoryFilterResponse(BaseModel):
     id: int
     name: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
+    # See CategoryFilterShortResponse.account_id above for why this is
+    # separate from p4x_account_id.
+    account_id: int
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
     subject_mode: SubjectMode
-    p4x_category_id: int
+    p4x_category_id: uuid.UUID
     hitCount: int = Field(  # noqa: N815
         ..., description="Number of transactions this filter rule currently matches."
     )
@@ -290,7 +307,9 @@ class CategoryFilterResponse(BaseModel):
 
 class CategoryFilterSaveRequest(StrictInputModel):
     name: str = Field(..., max_length=64)
-    p4x_account_id: int
+    # strict=False: JSON has no native UUID type either, so it always
+    # arrives as a plain hex string, not a uuid.UUID instance.
+    p4x_account_id: uuid.UUID = Field(strict=False)
     iban: str | None = None
     # strict=False: see AccountSaveRequest.init_balance above.
     min_amount: Decimal | None = Field(
@@ -313,7 +332,8 @@ class CategoryFilterSaveRequest(StrictInputModel):
     # strict=False: the wire value is the enum's raw string, not an actual
     # SubjectMode instance — JSON has no native enum type either.
     subject_mode: SubjectMode = Field(strict=False)
-    p4x_category_id: int
+    # strict=False: same reasoning as p4x_account_id above.
+    p4x_category_id: uuid.UUID = Field(strict=False)
 
     @field_validator("iban", mode="before")
     @classmethod

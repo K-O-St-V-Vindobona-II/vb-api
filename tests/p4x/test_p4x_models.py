@@ -191,13 +191,13 @@ class TestP4xCategoryFilter:
         category = _seed_category(db_session)
         f = P4xCategoryFilter(
             name="MB:starts.mitgliedsbeitrag",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             iban=None,
             min_amount=0.0,
             max_amount=30.0,
             subject_mode="starts",
             subject="mitgliedsb.",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -207,6 +207,27 @@ class TestP4xCategoryFilter:
         assert f.id is not None
         assert f.account.id == account.id
         assert f.category.id == category.id
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Phase A assumption (see
+        d6443ece80ad_p4x_category_filters_id_uuid_and_fk_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the additive `id_uuid` column fires without ever needing a
+        server-side default - same guard as every migrated table's
+        primary key, just on a column that isn't the primary key yet."""
+        account = _seed_account(db_session)
+        category = _seed_category(db_session)
+        f = P4xCategoryFilter(
+            name="phase-a-guard",
+            p4x_account_id=account.id_uuid,
+            subject_mode="contains",
+            p4x_category_id=category.id_uuid,
+        )
+        db_session.add(f)
+        db_session.flush()
+
+        assert isinstance(f.id_uuid, uuid.UUID)
+        assert f.id_uuid.version == 7
 
 
 class TestP4xCategoryDirect:
@@ -256,9 +277,9 @@ class TestP4xCategoryFilterHit:
         )
         f = P4xCategoryFilter(
             name="test_filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

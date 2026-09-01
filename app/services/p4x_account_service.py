@@ -270,11 +270,17 @@ def get_transactions_by_category(
         .all()
     }
 
+    # p4x_category_filters.p4x_category_id now stores id_uuid - category_id
+    # here is still the category's legacy integer id (that table's own
+    # UUID cutover is a later slice), so it must be translated first.
+    category_id_uuid = (
+        db.query(P4xCategory.id_uuid).filter(P4xCategory.id == category_id).scalar()
+    )
     filter_ids = [
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == category_id,
+            P4xCategoryFilter.p4x_category_id == category_id_uuid,
         )
         .all()
     ]
@@ -473,10 +479,19 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         .distinct()
         .all()
     }
+    # p4x_category_filters.p4x_category_id now stores id_uuid, but
+    # direct_cat_ids/all_cat_ids/P4xCategory.id below are all still the
+    # category's legacy integer id - joining through P4xCategory here
+    # (instead of selecting p4x_category_id directly) keeps this set in
+    # the same id flavor as direct_cat_ids.
     filter_cat_ids = (
         {
             r[0]
-            for r in db.query(P4xCategoryFilter.p4x_category_id)
+            for r in db.query(P4xCategory.id)
+            .join(
+                P4xCategoryFilter,
+                P4xCategoryFilter.p4x_category_id == P4xCategory.id_uuid,
+            )
             .filter(
                 P4xCategoryFilter.id.in_(filter_ids),
             )

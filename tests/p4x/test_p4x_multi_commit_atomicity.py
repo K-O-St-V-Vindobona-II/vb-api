@@ -95,10 +95,10 @@ class TestFilterToDirectAtomicity:
 
         category_filter = P4xCategoryFilter(
             name="test.filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject="MB",
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -188,13 +188,13 @@ class TestCategoryFilterCrudAtomicity:
         account, category = self._seed_account_and_category(db_session)
         data = CategoryFilterSaveRequest(
             name="new.filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             iban=None,
             min_amount=None,
             max_amount=None,
             subject="MB",
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
         )
 
         with (
@@ -213,10 +213,10 @@ class TestCategoryFilterCrudAtomicity:
         account, category = self._seed_account_and_category(db_session)
         category_filter = P4xCategoryFilter(
             name="existing.filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject="OLD",
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -226,13 +226,13 @@ class TestCategoryFilterCrudAtomicity:
 
         data = CategoryFilterSaveRequest(
             name="existing.filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             iban=None,
             min_amount=None,
             max_amount=None,
             subject="NEW",
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
         )
 
         with (

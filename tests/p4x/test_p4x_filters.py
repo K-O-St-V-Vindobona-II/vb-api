@@ -75,10 +75,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="starts_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -92,10 +92,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="contains_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
             subject="mitgliedsb",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -109,10 +109,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="equals_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -129,10 +129,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="starts_case_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MITGLIEDSBEITRAG",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -146,10 +146,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="contains_case_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
             subject="MITGLIEDSB",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -163,10 +163,10 @@ class TestFilterEngineSubjectModes:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="equals_case_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="spende verein",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -182,10 +182,10 @@ class TestFilterEngineAmountRange:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="min_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             min_amount=20.0,
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -200,10 +200,10 @@ class TestFilterEngineAmountRange:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="max_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             max_amount=20.0,
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -218,11 +218,11 @@ class TestFilterEngineAmountRange:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="range_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             min_amount=10.0,
             max_amount=25.0,
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -239,10 +239,10 @@ class TestFilterEngineIban:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="iban_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             iban="DE001",
             subject_mode="equals",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -270,10 +270,10 @@ class TestFilterEngineDirectExclusion:
 
         f = P4xCategoryFilter(
             name="direct_excl_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -301,19 +301,19 @@ class TestApplyAll:
 
         f1 = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
         f2 = P4xCategoryFilter(
             name="f2",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat2.id,
+            p4x_category_id=cat2.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -329,10 +329,10 @@ class TestApplyAll:
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="trunc_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

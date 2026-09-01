@@ -115,6 +115,7 @@ def get_dashboard(
         categories=[
             CategoryResponse(
                 id=c.id,
+                id_uuid=c.id_uuid,
                 name=c.name,
                 label=c.label,
                 background_color=c.background_color,
@@ -663,6 +664,7 @@ def get_filter2direct_preview(
         filter=p4x_response_builders.build_filter_response(db, f),
         category=CategoryResponse(
             id=f.category.id,
+            id_uuid=f.category.id_uuid,
             name=f.category.name,
             label=f.category.label,
             background_color=f.category.background_color,

@@ -217,10 +217,10 @@ class TestGetTransactionsByCategory:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="FilterHit",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -267,10 +267,10 @@ class TestGetTransactionsByFilter:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -309,10 +309,10 @@ class TestGetTransactionsByFilter:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -401,10 +401,10 @@ class TestGetAccountCategories:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

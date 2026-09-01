@@ -1,6 +1,7 @@
 """Pure unit tests for Pydantic validators in app/schemas/p4x.py."""
 
 import re
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -40,9 +41,9 @@ def _valid_filter_data(**overrides: object) -> dict[str, object]:
     """Return the minimum valid CategoryFilterSaveRequest payload."""
     base: dict[str, object] = {
         "name": "Testfilter",
-        "p4x_account_id": 1,
+        "p4x_account_id": uuid.uuid4(),
         "subject_mode": "contains",
-        "p4x_category_id": 1,
+        "p4x_category_id": uuid.uuid4(),
     }
     base.update(overrides)
     return base

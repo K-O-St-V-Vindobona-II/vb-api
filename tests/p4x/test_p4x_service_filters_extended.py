@@ -77,10 +77,10 @@ class TestDeleteCategoryFilter:
 
         cf = P4xCategoryFilter(
             name="del_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -134,10 +134,10 @@ class TestFilterToDirect:
 
         cf = P4xCategoryFilter(
             name="conv_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -151,10 +151,10 @@ class TestFilterToDirect:
         # Create a second filter giving the remaining txs exactly 1 hit each
         cf2 = P4xCategoryFilter(
             name="catchall",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -181,10 +181,10 @@ class TestFilterToDirect:
 
         cf = P4xCategoryFilter(
             name="block_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -207,11 +207,11 @@ class TestFilterEngineEmptyIban:
 
         cf = P4xCategoryFilter(
             name="empty_iban_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             iban="",
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -230,10 +230,10 @@ class TestGetFilterHitsExtended:
 
         cf = P4xCategoryFilter(
             name="alldir_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -263,10 +263,10 @@ class TestGetFilterHitsExtended:
 
         cf = P4xCategoryFilter(
             name="nondirect_test",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id,
+            p4x_category_id=cat.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

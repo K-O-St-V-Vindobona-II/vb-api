@@ -199,9 +199,9 @@ class TestBuildTransactionResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Alle Beiträge",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -221,6 +221,7 @@ class TestBuildTransactionResponse:
         assert len(resp.p4x_category_filters) == 1
         assert resp.p4x_category_filters[0].id == category_filter.id
         assert resp.p4x_category_filters[0].hitCount == 1
+        assert resp.p4x_category_filters[0].account_id == account.id
         assert resp.p4x_category_filters[0].p4x_account_label == account.label
 
 
@@ -315,9 +316,9 @@ class TestBuildCategoryResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Spenden-Filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -347,9 +348,9 @@ class TestBuildFilterResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Alle Beiträge",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -359,6 +360,8 @@ class TestBuildFilterResponse:
         resp = build_filter_response(db_session, category_filter)
 
         assert resp.id == category_filter.id
+        assert resp.p4x_account_id == account.id_uuid
+        assert resp.account_id == account.id
         assert resp.p4x_account_label == account.label
         assert resp.hitCount == 0
 
@@ -379,9 +382,9 @@ class TestGetFilterOr404:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Ein Filter",
-            p4x_account_id=account.id,
+            p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id,
+            p4x_category_id=category.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )
