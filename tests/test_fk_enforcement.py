@@ -10,6 +10,8 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.archive_file import ArchiveFile
+from app.models.archive_permission import ArchivePermission
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
 from app.models.badge import Badge
@@ -129,6 +131,32 @@ class TestFkInsertEnforcement:
                 size=1,
                 sha256_hash="fk-enforcement-test-hash",
                 created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_file_with_unknown_archive_store_item_id_is_rejected(
+        self, db_session
+    ):
+        """archive_files.archive_store_item_id -> archive_store_items.id_uuid
+        (Alembic revision 673aa46dc3b3)."""
+        db_session.add(ArchiveFile(archive_store_item_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.archive_dir_id -> archive_dirs.id_uuid
+        (Alembic revision 673aa46dc3b3)."""
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=uuid.uuid4(),
+                org_id="vbw",
+                state_id="fu",
             )
         )
         with pytest.raises(IntegrityError):

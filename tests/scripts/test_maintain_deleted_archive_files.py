@@ -6,6 +6,7 @@ themselves are already covered by tests/test_archive_maintenance_service.py
 parsing, confirmation prompts, exit codes, output formatting).
 """
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -35,6 +36,7 @@ def _candidate(
     path: str = "Fotos",
     filename: str = "gruppenfoto.jpg",
     archive_dir_id: int = 7,
+    archive_store_item_id: uuid.UUID | None = None,
     active_sibling_count: int = 0,
     other_deleted_sibling_count: int = 0,
 ) -> PurgeCandidate:
@@ -49,7 +51,7 @@ def _candidate(
         size=100,
         sha256_hash="a" * 64,
         archive_dir_id=archive_dir_id,
-        archive_store_item_id=file_id,
+        archive_store_item_id=archive_store_item_id or uuid.uuid4(),
         active_sibling_count=active_sibling_count,
         other_deleted_sibling_count=other_deleted_sibling_count,
     )

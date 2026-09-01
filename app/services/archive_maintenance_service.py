@@ -21,6 +21,7 @@ from app.models.archive_store_item import ArchiveStoreItem
 from app.services.archive_service import dir_path_string
 
 if TYPE_CHECKING:
+    import uuid
     from datetime import datetime
 
     from sqlalchemy.orm import Session
@@ -64,8 +65,8 @@ class PurgeCandidate:
     deleted_at: datetime
     size: int
     sha256_hash: str
+    archive_store_item_id: uuid.UUID
     archive_dir_id: int | None = None
-    archive_store_item_id: int = 0
     active_sibling_count: int = 0
     other_deleted_sibling_count: int = 0
 
@@ -145,8 +146,8 @@ def _describe_location(db: Session, file_obj: ArchiveFile) -> tuple[str, str, st
 
 
 def _reference_counts(
-    db: Session, store_item_ids: set[int]
-) -> dict[int, tuple[int, int]]:
+    db: Session, store_item_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
     """Maps store_item_id -> (active_file_count, deleted_file_count) across
     ALL ArchiveFile rows referencing it, including the candidate(s) currently
     being listed. A single aggregated query regardless of how many store
@@ -222,7 +223,7 @@ def list_deleted_files_in_dir(db: Session, dir_id: int) -> list[PurgeCandidate]:
     return _candidates_for(db, files)
 
 
-def _live_sibling_counts(db: Session, store_item_id: int) -> tuple[int, int]:
+def _live_sibling_counts(db: Session, store_item_id: uuid.UUID) -> tuple[int, int]:
     """Freshly (re-)computes (active_count, deleted_count) for a single
     store item, including the candidate's own row. Used by
     `is_still_duplicate()` immediately before an actual batch purge.
@@ -260,7 +261,7 @@ def _get_soft_deleted_file(db: Session, file_id: int) -> ArchiveFile:
 
 
 def _delete_orphaned_store_items(
-    db: Session, store_item_ids: set[int]
+    db: Session, store_item_ids: set[uuid.UUID]
 ) -> list[ArchiveStoreItem]:
     """Deletes ArchiveStoreItem rows no longer referenced by any ArchiveFile.
     Must only be called after the owning ArchiveFile row(s) have already been
@@ -276,7 +277,14 @@ def _delete_orphaned_store_items(
         )
         if still_referenced:
             continue
-        item = db.get(ArchiveStoreItem, store_item_id)
+        # db.get() looks up by primary key, which is still the integer
+        # `id` here - archive_store_items keeps its own Final-Cutover for a
+        # later slice, so id_uuid must be queried explicitly instead.
+        item = (
+            db.query(ArchiveStoreItem)
+            .filter(ArchiveStoreItem.id_uuid == store_item_id)
+            .first()
+        )
         if item is not None:
             orphaned.append(item)
             db.delete(item)
@@ -402,9 +410,9 @@ def restore_file(db: Session, file_id: int) -> FileLocation:
 
 def _active_duplicates_for_store_items(
     db: Session,
-    store_item_ids: set[int],
+    store_item_ids: set[uuid.UUID],
     exclude_file_ids: set[int] | None = None,
-) -> dict[int, list[ActiveDuplicate]]:
+) -> dict[uuid.UUID, list[ActiveDuplicate]]:
     """Maps store_item_id -> its active (non-deleted) ArchiveFile
     duplicates. A single query regardless of how many store items are
     involved, so inspecting an entire directory's files doesn't turn into
@@ -412,7 +420,7 @@ def _active_duplicates_for_store_items(
     """
     if not store_item_ids:
         return {}
-    result: dict[int, list[ActiveDuplicate]] = {sid: [] for sid in store_item_ids}
+    result: dict[uuid.UUID, list[ActiveDuplicate]] = {sid: [] for sid in store_item_ids}
     query = db.query(ArchiveFile).filter(
         ArchiveFile.archive_store_item_id.in_(store_item_ids),
         ArchiveFile.deleted_at.is_(None),

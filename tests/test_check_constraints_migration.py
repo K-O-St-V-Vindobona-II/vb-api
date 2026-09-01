@@ -202,7 +202,7 @@ class TestStringLengthRange:
         )
         db_session.add(item)
         db_session.flush()
-        archive_file = ArchiveFile(archive_store_item_id=item.id)
+        archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
         db_session.add(archive_file)
         db_session.commit()
 
@@ -221,7 +221,7 @@ class TestStringLengthRange:
         )
         db_session.add(item)
         db_session.flush()
-        archive_file = ArchiveFile(archive_store_item_id=item.id)
+        archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
         db_session.add(archive_file)
         db_session.commit()
 

@@ -125,7 +125,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id,
+                archive_dir_id=d.id_uuid,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -150,7 +150,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id,
+        archive_store_item_id=item.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -368,7 +368,7 @@ class TestUpload:
             f = ArchiveFile(
                 archive_dir_id=0,
                 description="unfiled",
-                archive_store_item_id=item.id,
+                archive_store_item_id=item.id_uuid,
                 created_at=now,
                 updated_at=now,
             )
@@ -787,3 +787,27 @@ class TestArchiveStoreItemIdUuidDefault:
 
         assert isinstance(item.id_uuid, uuid.UUID)
         assert item.id_uuid.version == 7
+
+
+class TestArchiveFileIdUuidDefault:
+    """Same guard as TestArchiveDirIdUuidDefault, for archive_files'
+    additive `id_uuid` column (see
+    673aa46dc3b3_archive_files_phase_a_and_archive_.py)."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="phase-a-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="phase-a-guard-hash-file",
+        )
+        db_session.add(item)
+        db_session.flush()
+
+        f = ArchiveFile(archive_store_item_id=item.id_uuid)
+        db_session.add(f)
+        db_session.flush()
+
+        assert isinstance(f.id_uuid, uuid.UUID)
+        assert f.id_uuid.version == 7

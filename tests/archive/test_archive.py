@@ -127,7 +127,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id,
+                archive_dir_id=d.id_uuid,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -152,7 +152,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id,
+        archive_store_item_id=item.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -395,6 +395,7 @@ class TestDirEndpoints:
         headers, _ = _login_admin(db_session, client)
         d = _make_dir(db_session, "Trashed", perms=["vbw_fu"])
         dir_id = d.id
+        dir_id_uuid = d.id_uuid
         d.deleted_at = _now()
         db_session.commit()
 
@@ -406,7 +407,7 @@ class TestDirEndpoints:
         assert db_session.get(ArchiveDir, dir_id) is None
         assert (
             db_session.query(ArchivePermission)
-            .filter(ArchivePermission.archive_dir_id == dir_id)
+            .filter(ArchivePermission.archive_dir_id == dir_id_uuid)
             .count()
             == 0
         )

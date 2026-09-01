@@ -73,7 +73,7 @@ def _make_file(
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id,
+        archive_store_item_id=item.id_uuid,
         created_at=now,
         updated_at=now,
         deleted_at=now if deleted else None,

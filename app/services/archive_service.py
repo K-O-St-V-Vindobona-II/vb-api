@@ -622,14 +622,14 @@ def _sync_permissions(
     perms: list[str],
 ) -> None:
     db.query(ArchivePermission).filter(
-        ArchivePermission.archive_dir_id == dir_obj.id
+        ArchivePermission.archive_dir_id == dir_obj.id_uuid
     ).delete()
     for p in perms:
         parts = p.split("_", 1)
         if len(parts) == 2:
             db.add(
                 ArchivePermission(
-                    archive_dir_id=dir_obj.id,
+                    archive_dir_id=dir_obj.id_uuid,
                     org_id=parts[0],
                     state_id=parts[1],
                 )
@@ -872,7 +872,8 @@ def get_unfiled_uploads(
     files = (
         db.query(ArchiveFile)
         .join(
-            ArchiveStoreItem, ArchiveFile.archive_store_item_id == ArchiveStoreItem.id
+            ArchiveStoreItem,
+            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id_uuid,
         )
         .filter(
             ArchiveFile.archive_dir_id == 0,
@@ -928,7 +929,7 @@ def get_archive_stats(db: Session) -> dict[str, object]:
     active_file_exists = (
         db.query(ArchiveFile.id)
         .filter(
-            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
+            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id_uuid,
             ArchiveFile.deleted_at.is_(None),
             ArchiveFile.archive_dir_id != 0,
             ~ArchiveFile.archive_dir_id.in_(under_trash),
@@ -1069,7 +1070,7 @@ def upload_file(
     archive_file = ArchiveFile(
         archive_dir_id=0,
         description=description,
-        archive_store_item_id=store_item.id,
+        archive_store_item_id=store_item.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -1280,7 +1281,8 @@ def _search_files_exact(
     rows = (
         db.query(ArchiveFile, rank)
         .join(
-            ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
+            ArchiveStoreItem,
+            ArchiveStoreItem.id_uuid == ArchiveFile.archive_store_item_id,
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),
@@ -1365,7 +1367,8 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
     rows = (
         db.query(ArchiveFile, rank)
         .join(
-            ArchiveStoreItem, ArchiveStoreItem.id == ArchiveFile.archive_store_item_id
+            ArchiveStoreItem,
+            ArchiveStoreItem.id_uuid == ArchiveFile.archive_store_item_id,
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),

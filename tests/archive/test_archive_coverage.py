@@ -143,7 +143,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id,
+                archive_dir_id=d.id_uuid,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -175,7 +175,7 @@ def _make_file(
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id,
+        archive_store_item_id=item.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -1286,7 +1286,7 @@ class TestSearch:
         name_hit = ArchiveFile(
             archive_dir_id=d.id,
             description="unrelated too",
-            archive_store_item_id=name_hit_item.id,
+            archive_store_item_id=name_hit_item.id_uuid,
             created_at=now,
             updated_at=now,
         )

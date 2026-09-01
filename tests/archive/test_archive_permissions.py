@@ -1,5 +1,6 @@
 """Tests für Archiv-Berechtigungen (insight/admin, recursive, inheritance)."""
 
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -119,7 +120,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id,
+                archive_dir_id=d.id_uuid,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -144,7 +145,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id,
+        archive_store_item_id=item.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -402,3 +403,22 @@ class TestFilePermissionInheritance:
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+class TestArchivePermissionIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    673aa46dc3b3_archive_files_phase_a_and_archive_.py): every insert goes
+    through the ORM instance, so `default=uuid.uuid7` on the model fires
+    without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        d = ArchiveDir(name="Guard Dir")
+        db_session.add(d)
+        db_session.flush()
+
+        perm = ArchivePermission(archive_dir_id=d.id_uuid, org_id="vbw", state_id="fu")
+        db_session.add(perm)
+        db_session.flush()
+
+        assert isinstance(perm.id, uuid.UUID)
+        assert perm.id.version == 7
