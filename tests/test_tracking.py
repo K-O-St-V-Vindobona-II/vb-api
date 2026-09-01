@@ -884,3 +884,20 @@ class TestSentEmailUuidDefault:
 
         assert isinstance(email.id, uuid.UUID)
         assert email.id.version == 7
+
+
+class TestClientUserAgentIdUuidDefault:
+    """Guards the UUID-PK migration's Phase A assumption (see
+    a908d5613d52_members_and_client_user_agents_id_uuid_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the additive
+    `id_uuid` column fires without ever needing a server-side default -
+    same guard as every migrated table's primary key, just on a column
+    that isn't the primary key yet."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        ua = ClientUserAgent(string="Phase A guard/1.0")
+        db_session.add(ua)
+        db_session.flush()
+
+        assert isinstance(ua.id_uuid, uuid.UUID)
+        assert ua.id_uuid.version == 7

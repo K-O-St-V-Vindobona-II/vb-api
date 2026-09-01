@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -51,6 +53,12 @@ class Member(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # a908d5613d52_members_and_client_user_agents_id_uuid_.py) - not yet
+    # the primary key. Every referrer table cuts over onto this once
+    # populated; `id` itself becomes UUID only in the Final-Cutover slice,
+    # after all 17 referrers (plus the self-reference below) have moved.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
 
     # --- Name ---
     vortitel: Mapped[str | None]
