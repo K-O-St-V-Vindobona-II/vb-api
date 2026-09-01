@@ -37,8 +37,10 @@ class PublicGalleryImage(Base):
     caption: Mapped[str | None]
     sort_order: Mapped[int] = mapped_column(index=True)
     is_published: Mapped[bool] = mapped_column(default=True)
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL")
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover (slice 32).
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

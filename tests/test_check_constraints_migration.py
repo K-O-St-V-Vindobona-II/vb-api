@@ -115,7 +115,7 @@ class TestSummaryOrderDateOrdering:
 
         db_session.add(
             P4xSummaryOrder(
-                ordered_by=member.id,
+                ordered_by=member.id_uuid,
                 email="test@example.com",
                 summary_start=datetime.date(2020, 6, 15),
                 summary_end=datetime.date(2020, 6, 14),

@@ -362,7 +362,7 @@ class TestP4xSummaryOrder:
         db_session.commit()
 
         order = P4xSummaryOrder(
-            ordered_by=member.id,
+            ordered_by=member.id_uuid,
             email="test@example.com",
             summary_start=date(2025, 1, 1),
             summary_end=date(2025, 12, 1),
@@ -374,6 +374,27 @@ class TestP4xSummaryOrder:
         db_session.commit()
         assert order.id is not None
         assert order.finished_ok is False
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the model fires without ever needing a server-side default."""
+        member = Member(vorname="Test", nachname="Orderer")
+        db_session.add(member)
+        db_session.commit()
+
+        order = P4xSummaryOrder(
+            ordered_by=member.id_uuid,
+            email="test@example.com",
+            summary_start=date(2025, 1, 1),
+            summary_end=date(2025, 12, 1),
+        )
+        db_session.add(order)
+        db_session.flush()
+
+        assert isinstance(order.id, uuid.UUID)
+        assert order.id.version == 7
 
 
 class TestPartnerTransactionRelationship:

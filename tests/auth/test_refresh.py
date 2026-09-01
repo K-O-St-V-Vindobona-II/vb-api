@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -133,7 +134,7 @@ class TestRefreshReuseDetection:
         client.post("/api/auth/refresh")
         sessions = (
             db_session.query(AuthSession)
-            .filter(AuthSession.member_id == member.id)
+            .filter(AuthSession.member_id == member.id_uuid)
             .count()
         )
         assert sessions == 0
@@ -153,7 +154,7 @@ class TestRefreshFailures:
     def test_expired_session_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         session = AuthSession(
-            member_id=member.id,
+            member_id=member.id_uuid,
             jti="expired-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime.now(UTC),
@@ -170,7 +171,7 @@ class TestRefreshFailures:
     def test_idle_timeout_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         session = AuthSession(
-            member_id=member.id,
+            member_id=member.id_uuid,
             jti="idle-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime(2020, 1, 1, tzinfo=UTC),
@@ -208,3 +209,18 @@ class TestLogoutClearsCookie:
         assert resp.status_code == 200
         cookie_header = resp.headers.get("set-cookie", "")
         assert "refresh_token" in cookie_header
+
+
+class TestAuthSessionUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session, member):
+        session = AuthSession(member_id=member.id_uuid, jti="uuid-default-guard")
+        db_session.add(session)
+        db_session.flush()
+
+        assert isinstance(session.id, uuid.UUID)
+        assert session.id.version == 7

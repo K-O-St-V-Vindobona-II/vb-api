@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -47,8 +48,10 @@ def _ensure_tz_aware(dt: datetime) -> datetime:
     return dt
 
 
-def _bump_lastsignal(db: Session, member_id: int, now: datetime) -> None:
-    db.query(Member).filter(Member.id == member_id).update({"auth_lastsignal": now})
+def _bump_lastsignal(db: Session, member_id: uuid.UUID, now: datetime) -> None:
+    db.query(Member).filter(Member.id_uuid == member_id).update(
+        {"auth_lastsignal": now}
+    )
 
 
 def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:

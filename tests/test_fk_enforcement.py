@@ -15,10 +15,13 @@ from app.models.auth_session import AuthSession
 from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
+from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
+from app.models.public_gallery_image import PublicGalleryImage
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 
@@ -127,6 +130,61 @@ class TestFkInsertEnforcement:
             db_session.commit()
         db_session.rollback()
 
+    def test_inserting_an_oauth2binding_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """members_oauth2bindings.member_id -> members.id_uuid (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            MembersOauth2Binding(
+                member_id=uuid.uuid4(),
+                provider="google",
+                remote_id="fk-test-remote-id",
+                remote_name="FK Test",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_summary_order_with_unknown_ordered_by_is_rejected(
+        self, db_session
+    ):
+        """p4x_summary_orders.ordered_by -> members.id_uuid (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            P4xSummaryOrder(
+                ordered_by=uuid.uuid4(),
+                email="fk-test@vindobona.at",
+                summary_start=datetime.date(2020, 1, 1),
+                summary_end=datetime.date(2020, 1, 2),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_gallery_image_with_unknown_created_by_is_rejected(
+        self, db_session
+    ):
+        """public_gallery_images.created_by -> members.id_uuid (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            PublicGalleryImage(
+                sha256_hash="fk-enforcement-gallery-hash",
+                extension="jpg",
+                content_type="image/jpeg",
+                size=1,
+                width=1,
+                height=1,
+                sort_order=1,
+                created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
 
 class TestSessionFk:
     """sessions.member_id -> members.id (Alembic revision 5292367fb696)
@@ -135,7 +193,7 @@ class TestSessionFk:
     instead of an exclusive-arc redesign."""
 
     def test_inserting_a_session_with_unknown_member_id_is_rejected(self, db_session):
-        db_session.add(AuthSession(member_id=999999, jti="jti-1"))
+        db_session.add(AuthSession(member_id=uuid.uuid4(), jti="jti-1"))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -145,7 +203,7 @@ class TestSessionFk:
         db_session.add(member)
         db_session.commit()
 
-        session = AuthSession(member_id=member.id, jti="jti-2")
+        session = AuthSession(member_id=member.id_uuid, jti="jti-2")
         db_session.add(session)
         db_session.commit()
         session_id = session.id
