@@ -1,6 +1,7 @@
+import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import CheckConstraint, DateTime
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -15,8 +16,20 @@ class RequestLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     client_ip: Mapped[str]
     client_ips: Mapped[str | None]
-    client_user_agent_id: Mapped[int | None]
-    member_id: Mapped[int | None]
+    # References client_user_agents.id (that table's own Final-Cutover
+    # lands in this same slice) - a genuinely missing FK, not a
+    # Referrer-Cutover of an existing one.
+    client_user_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("client_user_agents.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover. Also a
+    # genuinely missing FK, not a Referrer-Cutover of an existing one.
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
     request_method: Mapped[str]
     request_path: Mapped[str]
     request_input: Mapped[str | None]

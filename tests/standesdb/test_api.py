@@ -684,7 +684,7 @@ def test_create_member_writes_log(client, db_session):
     )
     assert len(logs) > 0
     assert all(l.action == "create" for l in logs)
-    assert all(l.modified_by == admin.id for l in logs)
+    assert all(l.modified_by == admin.id_uuid for l in logs)
     keys = {l.key for l in logs}
     assert "vorname" in keys
     assert "nachname" in keys
@@ -829,7 +829,7 @@ def test_delete_contact_writes_log(client, db_session):
     assert len(logs) == 1
     assert logs[0].action == "delete"
     assert logs[0].key == "deleted_at"
-    assert logs[0].modified_by == admin.id
+    assert logs[0].modified_by == admin.id_uuid
 
 
 def test_no_log_on_unchanged_save(client, db_session):

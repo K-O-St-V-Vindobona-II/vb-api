@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey
@@ -12,7 +13,11 @@ class ContactsLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover.
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+    )
     contact_id: Mapped[int | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE")
     )

@@ -212,7 +212,7 @@ class TestResolveMemberId:
         )
         db_session.add(member)
         db_session.commit()
-        assert _resolve_member_id(db_session, "found@vbw.at") == member.id
+        assert _resolve_member_id(db_session, "found@vbw.at") == member.id_uuid
 
 
 # --- Integration: middleware creates log entries ---
@@ -306,7 +306,9 @@ class TestPersistLog:
         )
         db_session.add(member)
         db_session.commit()
-        member_id = member.id  # captured before _persist_log's db.close() detaches it
+        member_id = (
+            member.id_uuid
+        )  # captured before _persist_log's db.close() detaches it
 
         request = _make_request()
         ActivityLoggingMiddleware._persist_log(

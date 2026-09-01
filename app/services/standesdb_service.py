@@ -453,7 +453,7 @@ def _persist_change_log(
     *,
     diff: dict[str, dict[str, object]],
     action: str,
-    modified_by: int,
+    modified_by: uuid.UUID,
     modified_at: datetime,
 ) -> None:
     for key, change in diff.items():
@@ -550,7 +550,7 @@ def apply_member_input(  # noqa: C901
             member.id,
             diff=diff,
             action="create" if is_new else "update",
-            modified_by=current_user.id,
+            modified_by=current_user.id_uuid,
             modified_at=now,
         )
 
@@ -1129,7 +1129,7 @@ def apply_contact_input(
             contact.id,
             diff=diff,
             action="create" if is_new else "update",
-            modified_by=current_user.id,
+            modified_by=current_user.id_uuid,
             modified_at=now,
         )
 
@@ -1155,7 +1155,7 @@ def soft_delete_contact(
             key="deleted_at",
             old=None,
             new=str(now),
-            modified_by=current_user.id,
+            modified_by=current_user.id_uuid,
             modified_at=now,
         )
     )
@@ -1343,16 +1343,16 @@ def generate_keys_download(db: Session) -> bytes:
 def _changelog_name_map(
     db: Session,
     log_entries: Sequence[MembersLog | ContactsLog],
-) -> dict[int, str]:
+) -> dict[uuid.UUID, str]:
     ids = {e.modified_by for e in log_entries if e.modified_by}
     if not ids:
         return {}
     rows = (
-        db.query(Member.id, Member.vorname, Member.nachname)
-        .filter(Member.id.in_(ids))
+        db.query(Member.id_uuid, Member.vorname, Member.nachname)
+        .filter(Member.id_uuid.in_(ids))
         .all()
     )
-    return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
+    return {r.id_uuid: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
 
 
 def get_member_changelog(

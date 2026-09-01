@@ -15,13 +15,16 @@ from app.models.archive_permission import ArchivePermission
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
 from app.models.badge import Badge
+from app.models.client_user_agent import ClientUserAgent
 from app.models.contact import Contact
+from app.models.contacts_log import ContactsLog
 from app.models.key import Key
 from app.models.member import Member
 from app.models.member_badge import MemberBadge
 from app.models.member_change_request import MemberChangeRequest
 from app.models.member_key import MemberKey
 from app.models.member_role import MemberRole
+from app.models.members_log import MembersLog
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
@@ -29,6 +32,7 @@ from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
 from app.models.public_gallery_image import PublicGalleryImage
+from app.models.request_log import RequestLog
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 
@@ -641,3 +645,153 @@ class TestP4xTransactionDelegatingExclusiveArc:
         refreshed = db_session.get(P4xTransaction, tx_id)
         assert refreshed is not None
         assert refreshed.delegating_p4x_specialcontact_id is None
+
+
+class TestContactsLogModifiedByFk:
+    """contacts_logs.modified_by -> members.id_uuid - a genuinely missing
+    FK added directly (not a Referrer-Cutover of an existing one)."""
+
+    def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
+        db_session.add(
+            ContactsLog(
+                modified_by=uuid.uuid4(),
+                action="update",
+                key="name",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_modifier_sets_modified_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        log = ContactsLog(modified_by=member.id_uuid, action="update", key="name")
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        refreshed = db_session.get(ContactsLog, log_id)
+        assert refreshed is not None
+        assert refreshed.modified_by is None
+
+
+class TestMembersLogModifiedByFk:
+    """members_logs.modified_by -> members.id_uuid - same as
+    TestContactsLogModifiedByFk, a genuinely missing FK added directly."""
+
+    def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
+        db_session.add(
+            MembersLog(
+                modified_by=uuid.uuid4(),
+                action="update",
+                key="name",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_modifier_sets_modified_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        modifier = Member(vorname="Mod", nachname="Ifier")
+        db_session.add_all([member, modifier])
+        db_session.commit()
+
+        log = MembersLog(modified_by=modifier.id_uuid, action="update", key="name")
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == modifier.id))
+        db_session.commit()
+
+        refreshed = db_session.get(MembersLog, log_id)
+        assert refreshed is not None
+        assert refreshed.modified_by is None
+
+
+class TestRequestLogFks:
+    """request_logs.member_id -> members.id_uuid and
+    request_logs.client_user_agent_id -> client_user_agents.id - both
+    genuinely missing FKs added directly (not Referrer-Cutovers of
+    existing ones)."""
+
+    def test_inserting_with_unknown_member_id_is_rejected(self, db_session):
+        db_session.add(
+            RequestLog(
+                client_ip="127.0.0.1",
+                member_id=uuid.uuid4(),
+                request_method="GET",
+                request_path="/",
+                response_status=200,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_client_user_agent_id_is_rejected(self, db_session):
+        db_session.add(
+            RequestLog(
+                client_ip="127.0.0.1",
+                client_user_agent_id=uuid.uuid4(),
+                request_method="GET",
+                request_path="/",
+                response_status=200,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_member_sets_member_id_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        log = RequestLog(
+            client_ip="127.0.0.1",
+            member_id=member.id_uuid,
+            request_method="GET",
+            request_path="/",
+            response_status=200,
+        )
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        refreshed = db_session.get(RequestLog, log_id)
+        assert refreshed is not None
+        assert refreshed.member_id is None
+
+    def test_deleting_the_user_agent_sets_client_user_agent_id_null(self, db_session):
+        ua = ClientUserAgent(string="fk-enforcement-test-ua")
+        db_session.add(ua)
+        db_session.commit()
+
+        log = RequestLog(
+            client_ip="127.0.0.1",
+            client_user_agent_id=ua.id,
+            request_method="GET",
+            request_path="/",
+            response_status=200,
+        )
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(ClientUserAgent).where(ClientUserAgent.id == ua.id))
+        db_session.commit()
+
+        refreshed = db_session.get(RequestLog, log_id)
+        assert refreshed is not None
+        assert refreshed.client_user_agent_id is None

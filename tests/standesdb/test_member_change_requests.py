@@ -627,7 +627,7 @@ class TestDecideMemberChangeRequest:
             .first()
         )
         assert log is not None
-        assert log.modified_by == admin.id
+        assert log.modified_by == admin.id_uuid
         assert log.old == "Mustermann"
         assert log.new == "Geaendert"
 

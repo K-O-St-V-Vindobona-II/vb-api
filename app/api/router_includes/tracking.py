@@ -216,7 +216,7 @@ def get_activity_sessions(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     date_str: str | None = None,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> PaginatedResponse[ActivitySessionItem]:
@@ -244,7 +244,7 @@ def list_activity(
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> PaginatedResponse[ActivityLogItem]:

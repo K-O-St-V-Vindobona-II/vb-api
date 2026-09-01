@@ -266,7 +266,7 @@ class TestChangelog:
         db_session.add(
             MembersLog(
                 member_id=target.id,
-                modified_by=admin.id,
+                modified_by=admin.id_uuid,
                 modified_at=datetime.now(UTC),
                 action="update",
                 key="nachname",
@@ -293,7 +293,7 @@ class TestChangelog:
         db_session.add(
             ContactsLog(
                 contact_id=contact.id,
-                modified_by=admin.id,
+                modified_by=admin.id_uuid,
                 modified_at=datetime.now(UTC),
                 action="update",
                 key="email",
@@ -328,7 +328,7 @@ class TestChangelog:
             db_session.add(
                 MembersLog(
                     member_id=target.id,
-                    modified_by=admin.id,
+                    modified_by=admin.id_uuid,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=f"field{i}",
@@ -460,7 +460,7 @@ class TestChangelog:
             db_session.add(
                 MembersLog(
                     member_id=target.id,
-                    modified_by=admin.id,
+                    modified_by=admin.id_uuid,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=key,
@@ -488,7 +488,7 @@ class TestChangelog:
             db_session.add(
                 ContactsLog(
                     contact_id=contact.id,
-                    modified_by=admin.id,
+                    modified_by=admin.id_uuid,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=key,
@@ -517,7 +517,7 @@ class TestChangelog:
         db_session.add(
             ContactsLog(
                 contact_id=contact.id,
-                modified_by=admin.id,
+                modified_by=admin.id_uuid,
                 modified_at=datetime.now(UTC),
                 action="delete",
                 key="deleted_at",
