@@ -22,6 +22,8 @@ from app.services.standesdb_service import (
 )
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -71,7 +73,7 @@ def submit_change_request(
         return existing
 
     request = MemberChangeRequest(
-        member_id=member.id,
+        member_id=member.id_uuid,
         status=MemberChangeRequestStatus.PENDING,
         proposed_data=cast("dict[str, object]", diff),
     )
@@ -85,7 +87,7 @@ def get_own_pending_request(db: Session, member: Member) -> MemberChangeRequest 
     return (
         db.query(MemberChangeRequest)
         .filter(
-            MemberChangeRequest.member_id == member.id,
+            MemberChangeRequest.member_id == member.id_uuid,
             MemberChangeRequest.status == MemberChangeRequestStatus.PENDING,
         )
         .first()
@@ -109,7 +111,7 @@ def get_pending_requests_for_admin(
 
     return (
         db.query(MemberChangeRequest)
-        .join(Member, MemberChangeRequest.member_id == Member.id)
+        .join(Member, MemberChangeRequest.member_id == Member.id_uuid)
         .filter(
             MemberChangeRequest.status == MemberChangeRequestStatus.PENDING,
             Member.org_id.in_(admin_org_ids),
@@ -119,7 +121,9 @@ def get_pending_requests_for_admin(
     )
 
 
-def get_change_request_or_404(db: Session, request_id: int) -> MemberChangeRequest:
+def get_change_request_or_404(
+    db: Session, request_id: uuid.UUID
+) -> MemberChangeRequest:
     request = db.get(MemberChangeRequest, request_id)
     if not request:
         raise HTTPException(
@@ -276,7 +280,7 @@ def resolve_change_request(
 
     request.status = MemberChangeRequestStatus.RESOLVED
     request.field_decisions = field_decisions
-    request.resolved_by = resolving_admin.id
+    request.resolved_by = resolving_admin.id_uuid
     request.resolved_at = datetime.now(UTC)
     db.add(request)
     db.commit()

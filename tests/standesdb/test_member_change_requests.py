@@ -5,6 +5,7 @@ untouched regression guard. See tests/standesdb/test_member_change_requests_
 queries.py for the dedicated N+1 query-count test.
 """
 
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -124,7 +125,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "submitted"}
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .first()
         )
         assert request is not None
@@ -150,7 +151,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "no_changes"}
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .count()
             == 0
         )
@@ -171,7 +172,7 @@ class TestSubmitOwnChangeRequest:
         )
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .count()
             == 1
         )
@@ -185,7 +186,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "no_changes"}
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .count()
             == 0
         )
@@ -202,7 +203,7 @@ class TestSubmitOwnChangeRequest:
         )
         first = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .first()
         )
         assert first is not None
@@ -216,7 +217,7 @@ class TestSubmitOwnChangeRequest:
 
         rows = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .all()
         )
         assert len(rows) == 1
@@ -348,7 +349,7 @@ class TestListMemberChangeRequests:
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1
-        assert body["items"][0]["member_id"] == vbw_member.id
+        assert body["items"][0]["member_id"] == str(vbw_member.id_uuid)
 
     def test_non_admin_gets_403(self, db_session, client):
         _seed_base(db_session)
@@ -372,7 +373,7 @@ class TestGetMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == vbw_member.id)
+            .filter(MemberChangeRequest.member_id == vbw_member.id_uuid)
             .first()
         )
 
@@ -394,7 +395,7 @@ class TestGetMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .first()
         )
 
@@ -422,7 +423,7 @@ class TestDecideMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id)
+            .filter(MemberChangeRequest.member_id == member.id_uuid)
             .first()
         )
         assert request is not None
@@ -480,7 +481,7 @@ class TestDecideMemberChangeRequest:
         db_session.refresh(request)
         assert request.status.value == "resolved"
         assert request.field_decisions == {"nachname": "approved"}
-        assert request.resolved_by == admin.id
+        assert request.resolved_by == admin.id_uuid
         assert request.resolved_at is not None
 
     def test_reject_does_not_apply_change(self, db_session, client):
@@ -701,3 +702,24 @@ class TestDecideMemberChangeRequest:
         assert to_email == "member21@test.at"
         assert diff["nachname"]["new"] == "Geaendert"
         assert decisions == {"nachname": "approved"}
+
+
+class TestMemberChangeRequestIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    ec1af5390d0c_member_change_requests_id_member_id_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        _seed_base(db_session)
+        member = _create_member(db_session, email="uuid-guard@test.at")
+
+        request = MemberChangeRequest(
+            member_id=member.id_uuid,
+            proposed_data={"nachname": {"old": "Mustermann", "new": "Geaendert"}},
+        )
+        db_session.add(request)
+        db_session.flush()
+
+        assert isinstance(request.id, uuid.UUID)
+        assert request.id.version == 7

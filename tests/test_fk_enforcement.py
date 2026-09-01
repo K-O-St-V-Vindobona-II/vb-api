@@ -14,6 +14,7 @@ from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
 from app.models.contact import Contact
 from app.models.member import Member
+from app.models.member_change_request import MemberChangeRequest
 from app.models.member_role import MemberRole
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.p4x_account import P4xAccount
@@ -179,6 +180,41 @@ class TestFkInsertEnforcement:
                 height=1,
                 sort_order=1,
                 created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_change_request_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """member_change_requests.member_id -> members.id_uuid (Alembic
+        revision ec1af5390d0c)."""
+        db_session.add(
+            MemberChangeRequest(
+                member_id=uuid.uuid4(),
+                proposed_data={"nachname": {"old": "A", "new": "B"}},
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_change_request_with_unknown_resolved_by_is_rejected(
+        self, db_session
+    ):
+        """member_change_requests.resolved_by -> members.id_uuid (Alembic
+        revision ec1af5390d0c)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(
+            MemberChangeRequest(
+                member_id=member.id_uuid,
+                proposed_data={"nachname": {"old": "A", "new": "B"}},
+                resolved_by=uuid.uuid4(),
             )
         )
         with pytest.raises(IntegrityError):

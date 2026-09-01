@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import date
 from typing import Literal, Self
 
@@ -793,8 +794,8 @@ class MemberAuthActivityResponse(BaseModel):
 
 
 class MemberChangeRequestSummary(BaseModel):
-    id: int
-    member_id: int
+    id: uuid.UUID
+    member_id: uuid.UUID
     member_cn: str
     member_org_id: str | None = None
     field_count: int
@@ -814,8 +815,8 @@ class ChangeRequestFieldDiff(BaseModel):
 
 
 class MemberChangeRequestDetailResponse(BaseModel):
-    id: int
-    member_id: int
+    id: uuid.UUID
+    member_id: uuid.UUID
     member_cn: str
     status: MemberChangeRequestStatus
     created_at: UtcDatetime | None = None
@@ -827,7 +828,7 @@ class MemberChangeRequestDetailResponse(BaseModel):
 
 
 class MyChangeRequestResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     created_at: UtcDatetime | None = None
     proposed_fields: dict[str, object]
 

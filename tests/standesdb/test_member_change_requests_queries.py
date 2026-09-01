@@ -67,7 +67,7 @@ def _create_pending_request(db, index: int) -> None:
     db.commit()
     db.add(
         MemberChangeRequest(
-            member_id=member.id,
+            member_id=member.id_uuid,
             proposed_data={"nachname": {"old": "Test", "new": f"Test{index}"}},
         )
     )

@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, cast
 
 from arq.connections import ArqRedis
@@ -1165,7 +1166,7 @@ def list_member_change_requests(
 
 @standesdb_router.get("/member-change-requests/{request_id}")
 def get_member_change_request(
-    request_id: int,
+    request_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberChangeRequestDetailResponse:
@@ -1199,7 +1200,7 @@ def get_member_change_request(
 
 def _decide_member_change_request_sync(
     db: Session,
-    request_id: int,
+    request_id: uuid.UUID,
     data: MemberChangeRequestDecisionRequest,
     current_user: Member,
 ) -> tuple[str, dict[str, dict[str, object]], dict[str, str]] | None:
@@ -1219,7 +1220,7 @@ def _decide_member_change_request_sync(
 
 @standesdb_router.post("/member-change-requests/{request_id}/decide")
 async def decide_member_change_request(
-    request_id: int,
+    request_id: uuid.UUID,
     data: MemberChangeRequestDecisionRequest,
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
