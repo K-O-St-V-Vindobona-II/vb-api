@@ -1,13 +1,12 @@
 import base64
-from datetime import date
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from sqlalchemy import ColumnElement, or_
-from sqlalchemy.orm import Session
 from weasyprint import HTML
 
 from app.core.datetime_utils import local_today
@@ -23,6 +22,11 @@ from app.models.member_badge import MemberBadge
 from app.models.org import Org
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from sqlalchemy.orm import Session
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -412,7 +416,7 @@ def _get_image_base64(
             original_data,
             400,
         )
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     storage.upload(cache_key, thumb_bytes, content_type)
     return base64.b64encode(thumb_bytes).decode("ascii")

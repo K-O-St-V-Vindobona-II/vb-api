@@ -7,11 +7,12 @@ can replay any past or future week for testing.
 """
 
 from datetime import date, timedelta
-from typing import Literal, TypedDict
-
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from app.models.member import Member
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 AnniversaryStatus = Literal["lebend", "verstorben"]
 AnniversaryField = Literal[

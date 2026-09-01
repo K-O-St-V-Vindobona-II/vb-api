@@ -27,11 +27,10 @@ two apart.
 
 import asyncio
 import logging
-from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from arq import cron
 from arq.connections import RedisSettings
-from arq.cron import CronJob
 
 # Unlike the web container (main.py imports this too), this process never
 # otherwise imports every model module — without it, SQLAlchemy's lazy
@@ -62,6 +61,9 @@ from app.core.scheduler import (
     job_standesdb_health_check,
 )
 from app.core.worker_logging import describe_job_origin, install_task_origin_log_filter
+
+if TYPE_CHECKING:
+    from arq.cron import CronJob
 
 install_task_origin_log_filter()
 

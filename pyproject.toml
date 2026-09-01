@@ -1,11 +1,11 @@
 [project]
 name = "vb-api"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 
 [tool.ruff]
 line-length = 88
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -77,6 +77,20 @@ max-complexity = 8
 # `TYPE_CHECKING` breaks that resolution with a runtime `NameError` —
 # verified empirically, not just theoretically, before adding this ignore.
 "app/models/**" = ["TC003"]
+# FastAPI resolves a route handler's full signature - Depends()/Body()/
+# Query()/Path() parameter types included - against the module's real
+# runtime globals, both when a router is registered and when a decorator
+# (e.g. slowapi's @limiter.limit()) introspects the wrapped function via
+# inspect.signature()/typing.get_type_hints(). Python 3.14's deferred
+# annotation evaluation (PEP 649) still performs that lookup against the
+# real namespace, not a TYPE_CHECKING-only one - hiding a parameter type
+# there breaks route registration with a runtime `NameError`. Pydantic
+# schema classes have the identical requirement: field types are
+# evaluated against the module's real globals when the model class is
+# built. Verified empirically, not just theoretically, before adding
+# this ignore.
+"app/api/**" = ["TC001", "TC002", "TC003"]
+"app/schemas/**" = ["TC001", "TC002", "TC003"]
 # SessionLocal is legitimately instantiated directly here: no FastAPI
 # request context exists (definition site, middleware logging, cron jobs,
 # background email sending/logging, standalone CLI scripts).
@@ -132,7 +146,7 @@ exclude = [
     "alembic",
     "**/__pycache__",
 ]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 typeCheckingMode = "strict"
 
 useLibraryCodeForTypes = true

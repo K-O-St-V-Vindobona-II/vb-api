@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 
 from app.models.public_site_about_tab import KNOWN_SLOTS, PublicSiteAboutTab
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _SLOT_ORDER = {slot: index for index, slot in enumerate(KNOWN_SLOTS)}
 

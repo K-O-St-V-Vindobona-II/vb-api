@@ -22,13 +22,15 @@ APScheduler's former "tue".
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from arq.cron import next_cron
-from arq.typing import WeekdayOptionType
 
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
+
+if TYPE_CHECKING:
+    from arq.typing import WeekdayOptionType
 
 # Frozen at import time, exactly like the pre-existing scheduler.py did —
 # only APP_ENVIRONMENT itself needs to be read fresh (see

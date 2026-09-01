@@ -6,7 +6,7 @@ FastAPI backend for **vb** — the internal management system of Vindobona II / 
 
 ## Tech Stack
 
-- **Runtime:** Python 3.12, FastAPI, SQLAlchemy (sync), Alembic
+- **Runtime:** Python 3.14, FastAPI, SQLAlchemy (sync), Alembic
 - **Database:** PostgreSQL 18
 - **Storage:** S3-compatible (MinIO on Dev-VPS, AWS S3 on production)
 - **Scheduler:** APScheduler (async)
@@ -205,7 +205,7 @@ FastAPI-Backend für **vb** — das interne Verwaltungssystem von Vindobona II /
 
 ## Tech-Stack
 
-- **Laufzeitumgebung:** Python 3.12, FastAPI, SQLAlchemy (synchron), Alembic
+- **Laufzeitumgebung:** Python 3.14, FastAPI, SQLAlchemy (synchron), Alembic
 - **Datenbank:** PostgreSQL 18
 - **Storage:** S3-kompatibel (MinIO auf Dev-VPS, AWS S3 in Produktion)
 - **Scheduler:** APScheduler (asynchron)

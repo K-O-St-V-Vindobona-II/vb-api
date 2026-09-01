@@ -159,7 +159,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _validate_tier1(self) -> "Settings":
+    def _validate_tier1(self) -> Settings:
         # Split into one helper per field (each with its own, smaller
         # branching) so this stays under the project's max-complexity
         # limit as the Tier 1 field list grows.

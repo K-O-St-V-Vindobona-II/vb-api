@@ -1,6 +1,9 @@
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING
 
-from app.models.member import Member
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.models.member import Member
 
 
 def toggle_chroniclemail(db: Session, member: Member) -> bool:

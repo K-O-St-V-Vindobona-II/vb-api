@@ -1,10 +1,12 @@
-from collections.abc import Generator
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 # Settings._validate_tier1 already exits the process if database_url is
 # unset, so by the time get_settings() returns, it is guaranteed non-None.
@@ -39,7 +41,7 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session]:
     db = SessionLocal()
     try:
         yield db

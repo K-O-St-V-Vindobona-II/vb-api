@@ -6,8 +6,12 @@ one place so the SQL-safety reasoning below is written, verified, and
 maintained exactly once.
 """
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Text, cast, func, select
-from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def build_prefix_tsquery_text(db: Session, query: str) -> str:

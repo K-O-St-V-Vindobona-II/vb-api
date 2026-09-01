@@ -154,7 +154,7 @@ class TreeNodeResponse(BaseModel):
     state_id: str | None = None
     entlassen: bool = False
     verstorben: bool = False
-    children: list["TreeNodeResponse"] = []
+    children: list[TreeNodeResponse] = []
 
 
 # --- Member Responses ---

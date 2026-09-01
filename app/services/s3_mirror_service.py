@@ -9,8 +9,10 @@ list-diff-copy-delete mirror.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from app.core.storage import StorageClient
+if TYPE_CHECKING:
+    from app.core.storage import StorageClient
 
 logger = logging.getLogger(__name__)
 

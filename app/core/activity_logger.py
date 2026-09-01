@@ -7,7 +7,6 @@ from urllib.parse import parse_qs
 import jwt
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 from app.core.security import ALGORITHM, SECRET_KEY
@@ -18,6 +17,7 @@ from app.models.request_log import RequestLog
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+    from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def _sanitize_input(body: bytes, content_type: str = "") -> str | None:
         return None
     try:
         data = json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except json.JSONDecodeError, UnicodeDecodeError:
         if "application/x-www-form-urlencoded" in content_type:
             parsed = parse_qs(body.decode("utf-8", errors="replace"))
             data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
@@ -90,7 +90,7 @@ def _email_from_token(token_str: str) -> str | None:
             options={"verify_exp": False},
         )
         return payload.get("sub")
-    except (jwt.DecodeError, ValueError):
+    except jwt.DecodeError, ValueError:
         return None
 
 
@@ -101,7 +101,7 @@ def _extract_email(request: Request) -> str | None:
     return _email_from_token(auth_header[7:])
 
 
-def _resolve_member_id(db: "Session", email: str | None) -> int | None:
+def _resolve_member_id(db: Session, email: str | None) -> int | None:
     if not email:
         return None
     member = db.query(Member.id).filter(Member.email == email).first()
@@ -109,7 +109,7 @@ def _resolve_member_id(db: "Session", email: str | None) -> int | None:
 
 
 def _get_or_create_user_agent(
-    db: "Session",
+    db: Session,
     ua_string: str,
 ) -> int | None:
     if not ua_string:
@@ -245,7 +245,7 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
             token = data.get("access_token")
             if token:
                 email = _email_from_token(token)
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError, KeyError:
             pass
 
         new_response = Response(

@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 
 from app.models.public_site_settings import SETTINGS_ROW_ID, PublicSiteSettings
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def get_settings(db: Session) -> PublicSiteSettings:

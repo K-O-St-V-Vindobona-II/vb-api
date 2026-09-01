@@ -1,6 +1,6 @@
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 import jwt
 import requests
@@ -9,7 +9,6 @@ from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
 from requests.adapters import HTTPAdapter
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import (
@@ -28,6 +27,9 @@ from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _GOOGLE_CERTS_TIMEOUT_SECONDS = 5
 _GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (

@@ -289,7 +289,7 @@ def _parse_year(d: object) -> int | None:
 
 
 def _get_role_holder_emails(
-    db: "Session",
+    db: Session,
     role_ids: list[str],
     org_id: str,
 ) -> list[str]:
@@ -325,7 +325,7 @@ def _get_role_holder_emails(
 # -------------------------------------------------------------------
 
 
-def _validate_latest_booking(db: "Session", today: date) -> bool:
+def _validate_latest_booking(db: Session, today: date) -> bool:
     latest_tx = (
         db.query(P4xTransaction)
         .filter(P4xTransaction.deleted_at.is_(None))
@@ -355,7 +355,7 @@ def _compute_target_date(today: date) -> date:
 
 
 def _send_debtor_reminders(
-    db: "Session",
+    db: Session,
     target: date,
     target_str: str,
 ) -> None:
@@ -440,7 +440,7 @@ def job_debtor_reminder() -> None:
         db.close()
 
 
-def _get_phil_xxxx_name(db: "Session") -> str:
+def _get_phil_xxxx_name(db: Session) -> str:
     holder = _get_role_holder_emails(
         db,
         ["phil-xxxx"],
@@ -453,7 +453,7 @@ def _get_phil_xxxx_name(db: "Session") -> str:
 
 
 def _get_phil_xxxx_email(
-    db: "Session",
+    db: Session,
 ) -> str | None:
     holder = _get_role_holder_emails(
         db,
