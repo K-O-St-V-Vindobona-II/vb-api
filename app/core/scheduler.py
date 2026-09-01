@@ -280,12 +280,8 @@ def _parse_month_day(
     return None
 
 
-def _parse_year(d: object) -> int | None:
-    s = str(d)
-    parts = s.split("-")
-    if parts:
-        return int(parts[0])
-    return None
+def _parse_year(d: object) -> int:
+    return int(str(d).split("-")[0])
 
 
 def _get_role_holder_emails(

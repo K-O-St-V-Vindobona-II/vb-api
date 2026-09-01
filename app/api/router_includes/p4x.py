@@ -417,12 +417,6 @@ def get_transaction_attachment(
     tx = p4x_response_builders.get_transaction_for_account(
         db, account_id, transaction_id
     )
-    if not tx.has_attachment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kein Anhang vorhanden.",
-        )
-
     if not tx.attachment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
