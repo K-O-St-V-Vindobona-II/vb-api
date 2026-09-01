@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,6 +36,12 @@ class Contact(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # Additive prep column for the schema-wide UUID-PK migration (see
+    # 53b60b0b8bbb_contacts_id_uuid_phase_a.py) - not yet the primary key.
+    # `id` itself becomes UUID only in the Final-Cutover slice, after
+    # every referrer table (contacts_logs, p4x_transactions, p4x_partners,
+    # standesdb_images) has cut over onto this column.
+    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
     kontakttyp: Mapped[ContactType] = mapped_column(
         Enum(
             ContactType,

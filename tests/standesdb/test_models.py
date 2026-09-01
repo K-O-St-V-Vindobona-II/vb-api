@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import pytest
@@ -378,3 +379,20 @@ def test_member_default_image(db_session):
     db_session.refresh(member)
 
     assert member.default_image == img2.id
+
+
+class TestContactIdUuidDefault:
+    """Guards the UUID-PK migration's Phase A assumption (see
+    53b60b0b8bbb_contacts_id_uuid_phase_a.py): every insert goes through
+    the ORM instance, so `default=uuid.uuid7` on the additive `id_uuid`
+    column fires without ever needing a server-side default - same guard
+    as every migrated table's primary key, just on a column that isn't
+    the primary key yet."""
+
+    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+        contact = Contact(kontakttyp="person", name="Phase A Guard")
+        db_session.add(contact)
+        db_session.flush()
+
+        assert isinstance(contact.id_uuid, uuid.UUID)
+        assert contact.id_uuid.version == 7
