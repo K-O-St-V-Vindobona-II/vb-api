@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from decimal import Decimal
 
@@ -8,6 +9,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     Text,
+    Uuid,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -40,10 +42,15 @@ class ScheduledTaskRun(Base):
     one — each stage's scheduler is configured independently and only its
     own runs are meaningful here.
 
-    Plain integer id, not UUID: unlike public_gallery_images, id is never
-    exposed on a public/unauthenticated endpoint (systemAdmin-only) and
-    nothing else in the schema has a FK to it, so UUID's enumeration-
-    resistance buys nothing here.
+    UUID primary key for schema-wide consistency, not for enumeration-
+    resistance: unlike public_gallery_images, id is never exposed on a
+    public/unauthenticated endpoint (systemAdmin-only) and nothing else in
+    the schema has a FK to it, so that particular argument doesn't apply
+    here - it was outweighed by the project-wide decision to use UUIDs
+    across every table without exception (see
+    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py, which
+    revisits 9f8ff3c10cb2's earlier choice to move this table back onto an
+    integer id for exactly the same lack of an enumeration-risk argument).
     """
 
     __tablename__ = "scheduled_task_runs"
@@ -60,7 +67,7 @@ class ScheduledTaskRun(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     job_id: Mapped[str] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

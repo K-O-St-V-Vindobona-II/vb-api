@@ -19,6 +19,8 @@ from app.schemas.tracking import (
 )
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 ACTION_LABELS: dict[tuple[str, str], str] = {
@@ -179,7 +181,7 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
 ]
 
 
-def get_sent_email_detail(db: Session, email_id: int) -> SentEmail:
+def get_sent_email_detail(db: Session, email_id: uuid.UUID) -> SentEmail:
     email = db.query(SentEmail).filter(SentEmail.id == email_id).first()
     if not email:
         raise HTTPException(status_code=404, detail="Email nicht gefunden")

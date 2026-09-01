@@ -14,6 +14,7 @@ their tests build fixtures directly via db_session instead, which stays
 properly isolated.
 """
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -217,3 +218,21 @@ class TestGetLatestRunPerJob:
         assert len(small_result) == 1
         assert len(large_result) == 9
         assert large.count == small.count
+
+
+class TestScheduledTaskRunUuidDefault:
+    """Guards the UUID-PK migration's central assumption (see
+    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        started = datetime.now(UTC)
+        run = ScheduledTaskRun(
+            job_id="cleanup", started_at=started, finished_at=started, exit_code=0
+        )
+        db_session.add(run)
+        db_session.flush()
+
+        assert isinstance(run.id, uuid.UUID)
+        assert run.id.version == 7

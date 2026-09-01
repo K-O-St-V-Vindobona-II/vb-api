@@ -1,6 +1,7 @@
 """Tests for the Tracking module (sent emails + activity log)."""
 
 import re
+import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -309,7 +310,7 @@ class TestSentEmailDetail:
     def test_404_for_missing(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        resp = client.get("/api/tracking/sent-emails/99999", headers=headers)
+        resp = client.get(f"/api/tracking/sent-emails/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 
@@ -868,3 +869,18 @@ class TestMemberNameMap:
     def test_empty_set_returns_empty_dict(self):
         result = _member_name_map(None, set())
         assert result == {}
+
+
+class TestSentEmailUuidDefault:
+    """Guards the UUID-PK migration's central assumption (see
+    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        email = SentEmail(mail_from="test@vb.at", to="a@b.at", subject="Test")
+        db_session.add(email)
+        db_session.flush()
+
+        assert isinstance(email.id, uuid.UUID)
+        assert email.id.version == 7

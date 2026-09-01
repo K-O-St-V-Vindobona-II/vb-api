@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -174,7 +175,7 @@ def get_email_template_preview(
 
 @tracking_router.get("/sent-emails/{email_id}", response_model=SentEmailDetail)
 def get_sent_email_detail(
-    email_id: int,
+    email_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> SentEmail:
