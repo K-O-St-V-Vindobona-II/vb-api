@@ -9,6 +9,7 @@ starts with that baseline content present (3 about tabs, 1 settings row,
 build on top of that seed rather than starting from empty tables.
 """
 
+import uuid
 from datetime import date
 
 import bcrypt
@@ -85,6 +86,20 @@ def _nonadmin(db):
 def _headers(db, member):
     token, _, _ = create_user_session(db, member)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _link_id(db, platform: str) -> str:
+    """Look up a seeded social link's (now UUID) id by its stable platform
+    slug - the migration to a UUID primary key (see
+    61330e9e0ca8_public_site_social_links_id_to_uuid.py) means the seed
+    rows' ids are no longer the predictable 1/2 an autoincrement sequence
+    would assign."""
+    link = (
+        db.query(PublicSiteSocialLink)
+        .filter(PublicSiteSocialLink.platform == platform)
+        .one()
+    )
+    return str(link.id)
 
 
 class TestPublicSiteContent:
@@ -578,7 +593,9 @@ class TestSocialLinksAdmin:
         data = resp.json()
 
         db_session.expire_all()
-        assert db_session.get(PublicSiteSocialLink, data["id"]).sort_order == 3
+        assert (
+            db_session.get(PublicSiteSocialLink, uuid.UUID(data["id"])).sort_order == 3
+        )
 
     def test_create_invalid_platform_slug_rejected(self, client, db_session):
         _seed(db_session)
@@ -621,7 +638,7 @@ class TestSocialLinksAdmin:
         assert "facebook" not in {s["platform"] for s in before["social_links"]}
 
         resp = client.put(
-            f"{ADMIN_PREFIX}/social-links/1",
+            f"{ADMIN_PREFIX}/social-links/{_link_id(db_session, 'facebook')}",
             headers=headers,
             json={
                 "label": "Facebook",
@@ -641,7 +658,7 @@ class TestSocialLinksAdmin:
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
         resp = client.put(
-            f"{ADMIN_PREFIX}/social-links/2",
+            f"{ADMIN_PREFIX}/social-links/{_link_id(db_session, 'instagram')}",
             headers=headers,
             json={
                 "platform": "twitter",
@@ -655,19 +672,61 @@ class TestSocialLinksAdmin:
     def test_move_swaps_sort_order(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
+        instagram_id = _link_id(db_session, "instagram")
         resp = client.post(
-            f"{ADMIN_PREFIX}/social-links/2/move",
+            f"{ADMIN_PREFIX}/social-links/{instagram_id}/move",
             headers=headers,
             json={"direction": "up"},
         )
         assert resp.status_code == 200
         db_session.expire_all()
-        assert db_session.get(PublicSiteSocialLink, 2).sort_order == 1
-        assert db_session.get(PublicSiteSocialLink, 1).sort_order == 2
+        assert (
+            db_session.query(PublicSiteSocialLink)
+            .filter_by(platform="instagram")
+            .one()
+            .sort_order
+            == 1
+        )
+        assert (
+            db_session.query(PublicSiteSocialLink)
+            .filter_by(platform="facebook")
+            .one()
+            .sort_order
+            == 2
+        )
 
     def test_delete_removes_row(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
-        resp = client.delete(f"{ADMIN_PREFIX}/social-links/1", headers=headers)
+        facebook_id = _link_id(db_session, "facebook")
+        resp = client.delete(
+            f"{ADMIN_PREFIX}/social-links/{facebook_id}", headers=headers
+        )
         assert resp.status_code == 204
-        assert db_session.get(PublicSiteSocialLink, 1) is None
+        assert (
+            db_session.query(PublicSiteSocialLink)
+            .filter_by(platform="facebook")
+            .first()
+            is None
+        )
+
+
+class TestSocialLinkUuidDefault:
+    """Guards the UUID-PK migration's central assumption (see
+    61330e9e0ca8_public_site_social_links_id_to_uuid.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        link = PublicSiteSocialLink(
+            platform="mastodon",
+            label="Mastodon",
+            url="https://mastodon.social/@vindobona2",
+            is_enabled=True,
+            sort_order=99,
+        )
+        db_session.add(link)
+        db_session.flush()
+
+        assert isinstance(link.id, uuid.UUID)
+        assert link.id.version == 7

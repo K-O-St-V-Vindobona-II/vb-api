@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Text, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -15,6 +16,12 @@ class PublicSiteSocialLink(Base):
     with a generic fallback, never rendered as raw markup (no icon SVG
     stored here - that would force v-html on the unauthenticated public
     site, which this codebase's ESLint config forbids outright).
+
+    Uses a UUID primary key, migrated from a plain integer one (see
+    61330e9e0ca8_public_site_social_links_id_to_uuid.py) as the pattern-
+    setting first slice of the project's schema-wide Integer-PK -> UUID
+    migration - this table has no incoming foreign keys, so it could run
+    the full cutover in a single migration.
     """
 
     __tablename__ = "public_site_social_links"
@@ -31,7 +38,7 @@ class PublicSiteSocialLink(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     platform: Mapped[str] = mapped_column(Text)
     label: Mapped[str] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)

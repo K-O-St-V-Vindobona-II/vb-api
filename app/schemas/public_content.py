@@ -1,4 +1,5 @@
 import re
+import uuid
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -168,7 +169,7 @@ class QuoteRequest(StrictInputModel):
 class SocialLinkResponse(BaseModel):
     """Public shape - only ever the enabled links, already sorted."""
 
-    id: int
+    id: uuid.UUID
     platform: str
     label: str
     url: str
@@ -177,7 +178,7 @@ class SocialLinkResponse(BaseModel):
 
 
 class SocialLinkAdminResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     platform: str
     label: str
     url: str

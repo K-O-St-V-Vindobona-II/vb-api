@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, status
@@ -284,7 +285,7 @@ def create_social_link(
 
 @public_content_admin_router.put("/social-links/{link_id}")
 def update_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     data: SocialLinkUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -299,7 +300,7 @@ def update_social_link(
 
 @public_content_admin_router.post("/social-links/{link_id}/move")
 def move_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -316,7 +317,7 @@ def move_social_link(
     "/social-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:

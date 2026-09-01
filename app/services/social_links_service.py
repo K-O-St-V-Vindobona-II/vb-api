@@ -7,6 +7,8 @@ from app.models.public_site_social_link import PublicSiteSocialLink
 from app.services.reorder_service import find_reorder_neighbor
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -25,7 +27,7 @@ def list_enabled_links(db: Session) -> list[PublicSiteSocialLink]:
     )
 
 
-def get_link_or_404(db: Session, link_id: int) -> PublicSiteSocialLink:
+def get_link_or_404(db: Session, link_id: uuid.UUID) -> PublicSiteSocialLink:
     link = db.get(PublicSiteSocialLink, link_id)
     if not link:
         raise HTTPException(
