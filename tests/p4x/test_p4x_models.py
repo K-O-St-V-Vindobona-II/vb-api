@@ -156,6 +156,27 @@ class TestP4xTransaction:
         assert len(account.transactions) == 1
         assert account.transactions[0].sha256_hash == "rel_test"
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        59abc303eb28_p4x_category_filters_and_transactions_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the model fires without ever needing a server-side default."""
+        account = _seed_account(db_session)
+        tx = P4xTransaction(
+            sha256_hash="final-cutover-guard",
+            booking=date(2026, 1, 1),
+            valuation=date(2026, 1, 1),
+            iban="AT00TEST",
+            amount=1.0,
+            subject="test",
+            p4x_account_id=account.id_uuid,
+        )
+        db_session.add(tx)
+        db_session.flush()
+
+        assert isinstance(tx.id, uuid.UUID)
+        assert tx.id.version == 7
+
 
 class TestP4xCategory:
     def test_create(self, db_session):
@@ -176,13 +197,14 @@ class TestP4xCategory:
         with pytest.raises(IntegrityError):
             db_session.commit()
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        """Same UUID-PK-migration Phase A guard as TestP4xAccount above,
-        for p4x_categories' additive `id_uuid` column (see
-        a67f0d2a4c5e_p4x_categories_and_p4x_special_contacts_.py)."""
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
         cat = _seed_category(db_session)
-        assert isinstance(cat.id_uuid, uuid.UUID)
-        assert cat.id_uuid.version == 7
+        assert isinstance(cat.id, uuid.UUID)
+        assert cat.id.version == 7
 
 
 class TestP4xCategoryFilter:
@@ -197,7 +219,7 @@ class TestP4xCategoryFilter:
             max_amount=30.0,
             subject_mode="starts",
             subject="mitgliedsb.",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -208,26 +230,24 @@ class TestP4xCategoryFilter:
         assert f.account.id == account.id
         assert f.category.id == category.id
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        """Guards the UUID-PK migration's Phase A assumption (see
-        d6443ece80ad_p4x_category_filters_id_uuid_and_fk_.py): every
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        59abc303eb28_p4x_category_filters_and_transactions_.py): every
         insert goes through the ORM instance, so `default=uuid.uuid7` on
-        the additive `id_uuid` column fires without ever needing a
-        server-side default - same guard as every migrated table's
-        primary key, just on a column that isn't the primary key yet."""
+        the model fires without ever needing a server-side default."""
         account = _seed_account(db_session)
         category = _seed_category(db_session)
         f = P4xCategoryFilter(
-            name="phase-a-guard",
+            name="final-cutover-guard",
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
         )
         db_session.add(f)
         db_session.flush()
 
-        assert isinstance(f.id_uuid, uuid.UUID)
-        assert f.id_uuid.version == 7
+        assert isinstance(f.id, uuid.UUID)
+        assert f.id.version == 7
 
 
 class TestP4xCategoryDirect:
@@ -248,8 +268,8 @@ class TestP4xCategoryDirect:
         db_session.add(tx)
         db_session.commit()
         direct = P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=category.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=category.id,
             amount=30.0,
         )
         db_session.add(direct)
@@ -279,15 +299,15 @@ class TestP4xCategoryFilterHit:
             name="test_filter",
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
         db_session.add_all([tx, f])
         db_session.commit()
         hit = P4xCategoryFilterHit(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_filter_id=f.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_filter_id=f.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -381,15 +401,16 @@ class TestP4xSpecialcontact:
         assert sc.id is not None
         assert sc.search_label == "Spezial: Konto-Intern(Sparkassen-Information)"
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        """Same UUID-PK-migration Phase A guard as TestP4xAccount above,
-        for p4x_special_contacts' additive `id_uuid` column (see
-        a67f0d2a4c5e_p4x_categories_and_p4x_special_contacts_.py)."""
-        sc = P4xSpecialcontact(cn="Phase A Guard")
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
+        sc = P4xSpecialcontact(cn="Final-Cutover Guard")
         db_session.add(sc)
         db_session.flush()
-        assert isinstance(sc.id_uuid, uuid.UUID)
-        assert sc.id_uuid.version == 7
+        assert isinstance(sc.id, uuid.UUID)
+        assert sc.id.version == 7
 
 
 class TestP4xSummaryOrder:

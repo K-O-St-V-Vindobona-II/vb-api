@@ -67,7 +67,7 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat.id, "amount": 100.0},
             ],
         )
         assert error is None
@@ -75,7 +75,7 @@ class TestSetCategoryDirect:
         directs = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
@@ -101,8 +101,8 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 60.0},
-                {"p4x_category_id": cat2.id_uuid, "amount": 40.0},
+                {"p4x_category_id": cat.id, "amount": 60.0},
+                {"p4x_category_id": cat2.id, "amount": 40.0},
             ],
         )
         assert error is None
@@ -110,7 +110,7 @@ class TestSetCategoryDirect:
         directs = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
@@ -125,7 +125,7 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 50.0},
+                {"p4x_category_id": cat.id, "amount": 50.0},
             ],
         )
         assert error is not None
@@ -137,7 +137,7 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat.id, "amount": 100.0},
             ],
         )
 
@@ -157,20 +157,20 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat2.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat2.id, "amount": 100.0},
             ],
         )
 
         active = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
         )
         assert len(active) == 1
-        assert active[0].p4x_category_id == cat2.id_uuid
+        assert active[0].p4x_category_id == cat2.id
 
     def test_empty_slots_filtered(self, db_session):
         _, cat, tx = _seed(db_session)
@@ -178,7 +178,7 @@ class TestSetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat.id, "amount": 100.0},
                 {"p4x_category_id": None, "amount": 0},
                 {"p4x_category_id": None, "amount": 0},
             ],
@@ -188,7 +188,7 @@ class TestSetCategoryDirect:
         directs = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
@@ -203,7 +203,7 @@ class TestUnsetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat.id, "amount": 100.0},
             ],
         )
 
@@ -212,7 +212,7 @@ class TestUnsetCategoryDirect:
         active = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
@@ -227,7 +227,7 @@ class TestUnsetCategoryDirect:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Test Transaktion",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -238,7 +238,7 @@ class TestUnsetCategoryDirect:
         hits_before = (
             db_session.query(P4xCategoryFilterHit)
             .filter(
-                P4xCategoryFilterHit.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryFilterHit.p4x_transaction_id == tx.id,
             )
             .count()
         )
@@ -248,14 +248,14 @@ class TestUnsetCategoryDirect:
             db_session,
             tx,
             [
-                {"p4x_category_id": cat.id_uuid, "amount": 100.0},
+                {"p4x_category_id": cat.id, "amount": 100.0},
             ],
         )
         apply_all_category_filters(db_session)
         hits_with_direct = (
             db_session.query(P4xCategoryFilterHit)
             .filter(
-                P4xCategoryFilterHit.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryFilterHit.p4x_transaction_id == tx.id,
             )
             .count()
         )
@@ -265,7 +265,7 @@ class TestUnsetCategoryDirect:
         hits_after_unset = (
             db_session.query(P4xCategoryFilterHit)
             .filter(
-                P4xCategoryFilterHit.p4x_transaction_id == tx.id_uuid,
+                P4xCategoryFilterHit.p4x_transaction_id == tx.id,
             )
             .count()
         )
@@ -283,8 +283,8 @@ class TestActiveDirectUniqueIndex:
         _account, cat, tx = _seed(db_session)
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=tx.amount,
             )
         )
@@ -292,8 +292,8 @@ class TestActiveDirectUniqueIndex:
 
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=tx.amount,
             )
         )
@@ -304,8 +304,8 @@ class TestActiveDirectUniqueIndex:
         _account, cat, tx = _seed(db_session)
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=tx.amount,
                 deleted_at=datetime.now(UTC),
             )
@@ -314,8 +314,8 @@ class TestActiveDirectUniqueIndex:
 
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=tx.amount,
             )
         )
@@ -324,8 +324,8 @@ class TestActiveDirectUniqueIndex:
         active_count = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
-                P4xCategoryDirect.p4x_category_id == cat.id_uuid,
+                P4xCategoryDirect.p4x_transaction_id == tx.id,
+                P4xCategoryDirect.p4x_category_id == cat.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .count()

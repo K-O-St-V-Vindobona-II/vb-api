@@ -173,7 +173,7 @@ class TestRefreshCategoryFilterHits:
         cf = P4xCategoryFilter(
             name="test-filter",
             p4x_account_id=account.id_uuid,
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             subject="Mitgliedsbeitrag",
             subject_mode="contains",
         )
@@ -191,7 +191,7 @@ class TestRefreshCategoryFilterHits:
 
         hits = db_session.query(P4xCategoryFilterHit).all()
         assert len(hits) == 1
-        assert hits[0].p4x_category_filter_id == cf.id_uuid
+        assert hits[0].p4x_category_filter_id == cf.id
 
         mock_record_job_run.assert_called_once_with(
             "refresh_category_filter_hits", ANY, exit_code=0, output=ANY

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -164,13 +165,13 @@ class TestBuildTransactionResponse:
         db_session.add(category)
         db_session.commit()
         active = P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=category.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=category.id,
             amount=Decimal("15.00"),
         )
         deleted = P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=category.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=category.id,
             amount=Decimal("15.00"),
             deleted_at=_now(),
         )
@@ -200,15 +201,15 @@ class TestBuildTransactionResponse:
             name="Alle Beiträge",
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
         db_session.add(category_filter)
         db_session.commit()
         hit = P4xCategoryFilterHit(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_filter_id=category_filter.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_filter_id=category_filter.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -295,7 +296,7 @@ class TestGetTransactionForAccount:
     def test_raises_404_for_unknown_transaction(self, db_session):
         account, _member, _contact = _seed(db_session)
         with pytest.raises(HTTPException) as exc_info:
-            get_transaction_for_account(db_session, account.id, 999999)
+            get_transaction_for_account(db_session, account.id, uuid.uuid4())
         assert exc_info.value.status_code == 404
 
 
@@ -317,7 +318,7 @@ class TestBuildCategoryResponse:
             name="Spenden-Filter",
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -349,7 +350,7 @@ class TestBuildFilterResponse:
             name="Alle Beiträge",
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -383,7 +384,7 @@ class TestGetFilterOr404:
             name="Ein Filter",
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
-            p4x_category_id=category.id_uuid,
+            p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -395,5 +396,5 @@ class TestGetFilterOr404:
 
     def test_raises_404_for_unknown_filter(self, db_session):
         with pytest.raises(HTTPException) as exc_info:
-            get_filter_or_404(db_session, 999999)
+            get_filter_or_404(db_session, uuid.uuid4())
         assert exc_info.value.status_code == 404

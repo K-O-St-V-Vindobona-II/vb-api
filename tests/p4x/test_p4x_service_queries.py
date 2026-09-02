@@ -190,8 +190,8 @@ class TestGetTransactionsByCategory:
         tx = _add_tx(db_session, account, date(2026, 3, 10), 15.0)
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=15.0,
             )
         )
@@ -220,7 +220,7 @@ class TestGetTransactionsByCategory:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="FilterHit",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -231,8 +231,8 @@ class TestGetTransactionsByCategory:
         tx = _add_tx(db_session, account, date(2026, 3, 10), 15.0, subject="FilterHit")
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_filter_id=cf.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_filter_id=cf.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -245,7 +245,9 @@ class TestGetTransactionsByCategory:
 
     def test_empty_when_no_category_match(self, db_session):
         account = _create_account(db_session)
-        items, total = get_transactions_by_category(db_session, account, 999, 1)
+        items, total = get_transactions_by_category(
+            db_session, account, uuid.uuid4(), 1
+        )
         assert total == 0
         assert items == []
 
@@ -270,7 +272,7 @@ class TestGetTransactionsByFilter:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -281,8 +283,8 @@ class TestGetTransactionsByFilter:
         tx = _add_tx(db_session, account, date(2026, 3, 10), 15.0, subject="X")
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_filter_id=cf.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_filter_id=cf.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -312,7 +314,7 @@ class TestGetTransactionsByFilter:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -325,16 +327,16 @@ class TestGetTransactionsByFilter:
         # Both a filter hit AND a direct -> excluded from filter view
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_filter_id=cf.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_filter_id=cf.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
         )
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=15.0,
             )
         )
@@ -346,7 +348,7 @@ class TestGetTransactionsByFilter:
 
     def test_empty_when_no_hits(self, db_session):
         account = _create_account(db_session)
-        items, total = get_transactions_by_filter(db_session, account, 999, 1)
+        items, total = get_transactions_by_filter(db_session, account, uuid.uuid4(), 1)
         assert total == 0
         assert items == []
 
@@ -369,8 +371,8 @@ class TestGetAccountCategories:
         tx = _add_tx(db_session, account, date(2026, 3, 10), 15.0)
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=15.0,
             )
         )
@@ -404,7 +406,7 @@ class TestGetAccountCategories:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="X",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -415,8 +417,8 @@ class TestGetAccountCategories:
         tx = _add_tx(db_session, account, date(2026, 3, 10), 15.0, subject="X")
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_filter_id=cf.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_filter_id=cf.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -500,8 +502,8 @@ class TestBuildTransactionResponseQueryCount:
             )
             db_session.add(
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id_uuid,
-                    p4x_category_id=category.id_uuid,
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=category.id,
                     amount=10.0,
                 )
             )

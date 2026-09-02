@@ -57,11 +57,10 @@ def _seed_base(db) -> None:
     )
     db.commit()
 
-    # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
-    # (app/services/p4x_fee_balance_service.py) — the fee category must have id=1.
+    # FEE_CATEGORY_NAME (app/services/p4x_fee_balance_service.py) looks up
+    # the fee category by this exact name.
     db.add(
         P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -157,8 +156,8 @@ def _add_fee_payment(
 
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=category.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=category.id,
             amount=amount,
         )
     )

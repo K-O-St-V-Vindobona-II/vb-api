@@ -242,22 +242,14 @@ def get_transactions_by_partner(
 def get_transactions_by_category(
     db: Session,
     account: P4xAccount,
-    category_id: int,
+    category_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
-    # p4x_category_directs.p4x_category_id and p4x_category_filters.p4x_
-    # category_id now both store id_uuid - category_id here is still the
-    # category's legacy integer id (that table's own UUID cutover is a
-    # later slice), so it must be translated first.
-    category_id_uuid = (
-        db.query(P4xCategory.id_uuid).filter(P4xCategory.id == category_id).scalar()
-    )
-
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == category_id_uuid,
+            P4xCategoryDirect.p4x_category_id == category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -265,9 +257,9 @@ def get_transactions_by_category(
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id_uuid)
+        for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == category_id_uuid,
+            P4xCategoryFilter.p4x_category_id == category_id,
         )
         .all()
     ]
@@ -303,7 +295,7 @@ def get_transactions_by_category(
         .filter(
             P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
-            P4xTransaction.id_uuid.in_(all_tx_ids),
+            P4xTransaction.id.in_(all_tx_ids),
         )
         .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
@@ -316,23 +308,14 @@ def get_transactions_by_category(
 def get_transactions_by_filter(
     db: Session,
     account: P4xAccount,
-    filter_id: int,
+    filter_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
-    # p4x_category_filter_hits.p4x_category_filter_id now stores id_uuid -
-    # filter_id here is still the filter's legacy integer id (that table's
-    # own UUID cutover is a later slice), so it must be translated first.
-    filter_id_uuid = (
-        db.query(P4xCategoryFilter.id_uuid)
-        .filter(P4xCategoryFilter.id == filter_id)
-        .scalar()
-    )
-
     hit_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
         .filter(
-            P4xCategoryFilterHit.p4x_category_filter_id == filter_id_uuid,
+            P4xCategoryFilterHit.p4x_category_filter_id == filter_id,
         )
         .all()
     }
@@ -355,7 +338,7 @@ def get_transactions_by_filter(
         .filter(
             P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
-            P4xTransaction.id_uuid.in_(tx_ids),
+            P4xTransaction.id.in_(tx_ids),
         )
         .options(*_TRANSACTION_RESPONSE_OPTIONS)
         .order_by(P4xTransaction.booking.desc())
@@ -420,11 +403,11 @@ def get_warnings_category(
 
     warnings: list[P4xTransaction] = []
     for tx in all_tx:
-        if tx.id_uuid in tx_with_directs:
+        if tx.id in tx_with_directs:
             continue
         filter_count = (
             db.query(P4xCategoryFilterHit)
-            .filter(P4xCategoryFilterHit.p4x_transaction_id == tx.id_uuid)
+            .filter(P4xCategoryFilterHit.p4x_transaction_id == tx.id)
             .count()
         )
         if filter_count != 1:
@@ -445,7 +428,7 @@ def get_warnings_category(
 def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory]:
     tx_ids = [
         r[0]
-        for r in db.query(P4xTransaction.id_uuid)
+        for r in db.query(P4xTransaction.id)
         .filter(
             P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
@@ -455,9 +438,6 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
     if not tx_ids:
         return []
 
-    # p4x_category_directs.p4x_category_id already stores id_uuid, so
-    # direct_cat_ids lands in the same id flavor as P4xCategory.id_uuid
-    # with no bridging needed.
     direct_cat_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_category_id)
@@ -478,14 +458,12 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         .distinct()
         .all()
     }
-    # p4x_category_filters.p4x_category_id also already stores id_uuid, so
-    # this can be selected directly - no more join through P4xCategory.
     filter_cat_ids = (
         {
             r[0]
             for r in db.query(P4xCategoryFilter.p4x_category_id)
             .filter(
-                P4xCategoryFilter.id_uuid.in_(filter_ids),
+                P4xCategoryFilter.id.in_(filter_ids),
             )
             .distinct()
             .all()
@@ -498,4 +476,4 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
     if not all_cat_ids:
         return []
 
-    return db.query(P4xCategory).filter(P4xCategory.id_uuid.in_(all_cat_ids)).all()
+    return db.query(P4xCategory).filter(P4xCategory.id.in_(all_cat_ids)).all()

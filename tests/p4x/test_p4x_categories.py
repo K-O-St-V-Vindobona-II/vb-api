@@ -193,7 +193,7 @@ class TestCategoryCRUD:
                 name="uses_cat",
                 p4x_account_id=account.id_uuid,
                 subject_mode="equals",
-                p4x_category_id=cat.id_uuid,
+                p4x_category_id=cat.id,
                 subject="test",
                 created_at=_now(),
                 updated_at=_now(),
@@ -244,7 +244,7 @@ class TestCategoryUsage:
                 name="f1",
                 p4x_account_id=account.id_uuid,
                 subject_mode="equals",
-                p4x_category_id=cat.id_uuid,
+                p4x_category_id=cat.id,
                 subject="test",
                 created_at=_now(),
                 updated_at=_now(),
@@ -267,8 +267,8 @@ class TestCategoryUsage:
         db_session.commit()
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_id=cat.id,
                 amount=10.0,
             )
         )

@@ -45,7 +45,7 @@ class CategoryDirectResponse(BaseModel):
 
 
 class CategoryFilterShortResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     p4x_account_id: uuid.UUID
     # The account's own (still-integer) primary key, distinct from
@@ -139,7 +139,7 @@ class AccountSaveRequest(StrictInputModel):
 
 
 class TransactionResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     booking: str | None
     valuation: str | None
     iban: str
@@ -231,10 +231,7 @@ class ImportResult(BaseModel):
 
 
 class CategoryResponse(BaseModel):
-    id: int
-    # See AccountResponse.id_uuid above for the same reasoning, applied
-    # to p4x_category_filters.p4x_category_id.
-    id_uuid: uuid.UUID
+    id: uuid.UUID
     name: str
     label: str
     background_color: str
@@ -269,7 +266,7 @@ class CategorySaveRequest(StrictInputModel):
 
 
 class CategoryFilterResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     p4x_account_id: uuid.UUID
     # See CategoryFilterShortResponse.account_id above for why this is

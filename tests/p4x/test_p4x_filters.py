@@ -78,7 +78,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -95,7 +95,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
             subject="mitgliedsb",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -112,7 +112,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -132,7 +132,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MITGLIEDSBEITRAG",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -149,7 +149,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="contains",
             subject="MITGLIEDSB",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -166,7 +166,7 @@ class TestFilterEngineSubjectModes:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="spende verein",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -185,7 +185,7 @@ class TestFilterEngineAmountRange:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             min_amount=20.0,
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -203,7 +203,7 @@ class TestFilterEngineAmountRange:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             max_amount=20.0,
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -222,7 +222,7 @@ class TestFilterEngineAmountRange:
             subject_mode="equals",
             min_amount=10.0,
             max_amount=25.0,
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -242,7 +242,7 @@ class TestFilterEngineIban:
             p4x_account_id=account.id_uuid,
             iban="DE001",
             subject_mode="equals",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -261,8 +261,8 @@ class TestFilterEngineDirectExclusion:
 
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=txs[0].id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=txs[0].id,
+                p4x_category_id=cat.id,
                 amount=15.0,
             )
         )
@@ -273,7 +273,7 @@ class TestFilterEngineDirectExclusion:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -304,7 +304,7 @@ class TestApplyAll:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -313,7 +313,7 @@ class TestApplyAll:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat2.id_uuid,
+            p4x_category_id=cat2.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -332,7 +332,7 @@ class TestApplyAll:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="mitgliedsbeitrag",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )

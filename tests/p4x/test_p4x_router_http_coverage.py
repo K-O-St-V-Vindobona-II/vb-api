@@ -158,7 +158,7 @@ def _create_filter(
         p4x_account_id=account.id_uuid,
         subject=subject,
         subject_mode=SubjectMode.CONTAINS,
-        p4x_category_id=category.id_uuid,
+        p4x_category_id=category.id,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -533,7 +533,7 @@ class TestCategoryFilterEndpointsHttp:
                 "p4x_account_id": str(account.id_uuid),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": str(cat.id_uuid),
+                "p4x_category_id": str(cat.id),
             },
             headers=headers,
         )
@@ -547,7 +547,7 @@ class TestCategoryFilterEndpointsHttp:
                 "p4x_account_id": str(account.id_uuid),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": str(cat.id_uuid),
+                "p4x_category_id": str(cat.id),
             },
             headers=headers,
         )
@@ -578,7 +578,7 @@ class TestFilter2DirectHttp:
         assert resp.status_code == 200
         data = resp.json()
         assert data["hits"] == []
-        assert data["category"]["id"] == cat.id
+        assert data["category"]["id"] == str(cat.id)
 
         resp = client.post(
             f"/api/p4x/admin/category-filters/{f.id}/filter2direct",
@@ -616,17 +616,15 @@ class TestCategoryDirectEndpointsHttp:
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": str(cat.id_uuid), "amount": 100.0}],
+            json=[{"p4x_category_id": str(cat.id), "amount": 100.0}],
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == str(
-            cat.id_uuid
-        )
+        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == str(cat.id)
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": str(cat.id_uuid), "amount": 1.0}],
+            json=[{"p4x_category_id": str(cat.id), "amount": 1.0}],
             headers=headers,
         )
         assert resp.status_code == 422

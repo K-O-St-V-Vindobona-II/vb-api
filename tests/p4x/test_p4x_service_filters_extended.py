@@ -80,7 +80,7 @@ class TestDeleteCategoryFilter:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -92,12 +92,11 @@ class TestDeleteCategoryFilter:
         assert get_filter_hit_count(db_session, cf) == 2
 
         filter_id = cf.id
-        filter_id_uuid = cf.id_uuid
         delete_category_filter(db_session, cf)
 
         remaining_hits = (
             db_session.query(P4xCategoryFilterHit)
-            .filter(P4xCategoryFilterHit.p4x_category_filter_id == filter_id_uuid)
+            .filter(P4xCategoryFilterHit.p4x_category_filter_id == filter_id)
             .count()
         )
         assert remaining_hits == 0
@@ -138,7 +137,7 @@ class TestFilterToDirect:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -155,7 +154,7 @@ class TestFilterToDirect:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -170,7 +169,7 @@ class TestFilterToDirect:
         directs = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_category_id == cat.id_uuid,
+                P4xCategoryDirect.p4x_category_id == cat.id,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .all()
@@ -185,7 +184,7 @@ class TestFilterToDirect:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -212,7 +211,7 @@ class TestFilterEngineEmptyIban:
             iban="",
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -234,7 +233,7 @@ class TestGetFilterHitsExtended:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="Spende Verein",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -249,8 +248,8 @@ class TestGetFilterHitsExtended:
         spende_tx = next(t for t in txs if t.subject == "Spende Verein")
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=spende_tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=spende_tx.id,
+                p4x_category_id=cat.id,
                 amount=100.0,
             )
         )
@@ -267,7 +266,7 @@ class TestGetFilterHitsExtended:
             p4x_account_id=account.id_uuid,
             subject_mode="starts",
             subject="MB",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -282,8 +281,8 @@ class TestGetFilterHitsExtended:
         mb_tx = next(t for t in txs if t.subject == "MB Kopernikus")
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=mb_tx.id_uuid,
-                p4x_category_id=cat.id_uuid,
+                p4x_transaction_id=mb_tx.id,
+                p4x_category_id=cat.id,
                 amount=15.0,
             )
         )

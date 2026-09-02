@@ -26,16 +26,16 @@ from app.models.p4x_transaction import P4xTransaction
 from app.services import p4x_account_service
 from app.services.search_utils import build_prefix_tsquery_text
 
-FEE_CATEGORY_ID = 1
+FEE_CATEGORY_NAME = "eingang.mitgliedsbeitrag"
 
 
-def _fee_category_id_uuid(db: Session) -> uuid.UUID | None:
-    """Bridges the still-integer FEE_CATEGORY_ID constant to
-    p4x_category_filters.p4x_category_id, which now stores id_uuid -
-    a temporary lookup until slice 26 replaces this whole literal-id
-    landmine with a name-based category lookup."""
+def _fee_category_id(db: Session) -> uuid.UUID | None:
+    """Looks up the membership-fee category by its unique name rather than
+    a positional id - p4x_categories.name is unique=True, so this stays
+    correct even if the categories table is ever re-seeded in a different
+    row order, unlike a hardcoded id literal."""
     return (
-        db.query(P4xCategory.id_uuid).filter(P4xCategory.id == FEE_CATEGORY_ID).scalar()
+        db.query(P4xCategory.id).filter(P4xCategory.name == FEE_CATEGORY_NAME).scalar()
     )
 
 
@@ -303,7 +303,7 @@ def _get_fee_payments_sum(
     """Get sum of fee payments for a member in a date range.
 
     Fee payments = byPartner('member', id)
-    AND byCategory(FEE_CATEGORY_ID) AND amount > 0
+    AND byCategory(membership fee category) AND amount > 0
 
     Both P4xPartner.member_id and P4xTransaction.delegating_member_id
     reference members.id_uuid, not members.id - members' own
@@ -322,12 +322,12 @@ def _get_fee_payments_sum(
     if not partner_ibans:
         return Decimal(0)
 
-    fee_category_id_uuid = _fee_category_id_uuid(db)
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -335,9 +335,9 @@ def _get_fee_payments_sum(
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id_uuid)
+        for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id_uuid,
+            P4xCategoryFilter.p4x_category_id == fee_category_id,
         )
         .all()
     ]
@@ -371,7 +371,7 @@ def _get_fee_payments_sum(
     query = db.query(func.sum(P4xTransaction.amount)).filter(
         P4xTransaction.deleted_at.is_(None),
         P4xTransaction.amount > 0,
-        P4xTransaction.id_uuid.in_(fee_cat_tx_ids),
+        P4xTransaction.id.in_(fee_cat_tx_ids),
         P4xTransaction.booking >= from_date,
         (
             P4xTransaction.iban.in_(partner_ibans)
@@ -412,12 +412,12 @@ def _get_fee_payments_list(
     if not partner_ibans:
         return []
 
-    fee_category_id_uuid = _fee_category_id_uuid(db)
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -425,9 +425,9 @@ def _get_fee_payments_list(
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id_uuid)
+        for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id_uuid,
+            P4xCategoryFilter.p4x_category_id == fee_category_id,
         )
         .all()
     ]
@@ -463,7 +463,7 @@ def _get_fee_payments_list(
         .filter(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.amount > 0,
-            P4xTransaction.id_uuid.in_(fee_cat_tx_ids),
+            P4xTransaction.id.in_(fee_cat_tx_ids),
             P4xTransaction.booking >= from_date,
             P4xTransaction.booking <= to_date,
             (
@@ -732,20 +732,20 @@ def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
     _get_fee_payments_list rather than extracted from them - those
     helpers back calculate_fee_balance() and are out of scope for
     refactoring here."""
-    fee_category_id_uuid = _fee_category_id_uuid(db)
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
     }
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id_uuid)
-        .filter(P4xCategoryFilter.p4x_category_id == fee_category_id_uuid)
+        for r in db.query(P4xCategoryFilter.id)
+        .filter(P4xCategoryFilter.p4x_category_id == fee_category_id)
         .all()
     ]
     filter_tx_ids = (
@@ -814,7 +814,7 @@ def _fetch_fee_category_transactions(
         .filter(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.amount > 0,
-            P4xTransaction.id_uuid.in_(tx_ids),
+            P4xTransaction.id.in_(tx_ids),
             P4xTransaction.booking >= booking_from,
             P4xTransaction.booking <= booking_to,
         )

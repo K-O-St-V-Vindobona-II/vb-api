@@ -115,7 +115,6 @@ def get_dashboard(
         categories=[
             CategoryResponse(
                 id=c.id,
-                id_uuid=c.id_uuid,
                 name=c.name,
                 label=c.label,
                 background_color=c.background_color,
@@ -359,7 +358,7 @@ def get_transactions_by_partner(
 )
 def get_transactions_by_category(
     account_id: int,
-    category_id: int,
+    category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
@@ -393,7 +392,7 @@ def get_transactions_by_category(
 )
 def get_transaction_raw(
     account_id: int,
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> TransactionRawResponse:
@@ -410,7 +409,7 @@ def get_transaction_raw(
 )
 def get_transaction_attachment(
     account_id: int,
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> StreamingResponse:
@@ -462,7 +461,7 @@ def search_partners(
 
 @p4x_router.post("/admin/transactions/{transaction_id}/set-partner")
 def set_transaction_partner(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     data: SetPartnerRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -500,7 +499,7 @@ def set_transaction_partner(
 
 @p4x_router.put("/admin/transactions/{transaction_id}")
 async def update_transaction(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
     comment: Annotated[str | None, Form()] = None,
@@ -561,7 +560,7 @@ def create_category(
 
 @p4x_router.put("/admin/categories/{category_id}")
 def update_category(
-    category_id: int,
+    category_id: uuid.UUID,
     data: CategorySaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -576,7 +575,7 @@ def update_category(
     "/admin/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_category_endpoint(
-    category_id: int,
+    category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -621,7 +620,7 @@ def create_category_filter(
 
 @p4x_router.put("/admin/category-filters/{filter_id}")
 def update_category_filter(
-    filter_id: int,
+    filter_id: uuid.UUID,
     data: CategoryFilterSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -636,7 +635,7 @@ def update_category_filter(
     "/admin/category-filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_category_filter_endpoint(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -647,7 +646,7 @@ def delete_category_filter_endpoint(
 
 @p4x_router.get("/admin/category-filters/{filter_id}/filter2direct")
 def get_filter2direct_preview(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> Filter2DirectPreviewResponse:
@@ -664,7 +663,6 @@ def get_filter2direct_preview(
         filter=p4x_response_builders.build_filter_response(db, f),
         category=CategoryResponse(
             id=f.category.id,
-            id_uuid=f.category.id_uuid,
             name=f.category.name,
             label=f.category.label,
             background_color=f.category.background_color,
@@ -685,7 +683,7 @@ def get_filter2direct_preview(
 
 @p4x_router.post("/admin/category-filters/{filter_id}/filter2direct")
 def process_filter2direct(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> Filter2DirectResultResponse:
@@ -720,7 +718,7 @@ def process_filter2direct(
 
 @p4x_router.post("/admin/transactions/{transaction_id}/set-category-direct")
 def set_category_direct_endpoint(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     data: list[dict[str, object]],
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -741,7 +739,7 @@ def set_category_direct_endpoint(
 
 @p4x_router.delete("/admin/transactions/{transaction_id}/unset-category-direct")
 def unset_category_direct_endpoint(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> TransactionResponse:
@@ -764,7 +762,7 @@ def unset_category_direct_endpoint(
 )
 def get_transactions_by_filter(
     account_id: int,
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
     page: int = 1,

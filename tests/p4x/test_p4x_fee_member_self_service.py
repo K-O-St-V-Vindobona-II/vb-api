@@ -21,7 +21,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.auth_service import create_user_session
 
-FEE_CATEGORY_ID = 1  # matches the id seeded for P4xCategory in _seed_base
+FEE_CATEGORY_NAME = "eingang.mitgliedsbeitrag"
 
 
 def _now() -> datetime:
@@ -39,8 +39,7 @@ def _seed_base(db) -> None:
 
     db.add(
         P4xCategory(
-            id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
-            name="eingang.mitgliedsbeitrag",
+            name=FEE_CATEGORY_NAME,
             label="Mitgliedsbeitrag",
             background_color="#336600",
             text_color="#ffffff",
@@ -130,7 +129,9 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     the member via P4xPartner AND tagged with the fee category, so both are
     required for the payment to actually show up in balance.sum.payments."""
     account = db.query(P4xAccount).first()
-    category = db.query(P4xCategory).filter(P4xCategory.id == FEE_CATEGORY_ID).first()
+    category = (
+        db.query(P4xCategory).filter(P4xCategory.name == FEE_CATEGORY_NAME).first()
+    )
 
     tx = P4xTransaction(
         sha256_hash=f"self_service_test_{member.id}_{booking.isoformat()}_{amount}",
@@ -155,8 +156,8 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     )
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=category.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=category.id,
             amount=amount,
         )
     )

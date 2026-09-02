@@ -26,12 +26,7 @@ class P4xCategoryFilter(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # d6443ece80ad_p4x_category_filters_id_uuid_and_fk_.py) - not yet the
-    # primary key. p4x_category_filter_hits cuts over onto this in its
-    # own slice; this table's own Final-Cutover is slice 30.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(unique=True)
     # References p4x_accounts.id_uuid, not p4x_accounts.id -
     # p4x_accounts itself won't have a UUID primary key until its own
@@ -52,11 +47,8 @@ class P4xCategoryFilter(Base):
         )
     )
     subject: Mapped[str | None]
-    # References p4x_categories.id_uuid, not p4x_categories.id -
-    # p4x_categories itself won't have a UUID primary key until its own
-    # Final-Cutover (slice 26).
     p4x_category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("p4x_categories.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

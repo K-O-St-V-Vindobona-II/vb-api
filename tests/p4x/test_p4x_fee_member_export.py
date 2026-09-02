@@ -40,7 +40,7 @@ def _seed_base(db) -> None:
 
     db.add(
         P4xCategory(
-            id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
+            # Must match FEE_CATEGORY_NAME in p4x_fee_balance_service.
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",

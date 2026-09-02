@@ -168,7 +168,7 @@ class TestFindPartnerEntity:
 
     def test_find_special(self, db_session):
         _, _, _, special = _seed(db_session)
-        entity = find_partner_entity(db_session, "special", special.id_uuid)
+        entity = find_partner_entity(db_session, "special", special.id)
         assert entity is not None
 
     def test_find_account(self, db_session):

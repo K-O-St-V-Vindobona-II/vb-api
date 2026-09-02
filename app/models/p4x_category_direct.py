@@ -34,18 +34,12 @@ class P4xCategoryDirect(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    # References p4x_transactions.id_uuid, not p4x_transactions.id -
-    # p4x_transactions itself won't have a UUID primary key until its own
-    # Final-Cutover.
     p4x_transaction_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("p4x_transactions.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
-    # References p4x_categories.id_uuid, not p4x_categories.id -
-    # p4x_categories itself won't have a UUID primary key until its own
-    # Final-Cutover.
     p4x_category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("p4x_categories.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))

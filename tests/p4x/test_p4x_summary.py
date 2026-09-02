@@ -41,7 +41,8 @@ def _seed(db) -> P4xAccount:
         updated_at=_now(),
     )
     cat = P4xCategory(
-        id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         name="eingang.mitgliedsbeitrag",
         label="Mitgliedsbeitrag",
         background_color="#336600",
@@ -72,8 +73,8 @@ def _seed(db) -> P4xAccount:
     db.flush()
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id_uuid,
-            p4x_category_id=cat.id_uuid,
+            p4x_transaction_id=tx.id,
+            p4x_category_id=cat.id,
             amount=15.0,
         )
     )
@@ -265,13 +266,13 @@ class TestSummaryXlsxEdgeCases:
         db_session.add_all(
             [
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id_uuid,
-                    p4x_category_id=cat1.id_uuid,
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=cat1.id,
                     amount=30.0,
                 ),
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id_uuid,
-                    p4x_category_id=cat2.id_uuid,
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=cat2.id,
                     amount=20.0,
                 ),
             ]
@@ -327,7 +328,7 @@ class TestSummaryXlsxEdgeCases:
             p4x_account_id=account.id_uuid,
             subject_mode="equals",
             subject="FilterOnly",
-            p4x_category_id=cat.id_uuid,
+            p4x_category_id=cat.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -351,8 +352,8 @@ class TestSummaryXlsxEdgeCases:
 
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id_uuid,
-                p4x_category_filter_id=cf.id_uuid,
+                p4x_transaction_id=tx.id,
+                p4x_category_filter_id=cf.id,
                 created_at=_now(),
                 updated_at=_now(),
             )

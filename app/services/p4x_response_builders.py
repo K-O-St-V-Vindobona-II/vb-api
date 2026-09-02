@@ -22,6 +22,8 @@ from app.schemas.p4x import (
 from app.services import p4x_account_service, p4x_category_service, p4x_partner_service
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -73,7 +75,7 @@ def build_transaction_response(
         hit_count = (
             db.query(P4xCategoryFilterHit)
             .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id == cf.id_uuid,
+                P4xCategoryFilterHit.p4x_category_filter_id == cf.id,
             )
             .count()
         )
@@ -175,7 +177,7 @@ def get_account_or_404(
 def get_transaction_for_account(
     db: Session,
     account_id: int,
-    transaction_id: int,
+    transaction_id: uuid.UUID,
 ) -> P4xTransaction:
     account = get_account_or_404(db, account_id)
     tx = (
@@ -202,7 +204,6 @@ def build_category_response(
     usage = p4x_category_service.get_category_usage(db, cat)
     return CategoryWithUsageResponse(
         id=cat.id,
-        id_uuid=cat.id_uuid,
         name=cat.name,
         label=cat.label,
         background_color=cat.background_color,
@@ -234,7 +235,7 @@ def build_filter_response(
 
 def get_filter_or_404(
     db: Session,
-    filter_id: int,
+    filter_id: uuid.UUID,
 ) -> P4xCategoryFilter:
     f = (
         db.query(P4xCategoryFilter)
@@ -250,7 +251,7 @@ def get_filter_or_404(
 
 def get_transaction_or_404(
     db: Session,
-    transaction_id: int,
+    transaction_id: uuid.UUID,
 ) -> P4xTransaction:
     tx = (
         db.query(P4xTransaction)
@@ -277,7 +278,7 @@ def get_member_or_404(
 
 def get_category_or_404(
     db: Session,
-    category_id: int,
+    category_id: uuid.UUID,
 ) -> P4xCategory:
     cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
     if not cat:

@@ -42,11 +42,7 @@ class P4xTransaction(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # p4x_transactions_id_uuid_and_fk_cutover.py) - not yet the primary
-    # key. This table's own Final-Cutover is a later slice.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     booking: Mapped[date] = mapped_column(Date, index=True)
     valuation: Mapped[date] = mapped_column(Date, index=True)
@@ -59,10 +55,12 @@ class P4xTransaction(Base):
         ForeignKey("p4x_accounts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    # The four delegating_* columns below each reference their target
-    # table's id_uuid, not its own (still-integer) id - members/contacts/
-    # p4x_accounts/p4x_special_contacts each keep their own Final-Cutover
-    # for a later slice.
+    # delegating_member_id/delegating_contact_id/delegating_p4x_account_id
+    # each reference their target table's id_uuid, not its own
+    # (still-integer) id - members/contacts/p4x_accounts each keep their
+    # own Final-Cutover for a later slice. delegating_p4x_specialcontact_id
+    # references p4x_special_contacts.id directly, that table's own UUID
+    # primary key.
     delegating_member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
@@ -76,9 +74,7 @@ class P4xTransaction(Base):
         index=True,
     )
     delegating_p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey(
-            "p4x_special_contacts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"
-        ),
+        ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     comment: Mapped[str | None]

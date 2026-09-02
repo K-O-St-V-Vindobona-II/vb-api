@@ -29,12 +29,7 @@ class P4xCategory(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # a67f0d2a4c5e_p4x_categories_and_p4x_special_contacts_.py) - not yet
-    # the primary key. p4x_category_direct/p4x_category_filter cut over
-    # onto this in their own slices.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(unique=True)
     label: Mapped[str]
     background_color: Mapped[str]

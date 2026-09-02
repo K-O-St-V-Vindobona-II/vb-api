@@ -78,7 +78,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == category.id_uuid,
+            P4xCategoryDirect.p4x_category_id == category.id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -86,9 +86,9 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id_uuid)
+        for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == category.id_uuid,
+            P4xCategoryFilter.p4x_category_id == category.id,
         )
         .all()
     ]
@@ -128,7 +128,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
     txs = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.id_uuid.in_(all_tx_ids),
+            P4xTransaction.id.in_(all_tx_ids),
             P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
@@ -168,7 +168,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     else:
         end = date(end.year, end.month + 1, 1) - timedelta(days=1)
 
-    categories = {c.id_uuid: c for c in db.query(P4xCategory).all()}
+    categories = {c.id: c for c in db.query(P4xCategory).all()}
     attachment_counter = count(1)
     attachments: list[tuple[str, bytes]] = []
 

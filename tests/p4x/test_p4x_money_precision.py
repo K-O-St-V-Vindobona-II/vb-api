@@ -145,7 +145,7 @@ class TestSetCategoryDirectPrecision:
         db_session.refresh(tx)
 
         slots = [
-            {"p4x_category_id": category.id_uuid, "amount": "0.10"}
+            {"p4x_category_id": category.id, "amount": "0.10"}
             for category in categories
         ]
 
@@ -154,7 +154,7 @@ class TestSetCategoryDirectPrecision:
         assert error is None
         directs = (
             db_session.query(P4xCategoryDirect)
-            .filter(P4xCategoryDirect.p4x_transaction_id == tx.id_uuid)
+            .filter(P4xCategoryDirect.p4x_transaction_id == tx.id)
             .all()
         )
         assert len(directs) == 10
@@ -165,8 +165,8 @@ class TestSetCategoryDirectPrecision:
             db_session, amount=Decimal("100.00")
         )
         slots = [
-            {"p4x_category_id": category.id_uuid, "amount": "40.00"},
-            {"p4x_category_id": category.id_uuid, "amount": "59.99"},
+            {"p4x_category_id": category.id, "amount": "40.00"},
+            {"p4x_category_id": category.id, "amount": "59.99"},
         ]
 
         error = set_category_direct(db_session, tx, slots)
@@ -190,9 +190,9 @@ class TestCalculateFeeBalancePrecision:
         )
         db_session.commit()
 
-        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         category = P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -249,9 +249,9 @@ class TestGetFeeBalancesPrecision:
         )
         db_session.commit()
 
-        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         category = P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -309,8 +309,8 @@ class TestGetFeeBalancesPrecision:
             db_session.flush()
             db_session.add(
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id_uuid,
-                    p4x_category_id=category.id_uuid,
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=category.id,
                     amount=Decimal("0.10"),
                 )
             )

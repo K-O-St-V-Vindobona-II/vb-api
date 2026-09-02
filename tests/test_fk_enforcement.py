@@ -509,10 +509,12 @@ class TestP4xPartnerExclusiveArc:
     exclusive-arc pair of real FKs - exactly one must be set, enforced by
     a CHECK constraint. ondelete is RESTRICT (not CASCADE like
     standesdb_images) since a P4xPartner row is a financial/accounting
-    link, not owned content. Each FK references its target's id_uuid
-    column (Alembic revision ddc0a9d04eef), not its own still-integer id -
-    members/contacts/p4x_accounts/p4x_special_contacts each keep their own
-    Final-Cutover for a later slice."""
+    link, not owned content. member_id/contact_id/p4x_account_id each
+    reference their target's id_uuid column (Alembic revision
+    ddc0a9d04eef), not its own still-integer id - members/contacts/
+    p4x_accounts each keep their own Final-Cutover for a later slice.
+    p4x_specialcontact_id references p4x_special_contacts.id directly,
+    that table's own UUID primary key."""
 
     def test_two_columns_set_is_rejected(self, db_session):
         member = Member(vorname="Test", nachname="User")
@@ -601,7 +603,7 @@ class TestP4xPartnerExclusiveArc:
         special = P4xSpecialcontact(cn="Test Special")
         db_session.add(special)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id_uuid))
+        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id))
         db_session.commit()
 
         db_session.delete(special)
@@ -702,7 +704,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_special")
-        tx.delegating_p4x_specialcontact_id = special.id_uuid
+        tx.delegating_p4x_specialcontact_id = special.id
         db_session.commit()
         tx_id = tx.id
 
