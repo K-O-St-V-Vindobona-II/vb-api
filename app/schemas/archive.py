@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -156,7 +157,7 @@ class ArchiveStoreItemResponse(BaseModel):
 
 
 class ArchiveCommentResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     content: str
     author: str | None
     created_at: UtcDatetime | None

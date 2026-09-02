@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,13 +24,17 @@ class ArchiveFileComment(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    archive_file_id: Mapped[int] = mapped_column(
-        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    # References archive_files.id_uuid, not archive_files.id - archive_files
+    # itself won't have a UUID primary key until its own Final-Cutover.
+    archive_file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("archive_files.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
     )
     content: Mapped[str | None]
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

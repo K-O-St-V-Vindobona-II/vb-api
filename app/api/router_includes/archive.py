@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import (
@@ -281,7 +282,7 @@ def create_comment(
 )
 def delete_comment(
     file_id: int,
-    comment_id: int,
+    comment_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:

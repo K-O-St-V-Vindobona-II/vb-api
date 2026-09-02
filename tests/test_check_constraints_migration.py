@@ -206,7 +206,9 @@ class TestStringLengthRange:
         db_session.add(archive_file)
         db_session.commit()
 
-        db_session.add(ArchiveFileComment(archive_file_id=archive_file.id, content=""))
+        db_session.add(
+            ArchiveFileComment(archive_file_id=archive_file.id_uuid, content="")
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -226,7 +228,7 @@ class TestStringLengthRange:
         db_session.commit()
 
         db_session.add(
-            ArchiveFileComment(archive_file_id=archive_file.id, content=None)
+            ArchiveFileComment(archive_file_id=archive_file.id_uuid, content=None)
         )
         db_session.commit()
 

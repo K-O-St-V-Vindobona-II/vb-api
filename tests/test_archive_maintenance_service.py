@@ -272,7 +272,8 @@ class TestPurgeFileValidation:
 class TestPurgeFileCascade:
     def test_deletes_comment_rows(self, db_session, mock_s3):
         f = _make_file(db_session)
-        db_session.add(ArchiveFileComment(archive_file_id=f.id, content="hi"))
+        f_id_uuid = f.id_uuid
+        db_session.add(ArchiveFileComment(archive_file_id=f_id_uuid, content="hi"))
         db_session.commit()
 
         purge_file(db_session, mock_s3, f.id)
@@ -280,7 +281,7 @@ class TestPurgeFileCascade:
         assert db_session.get(ArchiveFile, f.id) is None
         assert (
             db_session.query(ArchiveFileComment)
-            .filter(ArchiveFileComment.archive_file_id == f.id)
+            .filter(ArchiveFileComment.archive_file_id == f_id_uuid)
             .count()
             == 0
         )

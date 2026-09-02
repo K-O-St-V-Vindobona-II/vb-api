@@ -11,6 +11,7 @@ from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
 from app.models.archive_file import ArchiveFile
+from app.models.archive_file_comment import ArchiveFileComment
 from app.models.archive_permission import ArchivePermission
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
@@ -57,6 +58,23 @@ def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTrans
     db.add(tx)
     db.commit()
     return tx
+
+
+def _seed_archive_file(db, hash_suffix: str) -> ArchiveFile:
+    item = ArchiveStoreItem(
+        name="fk-test",
+        extension="jpg",
+        mime_type="image/jpeg",
+        size=1,
+        sha256_hash=f"fk_test_file_{hash_suffix}",
+    )
+    db.add(item)
+    db.commit()
+
+    archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
+    db.add(archive_file)
+    db.commit()
+    return archive_file
 
 
 def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
@@ -844,3 +862,74 @@ class TestRequestLogFks:
         refreshed = db_session.get(RequestLog, log_id)
         assert refreshed is not None
         assert refreshed.client_user_agent_id is None
+
+
+class TestArchiveFileCommentArchiveFileFk:
+    """archive_file_comments.archive_file_id -> archive_files.id_uuid
+    (Alembic revision dd8661641df7) - a Referrer-Cutover of a pre-existing
+    FK, ondelete strategy (CASCADE) unchanged from before the cutover."""
+
+    def test_inserting_with_unknown_archive_file_id_is_rejected(self, db_session):
+        db_session.add(
+            ArchiveFileComment(archive_file_id=uuid.uuid4(), content="Orphan comment")
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_file_cascades_to_its_comments(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-cascade")
+
+        comment = ArchiveFileComment(
+            archive_file_id=archive_file.id_uuid, content="Soon to be gone"
+        )
+        db_session.add(comment)
+        db_session.commit()
+        comment_id = comment.id
+
+        db_session.execute(delete(ArchiveFile).where(ArchiveFile.id == archive_file.id))
+        db_session.commit()
+
+        assert db_session.get(ArchiveFileComment, comment_id) is None
+
+
+class TestArchiveFileCommentCreatedByFk:
+    """archive_file_comments.created_by -> members.id_uuid (Alembic
+    revision dd8661641df7) - a Referrer-Cutover of a pre-existing FK,
+    ondelete strategy (SET NULL) unchanged from before the cutover."""
+
+    def test_inserting_with_unknown_created_by_is_rejected(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-created-by-reject")
+
+        db_session.add(
+            ArchiveFileComment(
+                archive_file_id=archive_file.id_uuid,
+                content="Orphan author",
+                created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_author_sets_created_by_null(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-created-by-null")
+        author = Member(vorname="Test", nachname="User")
+        db_session.add(author)
+        db_session.commit()
+
+        comment = ArchiveFileComment(
+            archive_file_id=archive_file.id_uuid,
+            content="Attributed comment",
+            created_by=author.id_uuid,
+        )
+        db_session.add(comment)
+        db_session.commit()
+        comment_id = comment.id
+
+        db_session.execute(delete(Member).where(Member.id == author.id))
+        db_session.commit()
+
+        refreshed = db_session.get(ArchiveFileComment, comment_id)
+        assert refreshed is not None
+        assert refreshed.created_by is None

@@ -519,9 +519,9 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id,
+            archive_file_id=f.id_uuid,
             content="Test comment here",
-            created_by=user.id,
+            created_by=user.id_uuid,
             created_at=_now(),
         )
         db_session.add(c)
@@ -544,9 +544,9 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu", "vbw_bi"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id,
+            archive_file_id=f.id_uuid,
             content="Test comment here",
-            created_by=author.id,
+            created_by=author.id_uuid,
             created_at=_now(),
         )
         db_session.add(c)
@@ -811,3 +811,31 @@ class TestArchiveFileIdUuidDefault:
 
         assert isinstance(f.id_uuid, uuid.UUID)
         assert f.id_uuid.version == 7
+
+
+class TestArchiveFileCommentIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    dd8661641df7_archive_file_comments_id_and_fk_cutover.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="phase-c-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="phase-c-guard-hash-comment",
+        )
+        db_session.add(item)
+        db_session.flush()
+        f = ArchiveFile(archive_store_item_id=item.id_uuid)
+        db_session.add(f)
+        db_session.flush()
+
+        comment = ArchiveFileComment(archive_file_id=f.id_uuid, content="Guard comment")
+        db_session.add(comment)
+        db_session.flush()
+
+        assert isinstance(comment.id, uuid.UUID)
+        assert comment.id.version == 7

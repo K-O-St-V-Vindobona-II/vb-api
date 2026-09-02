@@ -522,9 +522,9 @@ class TestNotFoundErrors:
         headers, admin = _login_admin(db_session, client)
         f = _make_file(db_session, desc="real-file")
         c = ArchiveFileComment(
-            archive_file_id=f.id,
+            archive_file_id=f.id_uuid,
             content="Attached to real file",
-            created_by=admin.id,
+            created_by=admin.id_uuid,
             created_at=_now(),
         )
         db_session.add(c)
@@ -1025,13 +1025,13 @@ class TestSearch:
         db_session.add_all(
             [
                 ArchiveFileComment(
-                    archive_file_id=f.id,
+                    archive_file_id=f.id_uuid,
                     content="Festumzug erwähnt hier",
                     created_at=now,
                     updated_at=now,
                 ),
                 ArchiveFileComment(
-                    archive_file_id=f.id,
+                    archive_file_id=f.id_uuid,
                     content="Festumzug auch nochmal hier",
                     created_at=now,
                     updated_at=now,
@@ -1067,7 +1067,7 @@ class TestSearch:
         now = _now()
         db_session.add(
             ArchiveFileComment(
-                archive_file_id=f.id,
+                archive_file_id=f.id_uuid,
                 content="Sonderwort löschprobe",
                 created_at=now,
                 updated_at=now,
@@ -1264,7 +1264,7 @@ class TestSearch:
         now = _now()
         db_session.add(
             ArchiveFileComment(
-                archive_file_id=comment_only_hit.id,
+                archive_file_id=comment_only_hit.id_uuid,
                 content="Vindstoff wird hier nur beiläufig im Kommentar erwähnt",
                 created_at=now,
                 updated_at=now,

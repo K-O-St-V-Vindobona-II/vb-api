@@ -1113,9 +1113,9 @@ def create_comment(
 
     now = _now()
     comment = ArchiveFileComment(
-        archive_file_id=file_id,
+        archive_file_id=file_obj.id_uuid,
         content=content,
-        created_by=user.id,
+        created_by=user.id_uuid,
         created_at=now,
         updated_at=now,
     )
@@ -1127,16 +1127,17 @@ def create_comment(
 def delete_comment(
     db: Session,
     file_id: int,
-    comment_id: int,
+    comment_id: uuid.UUID,
     user: Member,
 ) -> None:
+    file_obj = db.get(ArchiveFile, file_id)
     comment = db.get(ArchiveFileComment, comment_id)
-    if not comment or comment.archive_file_id != file_id:
+    if not file_obj or not comment or comment.archive_file_id != file_obj.id_uuid:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kommentar nicht gefunden.",
         )
-    if comment.created_by != user.id and not is_archive_admin(user):
+    if comment.created_by != user.id_uuid and not is_archive_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Fehlende Berechtigung: eigener Kommentar oder archiveAdmin",
@@ -1256,7 +1257,7 @@ def _search_files_exact(
     comment_match_exists = (
         db.query(ArchiveFileComment.id)
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
             ArchiveFileComment.deleted_at.is_(None),
             ArchiveFileComment.search_vector.op("@@")(tsquery),
         )
@@ -1266,7 +1267,7 @@ def _search_files_exact(
     comment_rank = (
         db.query(func.max(func.ts_rank(ArchiveFileComment.search_vector, tsquery)))
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
             ArchiveFileComment.deleted_at.is_(None),
             ArchiveFileComment.search_vector.op("@@")(tsquery),
         )
@@ -1341,7 +1342,7 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
     comment_match = (
         db.query(ArchiveFileComment.id)
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
             ArchiveFileComment.deleted_at.is_(None),
             q.op("<%")(ArchiveFileComment.content),
         )
@@ -1351,7 +1352,7 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
     comment_rank = (
         db.query(func.max(func.word_similarity(query, ArchiveFileComment.content)))
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
             ArchiveFileComment.deleted_at.is_(None),
             q.op("<%")(ArchiveFileComment.content),
         )
