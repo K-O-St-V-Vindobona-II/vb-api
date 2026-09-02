@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,15 +20,16 @@ class ArchiveStoreItem(Base):
         CheckConstraint("size >= 0", name="archive_store_items_size_check"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str]
     description: Mapped[str | None]
     extension: Mapped[str]
     mime_type: Mapped[str]
     size: Mapped[int]
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

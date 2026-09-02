@@ -4,6 +4,7 @@
 """
 
 import io
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -40,7 +41,7 @@ def _seed_base(db) -> None:
 
     db.add(
         P4xCategory(
-            id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
+            # Must match FEE_CATEGORY_NAME in p4x_fee_balance_service.
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -265,7 +266,9 @@ class TestExportFeeMemberEndpoint:
         admin = _create_admin(db_session)
         headers = _login(db_session, admin)
 
-        resp = client.get("/api/p4x/fee-members/99999/export", headers=headers)
+        resp = client.get(
+            f"/api/p4x/fee-members/{uuid.uuid4()}/export", headers=headers
+        )
 
         assert resp.status_code == 404
 

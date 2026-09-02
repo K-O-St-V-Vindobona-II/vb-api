@@ -60,7 +60,7 @@ def upload_image(
     db: Session,
     file: UploadFile,
     caption: str | None,
-    created_by: int | None,
+    created_by: uuid.UUID | None,
     storage: StorageClient,
 ) -> PublicGalleryImage:
     content = file.file.read()

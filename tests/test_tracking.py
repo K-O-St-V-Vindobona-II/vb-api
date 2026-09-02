@@ -1,6 +1,7 @@
 """Tests for the Tracking module (sent emails + activity log)."""
 
 import re
+import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -103,7 +104,7 @@ def _insert_sent_email(
 
 
 def _insert_request_log(
-    db, member_id: int, method: str = "POST", path: str = "/api/test"
+    db, member_id: uuid.UUID, method: str = "POST", path: str = "/api/test"
 ):
     now = datetime.now(UTC)
     log = RequestLog(
@@ -309,7 +310,7 @@ class TestSentEmailDetail:
     def test_404_for_missing(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        resp = client.get("/api/tracking/sent-emails/99999", headers=headers)
+        resp = client.get(f"/api/tracking/sent-emails/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 
@@ -331,15 +332,20 @@ class TestActivityList:
     def test_member_id_filter(self, client, db_session):
         _seed(db_session)
         headers, admin = _login_admin(db_session)
+        other = Member(
+            email="other@vbw.at", vorname="Other", nachname="User", org_id="vbw"
+        )
+        db_session.add(other)
+        db_session.commit()
         _insert_request_log(db_session, admin.id)
-        _insert_request_log(db_session, 99999)
+        _insert_request_log(db_session, other.id)
         resp = client.get(
             f"/api/tracking/activity?member_id={admin.id}",
             headers=headers,
         )
         data = resp.json()
         for item in data["items"]:
-            assert item["member_id"] == admin.id
+            assert item["member_id"] == str(admin.id)
 
 
 # --- Activity Detail ---
@@ -758,7 +764,7 @@ class TestActivitySessionsCoverage:
         assert resp.status_code == 200
         data = resp.json()["items"]
         for session in data:
-            assert session["member_id"] == admin.id
+            assert session["member_id"] == str(admin.id)
 
     def test_empty_result(self, client, db_session):
         _seed(db_session)
@@ -868,3 +874,33 @@ class TestMemberNameMap:
     def test_empty_set_returns_empty_dict(self):
         result = _member_name_map(None, set())
         assert result == {}
+
+
+class TestSentEmailUuidDefault:
+    """Guards the UUID-PK migration's central assumption (see
+    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        email = SentEmail(mail_from="test@vb.at", to="a@b.at", subject="Test")
+        db_session.add(email)
+        db_session.flush()
+
+        assert isinstance(email.id, uuid.UUID)
+        assert email.id.version == 7
+
+
+class TestClientUserAgentIdUuidDefault:
+    """Guards ClientUserAgent's own UUID primary key: every insert goes
+    through the ORM instance, so `default=uuid.uuid7` fires without
+    ever needing a server-side default - same guard as every other
+    migrated table's primary key."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        ua = ClientUserAgent(string="Phase A guard/1.0")
+        db_session.add(ua)
+        db_session.flush()
+
+        assert isinstance(ua.id, uuid.UUID)
+        assert ua.id.version == 7

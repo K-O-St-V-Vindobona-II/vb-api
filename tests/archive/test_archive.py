@@ -1,5 +1,6 @@
 """Tests für das Archiv-Modul."""
 
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -109,7 +110,7 @@ def _login_user(db, _client, org="vbw", state="fu"):
 def _make_dir(
     db,
     name,
-    parent_id=0,
+    parent_id=None,
     perms=None,
     recursive=False,
 ):
@@ -136,7 +137,7 @@ def _make_dir(
     return d
 
 
-def _make_file(db, dir_id=0, desc="test"):
+def _make_file(db, dir_id=None, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
@@ -267,7 +268,7 @@ class TestDirEndpoints:
         resp = client.get("/api/archive/dirs", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["id"] == 0
+        assert data["id"] is None
         assert len(data["content"]["subdirs"]["insight"]) == 1
         # Root-only archive-wide stats, shown in the frontend's info card
         # in place of the (here meaningless) per-directory permissions.
@@ -328,7 +329,7 @@ class TestDirEndpoints:
             headers=headers,
         )
         assert resp.status_code == 201
-        assert resp.json()["id"] > 0
+        assert uuid.UUID(resp.json()["id"])
 
     def test_delete_empty_dir_force(
         self,
@@ -418,7 +419,7 @@ class TestDirEndpoints:
     ):
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        resp = client.delete("/api/archive/dirs/99999/purge", headers=headers)
+        resp = client.delete(f"/api/archive/dirs/{uuid.uuid4()}/purge", headers=headers)
         assert resp.status_code == 404
 
     def test_purge_dir_not_deleted_returns_409(
@@ -506,7 +507,7 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{target.id}/receive",
             json={
                 "type": "dir",
-                "ids": [source.id],
+                "ids": [str(source.id)],
                 "action": "move",
             },
             headers=headers,
@@ -532,7 +533,7 @@ class TestDirEndpoints:
             f"/api/archive/dirs/{child.id}/receive",
             json={
                 "type": "dir",
-                "ids": [parent.id],
+                "ids": [str(parent.id)],
                 "action": "move",
             },
             headers=headers,
@@ -660,11 +661,11 @@ class TestComments:
         client,
         db_session,
     ):
-        """archive_dir_id == 0 (unsorted upload, no real parent dir) is
+        """archive_dir_id IS NULL (unsorted upload, no real parent dir) is
         archiveAdmin-only everywhere else in this module."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        f = _make_file(db_session, dir_id=0)
+        f = _make_file(db_session, dir_id=None)
         resp = client.post(
             f"/api/archive/files/{f.id}/comments",
             json={"content": "Darf ich das?"},
@@ -679,7 +680,7 @@ class TestComments:
     ):
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0)
+        f = _make_file(db_session, dir_id=None)
         resp = client.post(
             f"/api/archive/files/{f.id}/comments",
             json={"content": "Admin-Kommentar"},

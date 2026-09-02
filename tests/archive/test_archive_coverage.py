@@ -7,6 +7,7 @@ Targets uncovered lines: 160-162, 256-258, 270-275, 296, 330-331, 344,
 """
 
 import os
+import uuid
 from datetime import UTC, date, datetime
 from io import BytesIO
 
@@ -125,7 +126,7 @@ def _login_user(
 def _make_dir(
     db,
     name: str,
-    parent_id: int = 0,
+    parent_id: uuid.UUID | None = None,
     perms: list[str] | None = None,
     recursive: bool = False,
 ) -> ArchiveDir:
@@ -154,7 +155,7 @@ def _make_dir(
 
 def _make_file(
     db,
-    dir_id: int = 0,
+    dir_id: uuid.UUID | None = None,
     desc: str = "test",
     extension: str = "jpg",
     mime_type: str = "image/jpeg",
@@ -166,7 +167,10 @@ def _make_file(
         extension=extension,
         mime_type=mime_type,
         size=5000,
-        sha256_hash=f"hash_{now.timestamp()}_{dir_id}_{hash_suffix}",
+        # dir_id is a full UUID string now, not a short int - left out here
+        # since sha256_hash is varchar(64) and hash_suffix (always varied
+        # by the caller) already disambiguates within a test.
+        sha256_hash=f"hash_{now.timestamp()}_{hash_suffix}",
         created_at=now,
         updated_at=now,
     )
@@ -217,7 +221,7 @@ class TestRootContentClassification:
         assert resp.status_code == 200
         trashed = resp.json()["content"]["subdirs"]["trashed"]
         trashed_ids = [x["id"] for x in trashed]
-        assert d.id in trashed_ids
+        assert str(d.id) in trashed_ids
 
     def test_normal_user_does_not_see_trashed_dir_at_root(
         self,
@@ -243,12 +247,12 @@ class TestRootContentClassification:
         """Root-level files appear in admin bucket for admin users."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="root-file")
+        f = _make_file(db_session, dir_id=None, desc="root-file")
         resp = client.get("/api/archive/dirs", headers=headers)
         assert resp.status_code == 200
         admin_files = resp.json()["content"]["files"]["admin"]
         admin_ids = [x["id"] for x in admin_files]
-        assert f.id in admin_ids
+        assert str(f.id) in admin_ids
 
     def test_admin_sees_trashed_root_file(
         self,
@@ -258,14 +262,14 @@ class TestRootContentClassification:
         """Admin sees soft-deleted root files in trashed bucket."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="trashed-root")
+        f = _make_file(db_session, dir_id=None, desc="trashed-root")
         f.deleted_at = _now()
         db_session.commit()
         resp = client.get("/api/archive/dirs", headers=headers)
         assert resp.status_code == 200
         trashed = resp.json()["content"]["files"]["trashed"]
         trashed_ids = [x["id"] for x in trashed]
-        assert f.id in trashed_ids
+        assert str(f.id) in trashed_ids
 
     def test_normal_user_does_not_see_root_files(
         self,
@@ -275,7 +279,7 @@ class TestRootContentClassification:
         """Non-admin does not see root-level files."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        _make_file(db_session, dir_id=0, desc="hidden-root")
+        _make_file(db_session, dir_id=None, desc="hidden-root")
         resp = client.get("/api/archive/dirs", headers=headers)
         assert resp.status_code == 200
         all_files = resp.json()["content"]["files"]
@@ -310,8 +314,8 @@ class TestDirDetailClassification:
         content = body["content"]
         admin_ids = [x["id"] for x in content["files"]["admin"]]
         insight_ids = [x["id"] for x in content["files"]["insight"]]
-        assert f.id in admin_ids
-        assert f.id not in insight_ids
+        assert str(f.id) in admin_ids
+        assert str(f.id) not in insight_ids
         # A real subdirectory never carries the root-only archive stats -
         # keeps the "stats" field's shape symmetric between the two
         # response variants for the frontend.
@@ -353,10 +357,10 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """GET /dirs/99999 returns 404."""
+        """GET /dirs/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        resp = client.get("/api/archive/dirs/99999", headers=headers)
+        resp = client.get(f"/api/archive/dirs/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
     def test_create_dir_with_invalid_parent(
@@ -371,7 +375,7 @@ class TestNotFoundErrors:
             "/api/archive/dirs",
             json={
                 "name": "Orphan",
-                "parentId": 99999,
+                "parentId": str(uuid.uuid4()),
                 "permissions": [],
                 "recursive_permissions": False,
             },
@@ -384,11 +388,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PUT /dirs/99999 returns 404."""
+        """PUT /dirs/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.put(
-            "/api/archive/dirs/99999",
+            f"/api/archive/dirs/{uuid.uuid4()}",
             json={
                 "name": "Ghost",
                 "permissions": [],
@@ -403,11 +407,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """DELETE /dirs/99999 returns 404."""
+        """DELETE /dirs/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.delete(
-            "/api/archive/dirs/99999",
+            f"/api/archive/dirs/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -417,11 +421,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PATCH /dirs/99999/restore returns 404."""
+        """PATCH /dirs/<random-uuid>/restore returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.patch(
-            "/api/archive/dirs/99999/restore",
+            f"/api/archive/dirs/{uuid.uuid4()}/restore",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -431,11 +435,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """GET /files/99999 returns 404."""
+        """GET /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -445,11 +449,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PUT /files/99999 returns 404."""
+        """PUT /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.put(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             json={"description": "nope"},
             headers=headers,
         )
@@ -460,11 +464,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """DELETE /files/99999 returns 404."""
+        """DELETE /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.delete(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -474,11 +478,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PATCH /files/99999/restore returns 404."""
+        """PATCH /files/<random-uuid>/restore returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.patch(
-            "/api/archive/files/99999/restore",
+            f"/api/archive/files/{uuid.uuid4()}/restore",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -488,11 +492,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """GET /files/99999/url returns 404."""
+        """GET /files/<random-uuid>/url returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999/url",
+            f"/api/archive/files/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -502,11 +506,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """POST /files/99999/comments returns 404."""
+        """POST /files/<random-uuid>/comments returns 404."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
         resp = client.post(
-            "/api/archive/files/99999/comments",
+            f"/api/archive/files/{uuid.uuid4()}/comments",
             json={"content": "Comment on ghost file"},
             headers=headers,
         )
@@ -531,7 +535,7 @@ class TestNotFoundErrors:
         db_session.commit()
         # Delete comment using a different file ID
         resp = client.delete(
-            f"/api/archive/files/99999/comments/{c.id}",
+            f"/api/archive/files/{uuid.uuid4()}/comments/{c.id}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -604,12 +608,12 @@ class TestMoveReceiveEdgeCases:
         """Moving to a non-existent target dir returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0)
+        f = _make_file(db_session, dir_id=None)
         resp = client.post(
-            "/api/archive/dirs/99999/receive",
+            f"/api/archive/dirs/{uuid.uuid4()}/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -629,7 +633,7 @@ class TestMoveReceiveEdgeCases:
             f"/api/archive/dirs/{d.id}/receive",
             json={
                 "type": "dir",
-                "ids": [d.id],
+                "ids": [str(d.id)],
                 "action": "move",
             },
             headers=headers,
@@ -646,7 +650,7 @@ class TestMoveReceiveEdgeCases:
         _, admin = _login_admin(db_session, client)
         target = _make_dir(db_session, "Target")
         # Should not raise
-        receive_items(db_session, target.id, "dir", [99999], admin)
+        receive_items(db_session, target.id, "dir", [uuid.uuid4()], admin)
 
     def test_move_nonexistent_file_ids_skipped(
         self,
@@ -657,19 +661,21 @@ class TestMoveReceiveEdgeCases:
         _seed(db_session)
         _, admin = _login_admin(db_session, client)
         # Should not raise
-        receive_items(db_session, 0, "file", [99999, 88888], admin)
+        receive_items(db_session, None, "file", [uuid.uuid4(), uuid.uuid4()], admin)
 
-    def test_is_descendant_broken_chain(
+    def test_is_descendant_missing_candidate(
         self,
         db_session,
     ):
-        """_is_descendant returns False when a dir in the chain is missing."""
+        """_is_descendant returns False when the candidate itself does not
+        exist - the walk's very first lookup already comes back empty (a
+        dir deleted concurrently between the caller's own existence check
+        and this call is still a reachable case). A broken mid-chain
+        pointer, by contrast, can no longer be constructed at all now that
+        archive_dir_id carries a real FK - Postgres itself guarantees every
+        non-NULL pointer resolves to a real row."""
         _seed(db_session)
-        d = _make_dir(db_session, "Orphan")
-        # Point parent to a non-existent ID
-        d.archive_dir_id = 99999
-        db_session.commit()
-        result = _is_descendant(db_session, d.id, 1)
+        result = _is_descendant(db_session, uuid.uuid4(), uuid.uuid4())
         assert result is False
 
 
@@ -692,7 +698,7 @@ class TestThumbnailCaching:
         _seed(db_session)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="cached-thumb",
             hash_suffix="cache",
         )
@@ -717,7 +723,7 @@ class TestThumbnailCaching:
         _seed(db_session)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="stale-cache",
             hash_suffix="stalecache",
         )
@@ -745,7 +751,7 @@ class TestThumbnailCaching:
         _seed(db_session)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="no-source",
             hash_suffix="nosource",
         )
@@ -762,7 +768,7 @@ class TestThumbnailCaching:
         _seed(db_session)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="corrupt",
             hash_suffix="corrupt",
         )
@@ -788,7 +794,7 @@ class TestThumbnailCaching:
         # Create a PDF file (not an image) so thumbnail is skipped
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="pdf-file",
             extension="pdf",
             mime_type="application/pdf",
@@ -1048,7 +1054,7 @@ class TestSearch:
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
         assert len(file_results) == 1
-        assert file_results[0]["id"] == f.id
+        assert file_results[0]["id"] == str(f.id)
 
     def test_search_ignores_soft_deleted_comment_content(
         self,
@@ -1083,7 +1089,7 @@ class TestSearch:
 
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
-        assert f.id not in [r["id"] for r in file_results]
+        assert str(f.id) not in [r["id"] for r in file_results]
 
     def test_search_file_permission_filtering(
         self,
@@ -1118,12 +1124,12 @@ class TestSearch:
         client,
         db_session,
     ):
-        """Files at root (dir_id=0) show 'Archiv' as path in search."""
+        """Files at root (dir_id=None) show 'Archiv' as path in search."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="RootSearchFile",
             hash_suffix="root-search",
         )
@@ -1142,11 +1148,12 @@ class TestSearch:
         client,
         db_session,
     ):
-        """Regression: a directory directly under root (archive_dir_id=0,
-        a sentinel with no real row — see get_root_content()) must still be
-        searchable. An earlier `archive_dir_id != 0` filter excluded every
-        top-level directory from search results, not just the nonexistent
-        root row it was meant to guard against."""
+        """Regression: a directory directly under root (archive_dir_id IS
+        NULL — see get_root_content()) must still be searchable. An
+        earlier `archive_dir_id != 0` filter (from before archive_dir_id
+        was a plain nullable FK) excluded every top-level directory from
+        search results, not just the nonexistent root row it was meant to
+        guard against."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         _make_dir(db_session, "Digitalisierte Archivstube")
@@ -1165,7 +1172,7 @@ class TestSearch:
         client,
         db_session,
     ):
-        """Regression: files at root (dir_id=0, unsorted uploads) have no
+        """Regression: files at root (dir_id=None, unsorted uploads) have no
         resolvable parent directory. The permission check used to be
         `if parent and not admin and not can_insight(...): continue` —
         with parent None, that short-circuited to False and skipped the
@@ -1176,7 +1183,7 @@ class TestSearch:
         headers, _ = _login_user(db_session, client)
         _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="UnsortedSearchFile",
             hash_suffix="unsorted-perm",
         )
@@ -1298,7 +1305,9 @@ class TestSearch:
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
         ids_in_order = [r["id"] for r in file_results]
-        assert ids_in_order.index(name_hit.id) < ids_in_order.index(comment_only_hit.id)
+        assert ids_in_order.index(str(name_hit.id)) < ids_in_order.index(
+            str(comment_only_hit.id)
+        )
 
     def test_search_stopword_only_query_returns_empty(
         self,
@@ -1405,7 +1414,7 @@ class TestPresignedUrlThumbnail:
         headers, _ = _login_admin(db_session, client)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="url-thumb",
             hash_suffix="url-thumb",
         )
@@ -1436,7 +1445,7 @@ class TestPresignedUrlThumbnail:
         headers, _ = _login_admin(db_session, client)
         f = _make_file(
             db_session,
-            dir_id=0,
+            dir_id=None,
             desc="url-close-then-reuse",
             hash_suffix="url-reuse",
         )
@@ -1489,14 +1498,16 @@ class TestArchiveSchemaValidators:
 
     def test_dir_receive_invalid_type(self):
         with pytest.raises(Exception, match=r"dir.*file"):
-            DirReceiveRequest(type="invalid", ids=[1])
+            DirReceiveRequest(type="invalid", ids=[uuid.uuid4()])
 
     def test_dir_receive_invalid_action(self):
         with pytest.raises(Exception, match="move"):
-            DirReceiveRequest(type="dir", ids=[1], action="copy")
+            DirReceiveRequest(type="dir", ids=[uuid.uuid4()], action="copy")
 
     def test_dir_receive_valid(self):
-        req = DirReceiveRequest(type="file", ids=[1, 2], action="move")
+        req = DirReceiveRequest(
+            type="file", ids=[uuid.uuid4(), uuid.uuid4()], action="move"
+        )
         assert req.type == "file"
 
     def test_file_update_description_too_long(self):
@@ -1528,23 +1539,25 @@ class TestGetUnsortedUploadCount:
     def test_counts_org_wide_not_per_user(self, db_session):
         """Unlike get_unfiled_uploads(), this must NOT filter by uploader -
         it's an admin-facing, org-wide count for the weekly health check."""
-        _make_file(db_session, dir_id=0, hash_suffix="a")
-        _make_file(db_session, dir_id=0, hash_suffix="b")
+        _make_file(db_session, dir_id=None, hash_suffix="a")
+        _make_file(db_session, dir_id=None, hash_suffix="b")
 
         assert get_unsorted_upload_count(db_session) == 2
 
     def test_excludes_filed_files(self, db_session):
-        unsorted = _make_file(db_session, dir_id=0, hash_suffix="c")
-        filed = _make_file(db_session, dir_id=0, hash_suffix="d")
-        filed.archive_dir_id = 5
+        d = _make_dir(db_session, "some-dir")
+        unsorted = _make_file(db_session, dir_id=None, hash_suffix="c")
+        filed = _make_file(db_session, dir_id=None, hash_suffix="d")
+        filed.archive_dir_id = d.id
         db_session.commit()
 
         assert get_unsorted_upload_count(db_session) == 1
-        assert unsorted.archive_dir_id == 0
+        assert unsorted.archive_dir_id is None
 
     def test_zero_when_none_unsorted(self, db_session):
-        filed = _make_file(db_session, dir_id=0, hash_suffix="e")
-        filed.archive_dir_id = 7
+        d = _make_dir(db_session, "some-dir")
+        filed = _make_file(db_session, dir_id=None, hash_suffix="e")
+        filed.archive_dir_id = d.id
         db_session.commit()
 
         assert get_unsorted_upload_count(db_session) == 0
@@ -1563,21 +1576,22 @@ class TestGetArchiveStats:
         }
 
     def test_counts_only_filed_files(self, db_session):
-        """archive_dir_id == 0 is the "unsorted upload" sentinel, not a
+        """archive_dir_id IS NULL is the "unsorted upload" sentinel, not a
         real directory - must not count towards file_count, mirroring
         get_unsorted_upload_count()'s inverse filter."""
-        _make_dir(db_session, "dir-a")
-        _make_file(db_session, dir_id=0, hash_suffix="unsorted")
-        _make_file(db_session, dir_id=1, hash_suffix="filed-1")
-        _make_file(db_session, dir_id=1, hash_suffix="filed-2")
+        d = _make_dir(db_session, "dir-a")
+        _make_file(db_session, dir_id=None, hash_suffix="unsorted")
+        _make_file(db_session, dir_id=d.id, hash_suffix="filed-1")
+        _make_file(db_session, dir_id=d.id, hash_suffix="filed-2")
 
         stats = get_archive_stats(db_session)
 
         assert stats["file_count"] == 2
 
     def test_excludes_soft_deleted_files(self, db_session):
-        kept = _make_file(db_session, dir_id=1, hash_suffix="kept")
-        trashed = _make_file(db_session, dir_id=1, hash_suffix="trashed")
+        d = _make_dir(db_session, "dir-a")
+        kept = _make_file(db_session, dir_id=d.id, hash_suffix="kept")
+        trashed = _make_file(db_session, dir_id=d.id, hash_suffix="trashed")
         trashed.deleted_at = _now()
         db_session.commit()
 
@@ -1600,8 +1614,9 @@ class TestGetArchiveStats:
         """Each _make_file() call creates its own ArchiveStoreItem (size
         5000 fixed) - two files means two distinct store items here, no
         dedup involved."""
-        _make_file(db_session, dir_id=1, hash_suffix="a")
-        _make_file(db_session, dir_id=1, hash_suffix="b")
+        d = _make_dir(db_session, "dir-a")
+        _make_file(db_session, dir_id=d.id, hash_suffix="a")
+        _make_file(db_session, dir_id=d.id, hash_suffix="b")
 
         stats = get_archive_stats(db_session)
 
@@ -1615,10 +1630,11 @@ class TestGetArchiveStats:
         never the reverse - so unique_object_count must never exceed
         file_count. Two active files sharing one object here: 1 object,
         2 files."""
-        first = _make_file(db_session, dir_id=1, hash_suffix="shared")
+        d = _make_dir(db_session, "dir-a")
+        first = _make_file(db_session, dir_id=d.id, hash_suffix="shared")
         db_session.add(
             ArchiveFile(
-                archive_dir_id=1,
+                archive_dir_id=d.id,
                 description="same content, second file",
                 archive_store_item_id=first.archive_store_item_id,
                 created_at=_now(),
@@ -1640,7 +1656,8 @@ class TestGetArchiveStats:
         file must not inflate unique_object_count/total_size beyond what
         the (excluded) trashed file itself would justify - regression test
         for the scope mismatch this stat originally had."""
-        trashed = _make_file(db_session, dir_id=1, hash_suffix="trash-only")
+        d = _make_dir(db_session, "dir-a")
+        trashed = _make_file(db_session, dir_id=d.id, hash_suffix="trash-only")
         trashed.deleted_at = _now()
         db_session.commit()
 
@@ -1654,9 +1671,9 @@ class TestGetArchiveStats:
     def test_unique_object_count_excludes_objects_only_referenced_by_unsorted_files(
         self, db_session
     ):
-        """Same scope-mismatch guard as above, for archive_dir_id == 0
+        """Same scope-mismatch guard as above, for archive_dir_id IS NULL
         (unsorted upload) instead of a trashed file."""
-        _make_file(db_session, dir_id=0, hash_suffix="unsorted-only")
+        _make_file(db_session, dir_id=None, hash_suffix="unsorted-only")
 
         stats = get_archive_stats(db_session)
 
@@ -1730,10 +1747,11 @@ class TestGetArchiveStats:
         assert stats["unique_object_count"] == 1
 
     def test_by_extension_groups_and_sorts_by_count_desc(self, db_session):
-        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="a")
-        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="b")
-        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="c")
-        _make_file(db_session, dir_id=1, extension="pdf", hash_suffix="d")
+        d = _make_dir(db_session, "dir-a")
+        _make_file(db_session, dir_id=d.id, extension="jpg", hash_suffix="a")
+        _make_file(db_session, dir_id=d.id, extension="jpg", hash_suffix="b")
+        _make_file(db_session, dir_id=d.id, extension="jpg", hash_suffix="c")
+        _make_file(db_session, dir_id=d.id, extension="pdf", hash_suffix="d")
 
         stats = get_archive_stats(db_session)
 
@@ -1747,15 +1765,22 @@ class TestGetArchiveStats:
     ):
         """The four aggregate queries backing this stats block must stay
         flat regardless of how many dirs/files/store items exist."""
-        _make_dir(db_session, "dir-small")
-        _make_file(db_session, dir_id=1, extension="jpg", hash_suffix="small")
+        small_dir = _make_dir(db_session, "dir-small")
+        _make_file(
+            db_session, dir_id=small_dir.id, extension="jpg", hash_suffix="small"
+        )
 
         with count_queries() as small:
             get_archive_stats(db_session)
 
         for i in range(10):
-            _make_dir(db_session, f"dir-large-{i}", parent_id=1)
-            _make_file(db_session, dir_id=1, extension="pdf", hash_suffix=f"large-{i}")
+            large_dir = _make_dir(db_session, f"dir-large-{i}")
+            _make_file(
+                db_session,
+                dir_id=large_dir.id,
+                extension="pdf",
+                hash_suffix=f"large-{i}",
+            )
 
         with count_queries() as large:
             stats = get_archive_stats(db_session)

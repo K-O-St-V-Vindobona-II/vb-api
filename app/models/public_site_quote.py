@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Text, text
+from sqlalchemy import CheckConstraint, DateTime, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -19,7 +20,7 @@ class PublicSiteQuote(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     quote: Mapped[str] = mapped_column(Text)
     author: Mapped[str] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(index=True)

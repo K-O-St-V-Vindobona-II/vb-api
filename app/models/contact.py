@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,7 +35,7 @@ class Contact(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     kontakttyp: Mapped[ContactType] = mapped_column(
         Enum(
             ContactType,
@@ -46,7 +48,8 @@ class Contact(Base):
     name: Mapped[str] = mapped_column(String, unique=True)
     couleurname: Mapped[str | None]
     org_id: Mapped[str | None] = mapped_column(
-        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
     # 9618c2de197f) - name weighted above couleurname, org_id weighted
@@ -79,7 +82,10 @@ class Contact(Base):
     anmerkungen: Mapped[str | None] = mapped_column(Text)
 
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -102,7 +108,7 @@ class Contact(Base):
         return " ".join(name.split())
 
     @property
-    def default_image(self) -> int | None:
+    def default_image(self) -> uuid.UUID | None:
         for img in self.images:
             if img.default and not img.deleted_at:
                 return img.id

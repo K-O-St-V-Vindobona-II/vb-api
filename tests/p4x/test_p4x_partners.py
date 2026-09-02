@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 import pytest
@@ -176,11 +177,11 @@ class TestFindPartnerEntity:
         assert entity is not None
 
     def test_find_unknown_type(self, db_session):
-        assert find_partner_entity(db_session, "unknown", 1) is None
+        assert find_partner_entity(db_session, "unknown", uuid.uuid4()) is None
 
     def test_find_nonexistent_id(self, db_session):
         _seed(db_session)
-        assert find_partner_entity(db_session, "member", 99999) is None
+        assert find_partner_entity(db_session, "member", uuid.uuid4()) is None
 
 
 class TestSetTransactionPartner:
@@ -312,7 +313,7 @@ class TestSetTransactionPartner:
             set_transaction_partner(
                 db_session,
                 tx,
-                partner_data={"type": "member", "id": 999999},
+                partner_data={"type": "member", "id": uuid.uuid4()},
                 has_delegating=False,
                 delegating_data=None,
             )
@@ -369,7 +370,7 @@ class TestDelegatingPartner:
                 tx,
                 partner_data={"type": "member", "id": member.id},
                 has_delegating=True,
-                delegating_data={"type": "member", "id": 999999},
+                delegating_data={"type": "member", "id": uuid.uuid4()},
             )
         assert exc_info.value.status_code == 404
 

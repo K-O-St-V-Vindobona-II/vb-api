@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 
+from app.models.enums import AboutTabSlot
 from app.models.public_site_about_tab import KNOWN_SLOTS, PublicSiteAboutTab
 
 if TYPE_CHECKING:
@@ -17,14 +18,22 @@ def list_tabs(db: Session) -> list[PublicSiteAboutTab]:
     return sorted(tabs, key=lambda tab: _SLOT_ORDER[tab.slot])
 
 
-def get_tabs_by_slot(db: Session) -> dict[str, PublicSiteAboutTab]:
+def get_tabs_by_slot(db: Session) -> dict[AboutTabSlot, PublicSiteAboutTab]:
     """All 3 fixed tabs keyed by slot, for building the public combined
     site-content response."""
     return {tab.slot: tab for tab in db.query(PublicSiteAboutTab).all()}
 
 
 def get_tab_or_404(db: Session, slot: str) -> PublicSiteAboutTab:
-    tab = db.query(PublicSiteAboutTab).filter_by(slot=slot).first()
+    # slot backs a native Postgres ENUM column - an unknown value must be
+    # rejected here in Python before it ever reaches the query, since
+    # Postgres raises a hard DataError (not just "no rows") when comparing
+    # an ENUM column against a string that isn't one of its members.
+    tab = (
+        db.query(PublicSiteAboutTab).filter_by(slot=slot).first()
+        if slot in AboutTabSlot
+        else None
+    )
     if not tab:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

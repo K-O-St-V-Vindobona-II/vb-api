@@ -7,6 +7,11 @@ from app.services.reorder_service import find_reorder_neighbor
 
 
 def _make_quotes(db, count: int) -> list[PublicSiteQuote]:
+    # The 85e63a22e9a7 migration seeds 2 rows at sort_order 1/2 - clear
+    # them first so this helper's own sort_order values (also starting at
+    # 1) can't collide and make find_reorder_neighbor()'s tie-break-free
+    # `ORDER BY sort_order DESC LIMIT 1` non-deterministic between the two.
+    db.query(PublicSiteQuote).delete()
     rows = [
         PublicSiteQuote(quote=f"Zitat {i}", author=f"Autor {i}", sort_order=i)
         for i in range(1, count + 1)
@@ -59,7 +64,9 @@ class TestFindReorderNeighbor:
 
     def test_finds_nearest_neighbor_with_gaps(self, db_session):
         # sort_order values aren't necessarily contiguous (e.g. after a
-        # delete) - the nearest existing row must still be found.
+        # delete) - the nearest existing row must still be found. Same
+        # seed-collision reasoning as _make_quotes() above.
+        db_session.query(PublicSiteQuote).delete()
         db_session.add_all(
             [
                 PublicSiteQuote(quote="A", author="A", sort_order=1),

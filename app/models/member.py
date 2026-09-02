@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -50,7 +52,7 @@ class Member(Base):
         for col in _ACCURACY_COLUMNS
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
 
     # --- Name ---
     vortitel: Mapped[str | None]
@@ -62,17 +64,20 @@ class Member(Base):
 
     # --- Organization & Status ---
     org_id: Mapped[str | None] = mapped_column(
-        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     state_id: Mapped[str | None] = mapped_column(
-        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     gruender: Mapped[bool | None] = mapped_column(default=False)
     entlassen: Mapped[bool | None] = mapped_column(default=False)
     verstorben: Mapped[bool | None] = mapped_column(default=False)
-    parent_id: Mapped[int | None] = mapped_column(
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         default=None,
+        index=True,
     )
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
     # 9618c2de197f) - vorname+nachname weighted above couleurname, org_id
@@ -164,7 +169,10 @@ class Member(Base):
 
     # --- Audit ---
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -229,7 +237,7 @@ class Member(Base):
         return " ".join(name.split())
 
     @property
-    def default_image(self) -> int | None:
+    def default_image(self) -> uuid.UUID | None:
         for img in self.images:
             if img.default and not img.deleted_at:
                 return img.id

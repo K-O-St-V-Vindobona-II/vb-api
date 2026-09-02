@@ -7,6 +7,7 @@ from app.core.mailer import render_template, send_to_recipients
 from app.core.rate_limit import limiter
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
+from app.models.enums import AboutTabSlot
 from app.schemas.base import StatusResponse
 from app.schemas.public_content import (
     AboutTabContent,
@@ -66,9 +67,9 @@ def get_site_content(
     tabs = about_tabs_service.get_tabs_by_slot(db)
     return SiteContentResponse(
         about_tabs=AboutTabsResponse(
-            anfang=AboutTabContent.model_validate(tabs["anfang"]),
-            mkv=AboutTabContent.model_validate(tabs["mkv"]),
-            heute=AboutTabContent.model_validate(tabs["heute"]),
+            anfang=AboutTabContent.model_validate(tabs[AboutTabSlot.ANFANG]),
+            mkv=AboutTabContent.model_validate(tabs[AboutTabSlot.MKV]),
+            heute=AboutTabContent.model_validate(tabs[AboutTabSlot.HEUTE]),
         ),
         settings=SiteSettingsResponse.model_validate(
             site_settings_service.get_settings(db)

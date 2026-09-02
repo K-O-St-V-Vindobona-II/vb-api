@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from app.models.p4x_account import P4xAccount
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_transaction import P4xTransaction
@@ -13,7 +13,7 @@ def _now() -> datetime:
 
 def _seed(db) -> tuple[P4xAccount, P4xCategory]:
     account = P4xAccount(
-        id=1,  # get_sumup_balance() looks up SUMUP_ACCOUNT_ID (= 1) explicitly
+        id=GIROKONTO_ACCOUNT_ID,  # get_sumup_balance() looks this account up explicitly
         iban="AT942011100005301947",
         bic="GIBAATWWXXX",
         label="Girokonto",

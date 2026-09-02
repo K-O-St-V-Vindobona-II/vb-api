@@ -5,6 +5,7 @@ scoped exclusively to the authenticated member (no id parameter at all) and
 without the admin-internal p4x_comment field.
 """
 
+import hashlib
 import io
 from datetime import UTC, date, datetime
 
@@ -21,7 +22,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.state import State
 from app.services.auth_service import create_user_session
 
-FEE_CATEGORY_ID = 1  # matches the id seeded for P4xCategory in _seed_base
+FEE_CATEGORY_NAME = "eingang.mitgliedsbeitrag"
 
 
 def _now() -> datetime:
@@ -39,8 +40,7 @@ def _seed_base(db) -> None:
 
     db.add(
         P4xCategory(
-            id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
-            name="eingang.mitgliedsbeitrag",
+            name=FEE_CATEGORY_NAME,
             label="Mitgliedsbeitrag",
             background_color="#336600",
             text_color="#ffffff",
@@ -130,9 +130,13 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     the member via P4xPartner AND tagged with the fee category, so both are
     required for the payment to actually show up in balance.sum.payments."""
     account = db.query(P4xAccount).first()
+    category = (
+        db.query(P4xCategory).filter(P4xCategory.name == FEE_CATEGORY_NAME).first()
+    )
 
+    identity = f"self_service_test_{member.id}_{booking.isoformat()}_{amount}"
     tx = P4xTransaction(
-        sha256_hash=f"self_service_test_{member.id}_{booking.isoformat()}_{amount}",
+        sha256_hash=hashlib.sha256(identity.encode()).hexdigest(),
         booking=booking,
         valuation=booking,
         iban=f"DE00{member.id}",
@@ -155,7 +159,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     db.add(
         P4xCategoryDirect(
             p4x_transaction_id=tx.id,
-            p4x_category_id=FEE_CATEGORY_ID,
+            p4x_category_id=category.id,
             amount=amount,
         )
     )
@@ -177,7 +181,7 @@ class TestGetOwnFeeMember:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["id"] == member.id
+        assert body["id"] == str(member.id)
         assert body["cn"] == member.cn
         assert body["balance"] is not None
 
@@ -241,8 +245,8 @@ class TestGetOwnFeeMember:
         assert resp_b.status_code == 200
         body_a = resp_a.json()
         body_b = resp_b.json()
-        assert body_a["id"] == member_a.id
-        assert body_b["id"] == member_b.id
+        assert body_a["id"] == str(member_a.id)
+        assert body_b["id"] == str(member_b.id)
         assert body_a["id"] != body_b["id"]
         assert (
             body_a["balance"]["sum"]["payments"] != body_b["balance"]["sum"]["payments"]

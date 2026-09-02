@@ -10,6 +10,8 @@ from sqlalchemy import true as sa_true
 from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
     from app.schemas.p4x import AccountSaveRequest
@@ -179,7 +181,7 @@ def no_delegation_filter() -> ColumnElement[bool]:
         P4xTransaction.delegating_member_id.is_(None)
         & P4xTransaction.delegating_contact_id.is_(None)
         & P4xTransaction.delegating_p4x_account_id.is_(None)
-        & P4xTransaction.delegating_p4x_specialcontact_id.is_(None)
+        & P4xTransaction.delegating_p4x_special_contact_id.is_(None)
     )
 
 
@@ -187,7 +189,7 @@ def get_transactions_by_partner(
     db: Session,
     account: P4xAccount,
     partner_type: str,
-    partner_id: int,
+    partner_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
     # Translates the partner_type/partner_id pair callers still use into the
@@ -202,8 +204,8 @@ def get_transactions_by_partner(
         partner_column = P4xPartner.p4x_account_id
         delegating_column = P4xTransaction.delegating_p4x_account_id
     elif partner_type == "special":
-        partner_column = P4xPartner.p4x_specialcontact_id
-        delegating_column = P4xTransaction.delegating_p4x_specialcontact_id
+        partner_column = P4xPartner.p4x_special_contact_id
+        delegating_column = P4xTransaction.delegating_p4x_special_contact_id
     else:
         msg = f"Unbekannter partner_type: {partner_type!r}"
         raise ValueError(msg)
@@ -240,7 +242,7 @@ def get_transactions_by_partner(
 def get_transactions_by_category(
     db: Session,
     account: P4xAccount,
-    category_id: int,
+    category_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
     direct_tx_ids = {
@@ -306,7 +308,7 @@ def get_transactions_by_category(
 def get_transactions_by_filter(
     db: Session,
     account: P4xAccount,
-    filter_id: int,
+    filter_id: uuid.UUID,
     page: int,
 ) -> tuple[list[P4xTransaction], int]:
     hit_tx_ids = {

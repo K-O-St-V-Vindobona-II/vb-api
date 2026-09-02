@@ -9,6 +9,7 @@ lookups, SumUp balance, and the summary export.
 import base64
 import io
 import json
+import uuid
 import zipfile
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
@@ -327,7 +328,7 @@ class TestTransactionListingsHttp:
         _create_transaction(db_session, account)
 
         resp = client.get(
-            f"/api/p4x/accounts/{account.id}/transactions/by-partner/member/1",
+            f"/api/p4x/accounts/{account.id}/transactions/by-partner/member/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 200
@@ -442,11 +443,15 @@ class TestSetTransactionPartnerWithDataHttp:
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-partner",
             json={
-                "partner": {"type": "member", "id": admin.id, "cn": "Admin"},
+                "partner": {
+                    "type": "member",
+                    "id": str(admin.id),
+                    "cn": "Admin",
+                },
                 "hasDelegatingPartner": True,
                 "delegatingPartner": {
                     "type": "member",
-                    "id": delegate.id,
+                    "id": str(delegate.id),
                     "cn": "Delegate",
                 },
             },
@@ -454,8 +459,8 @@ class TestSetTransactionPartnerWithDataHttp:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["partner"]["id"] == admin.id
-        assert data["delegating_partner"]["id"] == delegate.id
+        assert data["partner"]["id"] == str(admin.id)
+        assert data["delegating_partner"]["id"] == str(delegate.id)
 
 
 class TestUpdateTransactionValidationHttp:
@@ -525,10 +530,10 @@ class TestCategoryFilterEndpointsHttp:
             "/api/p4x/admin/category-filters",
             json={
                 "name": "Mitgliedsbeitrag",
-                "p4x_account_id": account.id,
+                "p4x_account_id": str(account.id),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": cat.id,
+                "p4x_category_id": str(cat.id),
             },
             headers=headers,
         )
@@ -539,10 +544,10 @@ class TestCategoryFilterEndpointsHttp:
             f"/api/p4x/admin/category-filters/{filter_id}",
             json={
                 "name": "Mitgliedsbeitrag geändert",
-                "p4x_account_id": account.id,
+                "p4x_account_id": str(account.id),
                 "subject": "MB",
                 "subject_mode": "contains",
-                "p4x_category_id": cat.id,
+                "p4x_category_id": str(cat.id),
             },
             headers=headers,
         )
@@ -573,7 +578,7 @@ class TestFilter2DirectHttp:
         assert resp.status_code == 200
         data = resp.json()
         assert data["hits"] == []
-        assert data["category"]["id"] == cat.id
+        assert data["category"]["id"] == str(cat.id)
 
         resp = client.post(
             f"/api/p4x/admin/category-filters/{f.id}/filter2direct",
@@ -611,15 +616,15 @@ class TestCategoryDirectEndpointsHttp:
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": cat.id, "amount": 100.0}],
+            json=[{"p4x_category_id": str(cat.id), "amount": 100.0}],
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == cat.id
+        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == str(cat.id)
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": cat.id, "amount": 1.0}],
+            json=[{"p4x_category_id": str(cat.id), "amount": 1.0}],
             headers=headers,
         )
         assert resp.status_code == 422
@@ -693,7 +698,7 @@ class TestFeeMemberEndpointsHttp:
 
         resp = client.get(f"/api/p4x/fee-members/{target.id}", headers=headers)
         assert resp.status_code == 200
-        assert resp.json()["id"] == target.id
+        assert resp.json()["id"] == str(target.id)
 
     def test_get_fee_member_404_when_not_fee_liable(self, db_session, client):
         _seed(db_session)

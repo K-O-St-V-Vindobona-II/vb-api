@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Annotated
@@ -33,27 +34,27 @@ class PartnerRef(BaseModel):
         ...,
         description="Either 'member' or 'contact' - which of the two `id` refers to.",
     )
-    id: int
+    id: uuid.UUID
     cn: str
 
 
 class CategoryDirectResponse(BaseModel):
-    id: int
-    p4x_category_id: int
+    id: uuid.UUID
+    p4x_category_id: uuid.UUID
     amount: MoneyOut
 
 
 class CategoryFilterShortResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
     subject_mode: SubjectMode
-    p4x_category_id: int
+    p4x_category_id: uuid.UUID
     hitCount: int = Field(  # noqa: N815
         ..., description="Number of transactions this filter rule currently matches."
     )
@@ -65,7 +66,7 @@ class CategoryFilterShortResponse(BaseModel):
 
 
 class AccountResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     iban: str
     bic: str | None
     label: str | None
@@ -127,13 +128,13 @@ class AccountSaveRequest(StrictInputModel):
 
 
 class TransactionResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     booking: str | None
     valuation: str | None
     iban: str
     amount: MoneyOut
     subject: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     p4x_account_cn: str
     p4x_account_iban: str
     comment: str | None = None
@@ -197,7 +198,7 @@ class WarningsResponse(BaseModel):
 
 
 class ImportGiven(BaseModel):
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     parsed: bool = Field(
         ..., description="Whether the file parsed as a George-Bank export."
     )
@@ -219,7 +220,7 @@ class ImportResult(BaseModel):
 
 
 class CategoryResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     label: str
     background_color: str
@@ -254,16 +255,16 @@ class CategorySaveRequest(StrictInputModel):
 
 
 class CategoryFilterResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None
     max_amount: MoneyOut | None
     subject: str | None
     subject_mode: SubjectMode
-    p4x_category_id: int
+    p4x_category_id: uuid.UUID
     hitCount: int = Field(  # noqa: N815
         ..., description="Number of transactions this filter rule currently matches."
     )
@@ -271,7 +272,9 @@ class CategoryFilterResponse(BaseModel):
 
 class CategoryFilterSaveRequest(StrictInputModel):
     name: str = Field(..., max_length=64)
-    p4x_account_id: int
+    # strict=False: JSON has no native UUID type either, so it always
+    # arrives as a plain hex string, not a uuid.UUID instance.
+    p4x_account_id: uuid.UUID = Field(strict=False)
     iban: str | None = None
     # strict=False: see AccountSaveRequest.init_balance above.
     min_amount: Decimal | None = Field(
@@ -294,7 +297,8 @@ class CategoryFilterSaveRequest(StrictInputModel):
     # strict=False: the wire value is the enum's raw string, not an actual
     # SubjectMode instance — JSON has no native enum type either.
     subject_mode: SubjectMode = Field(strict=False)
-    p4x_category_id: int
+    # strict=False: same reasoning as p4x_account_id above.
+    p4x_category_id: uuid.UUID = Field(strict=False)
 
     @field_validator("iban", mode="before")
     @classmethod
@@ -380,7 +384,7 @@ class FeeMemberSelfResponse(BaseModel):
     p4x_comment, which is an admin-internal note not meant for the member
     to see."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_init_date: str | None = Field(
         ...,
@@ -421,14 +425,14 @@ class FeeMemberUpdateRequest(StrictInputModel):
 
 
 class FeeBalanceListItem(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_freed: bool
     balance: MoneyOut
 
 
 class FeeMemberSearchResultItem(BaseModel):
-    id: int
+    id: uuid.UUID
     label: str
 
 
@@ -443,7 +447,7 @@ class FeeMemberSearchResponse(BaseModel):
 
 class PartnerSearchResult(BaseModel):
     type: str
-    id: int
+    id: uuid.UUID
     label: str
 
 

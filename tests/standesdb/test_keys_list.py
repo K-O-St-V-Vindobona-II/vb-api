@@ -1,6 +1,7 @@
 """Tests für GET /api/standesdb/keys — Schlüsselliste."""
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 import bcrypt
 
@@ -12,6 +13,9 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+
+if TYPE_CHECKING:
+    import uuid
 
 
 def _seed(db):
@@ -26,12 +30,19 @@ def _seed(db):
     db.add_all(
         [
             Role(id="x", group="chc", label="Senior", order=0),
-            Key(id=1, name="Bude"),
-            Key(id=2, name="ChC"),
-            Key(id=3, name="Post"),
+            Key(name="Bude"),
+            Key(name="ChC"),
+            Key(name="Post"),
         ]
     )
     db.commit()
+
+
+def _key_id(db, name: str) -> uuid.UUID:
+    """Look up a seeded key's id by its stable name - Final-Cutover means
+    the seed rows' ids are no longer the predictable 1/2/3 an
+    autoincrement sequence would assign."""
+    return db.query(Key).filter_by(name=name).one().id
 
 
 def _login(db, _client):
@@ -109,8 +120,8 @@ class TestKeysListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
-        db_session.add(MemberKey(member_id=user.id, key_id=2))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "ChC")))
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -147,8 +158,12 @@ class TestKeysListEndpoint:
         db_session.add_all([m_alpha, m_zeta])
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=m_zeta.id, key_id=1))
-        db_session.add(MemberKey(member_id=m_alpha.id, key_id=2))
+        db_session.add(
+            MemberKey(member_id=m_zeta.id, key_id=_key_id(db_session, "Bude"))
+        )
+        db_session.add(
+            MemberKey(member_id=m_alpha.id, key_id=_key_id(db_session, "ChC"))
+        )
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -173,13 +188,13 @@ class TestKeysListEndpoint:
         db_session.add(no_keys)
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
         members = resp.json()["members"]
         assert len(members) == 1
-        assert members[0]["id"] == user.id
+        assert members[0]["id"] == str(user.id)
 
     def test_query_count_does_not_scale_with_member_count(
         self, client, db_session, count_queries
@@ -188,7 +203,7 @@ class TestKeysListEndpoint:
         m.member_keys per member must not issue one query per member."""
         _seed(db_session)
         headers, user = _login(db_session, client)
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
         db_session.commit()
 
         with count_queries() as small:
@@ -206,7 +221,9 @@ class TestKeysListEndpoint:
             )
             db_session.add(m)
             db_session.commit()
-            db_session.add(MemberKey(member_id=m.id, key_id=1))
+            db_session.add(
+                MemberKey(member_id=m.id, key_id=_key_id(db_session, "Bude"))
+            )
             db_session.commit()
 
         with count_queries() as large:
@@ -236,8 +253,8 @@ class TestKeysDownloadEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(MemberKey(member_id=user.id, key_id=1))
-        db_session.add(MemberKey(member_id=user.id, key_id=3))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Post")))
         db_session.commit()
 
         resp = client.get(

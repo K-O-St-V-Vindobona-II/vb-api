@@ -1,10 +1,12 @@
+import uuid
+
 from pydantic import BaseModel
 
 from app.schemas.base import UtcDatetime
 
 
 class SentEmailListItem(BaseModel):
-    id: int
+    id: uuid.UUID
     created_at: UtcDatetime | None
     to: str | None
     subject: str | None
@@ -14,7 +16,7 @@ class SentEmailListItem(BaseModel):
 
 
 class SentEmailDetail(BaseModel):
-    id: int
+    id: uuid.UUID
     created_at: UtcDatetime | None
     mail_from: str | None
     to: str | None
@@ -45,7 +47,7 @@ class EmailTemplatePreview(BaseModel):
 class ActivityLogItem(BaseModel):
     id: int
     created_at: UtcDatetime | None
-    member_id: int | None
+    member_id: uuid.UUID | None
     member_name: str | None = None
     action_label: str
     request_method: str
@@ -63,7 +65,7 @@ class ActivityLogDetail(ActivityLogItem):
 
 
 class ActivitySessionItem(BaseModel):
-    member_id: int
+    member_id: uuid.UUID
     member_name: str
     started_at: UtcDatetime
     ended_at: UtcDatetime

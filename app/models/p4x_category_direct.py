@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Numeric, text
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -32,12 +33,12 @@ class P4xCategoryDirect(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    p4x_transaction_id: Mapped[int] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    p4x_transaction_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
-    p4x_category_id: Mapped[int] = mapped_column(
+    p4x_category_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )

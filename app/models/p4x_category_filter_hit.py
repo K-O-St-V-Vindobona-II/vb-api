@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -23,12 +24,12 @@ class P4xCategoryFilterHit(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    p4x_transaction_id: Mapped[int] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    p4x_transaction_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
-    p4x_category_filter_id: Mapped[int] = mapped_column(
+    p4x_category_filter_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_category_filters.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )

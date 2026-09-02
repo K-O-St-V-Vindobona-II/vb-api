@@ -705,11 +705,67 @@ class TestRunRestore:
                 ],
             ),
             patch.object(Path, "unlink") as mock_unlink,
-            pytest.raises(RuntimeError, match="could not connect"),
         ):
-            run_restore(storage, backup_name=backup_name)
+            restored = run_restore(storage, backup_name=backup_name)
 
+        # A failure here is tolerated, not raised - see
+        # test_run_restore_local_history_restore_fails_is_tolerated below.
+        assert restored == backup_name
         assert mock_unlink.call_count == 2
+
+    def test_run_restore_local_history_restore_fails_is_tolerated(self, backup_bucket):
+        """A schema mismatch between this stage's local job-history
+        snapshot and the just-restored backup (e.g. mid-migration, when
+        this stage's own schema has moved on but the backup source's
+        hasn't yet) must not abort the whole restore - the caller
+        (job_downsync()) still has to reach its subsequent
+        `alembic upgrade head`, or the database is left stuck mid-chain
+        with every not-yet-migrated table unusable.
+
+        Asserts against the module logger directly rather than caplog:
+        the schema-setup fixture runs a real `alembic upgrade head`,
+        whose in-process fileConfig() call disables every
+        already-configured logger for the rest of this test process (see
+        _run_alembic_upgrade_head()'s docstring in app/core/scheduler.py)
+        - caplog's handler would never see anything either way."""
+        storage = _make_storage()
+        backup_name = "test-2026-01-01_03-00-00.dump"
+        _put_backup(storage, backup_name)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=b"t"),  # table-exists check
+                    MagicMock(returncode=0, stdout=b"local-history-snapshot"),
+                    MagicMock(returncode=0),  # wipe
+                    MagicMock(returncode=0),  # main restore
+                    MagicMock(returncode=0),  # ANALYZE (restore verification)
+                    MagicMock(returncode=0, stdout=b"5"),  # row count (verification)
+                    CalledProcessError(
+                        1,
+                        "pg_restore",
+                        stderr=(
+                            b"pg_restore: error: COPY failed for table "
+                            b'"scheduled_task_runs": ERROR: invalid input '
+                            b"syntax for type integer"
+                        ),
+                    ),
+                ],
+            ),
+            patch.object(Path, "unlink"),
+            patch("app.services.backup_service.logger.exception") as mock_log,
+        ):
+            restored = run_restore(storage, backup_name=backup_name)
+
+        assert restored == backup_name
+        mock_log.assert_called_once()
+        assert (
+            "Failed to restore local scheduled_task_runs history"
+            in (mock_log.call_args[0][0])
+        )
 
 
 class TestRetryTransientS3:

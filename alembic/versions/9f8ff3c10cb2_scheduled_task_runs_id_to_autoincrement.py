@@ -96,6 +96,12 @@ def upgrade() -> None:
     point (brand new, this environment's own test rows already cleaned
     up), so a type-converting ALTER would be unnecessary complexity for no
     benefit.
+
+    Note: 22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py later
+    moves this table back onto a UUID primary key as part of a schema-wide
+    consistency decision that applies to every table regardless of its
+    individual enumeration-risk profile — the reasoning above no longer
+    drives the choice, it's superseded outright.
     """
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.execute(

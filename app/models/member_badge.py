@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey
@@ -22,13 +23,15 @@ class MemberBadge(Base):
         ),
     )
 
-    member_id: Mapped[int] = mapped_column(
+    # No surrogate id - the primary key is the column combination itself.
+    member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,
     )
-    badge_id: Mapped[int] = mapped_column(
+    badge_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("badges.id", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
+        index=True,
     )
     presentationdate: Mapped[datetime.date | None] = mapped_column(Date)
     presentationdate_accuracy: Mapped[int | None] = mapped_column(default=0)

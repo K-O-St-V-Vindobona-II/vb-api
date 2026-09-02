@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import bcrypt
@@ -37,12 +38,11 @@ def _setup_reference_data(db):
                 order=2,
             ),
             Badge(
-                id=1,
                 name="Fuxenband",
                 group="jubelband",
                 order=1,
             ),
-            Key(id=1, name="Haustorschlüssel"),
+            Key(name="Haustorschlüssel"),
         ]
     )
     db.commit()
@@ -230,7 +230,7 @@ def test_get_member_not_found(client, db_session):
     headers = _auth_headers(client, db_session, admin)
 
     resp = client.get(
-        "/api/standesdb/members/99999",
+        f"/api/standesdb/members/{uuid.uuid4()}",
         headers=headers,
     )
     assert resp.status_code == 404
@@ -574,7 +574,7 @@ def test_delete_contact_404_for_missing(client, db_session):
     headers = _auth_headers(client, db_session, admin)
 
     resp = client.delete(
-        "/api/standesdb/contacts/99999",
+        f"/api/standesdb/contacts/{uuid.uuid4()}",
         headers=headers,
     )
     assert resp.status_code == 404

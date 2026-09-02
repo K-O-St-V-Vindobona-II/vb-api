@@ -1,3 +1,5 @@
+import uuid
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
@@ -14,10 +16,10 @@ class MemberBase(BaseModel):
 # 2. Response Schema: How the Member leaves the backend
 # towards the Vue frontend!
 class MemberResponse(MemberBase):
-    id: int
+    id: uuid.UUID
 
     cn: str = ""
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
     permissions: list[str] = []
     google_linked: bool = False
     chroniclemail: bool = False

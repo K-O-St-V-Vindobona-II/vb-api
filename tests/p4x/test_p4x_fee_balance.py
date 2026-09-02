@@ -1,6 +1,13 @@
+from __future__ import annotations
+
+import hashlib
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import bcrypt
+
+if TYPE_CHECKING:
+    import uuid
 
 from app.core.datetime_utils import local_today
 from app.models.member import Member
@@ -51,11 +58,10 @@ def _seed_base(db) -> None:
     )
     db.commit()
 
-    # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
-    # (app/services/p4x_fee_balance_service.py) — the fee category must have id=1.
+    # FEE_CATEGORY_NAME (app/services/p4x_fee_balance_service.py) looks up
+    # the fee category by this exact name.
     db.add(
         P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -110,7 +116,7 @@ def _add_fee_payment(
     booking: date,
     amount: float,
     iban: str = "DE001",
-    delegating_member_id: int | None = None,
+    delegating_member_id: uuid.UUID | None = None,
 ) -> None:
     """Add a transaction that counts as a fee payment for this member -
     or, if delegating_member_id is set, a payment made via `member`'s own
@@ -134,8 +140,9 @@ def _add_fee_payment(
         db.add(partner)
         db.flush()
 
+    identity = f"fee_pay_{member.id}_{booking}_{amount}_{delegating_member_id}"
     tx = P4xTransaction(
-        sha256_hash=f"fee_pay_{member.id}_{booking}_{amount}_{delegating_member_id}",
+        sha256_hash=hashlib.sha256(identity.encode()).hexdigest(),
         booking=booking,
         valuation=booking,
         iban=iban,
@@ -878,8 +885,8 @@ class TestGetFeeBalancesViaHttpEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         ids = {row["id"] for row in data}
-        assert member.id in ids
-        row = next(r for r in data if r["id"] == member.id)
+        assert str(member.id) in ids
+        row = next(r for r in data if r["id"] == str(member.id))
         assert set(row.keys()) == {"id", "cn", "p4x_freed", "balance"}
 
     def test_endpoint_requires_auth(self, db_session, client):

@@ -1,5 +1,6 @@
 """Tests für Standesdb API-Endpoints — Member/Contact CRUD, Search, Reference-Data."""
 
+import uuid
 from datetime import date
 
 import bcrypt
@@ -24,8 +25,8 @@ def _seed(db):
             State(id="bu", label="Bursch", order=2),
             Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
             Role(id="senior", group="chc", label="Senior", order=2),
-            Badge(id=1, name="Fuxenband", group="jubelband", order=1),
-            Key(id=1, name="Haustorschlüssel"),
+            Badge(name="Fuxenband", group="jubelband", order=1),
+            Key(name="Haustorschlüssel"),
         ]
     )
     db.commit()
@@ -280,7 +281,7 @@ class TestMemberDetail:
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
-        resp = client.get("/api/standesdb/members/99999", headers=headers)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 
@@ -357,7 +358,7 @@ class TestMemberCRUD:
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
         resp = client.put(
-            "/api/standesdb/members/99999",
+            f"/api/standesdb/members/{uuid.uuid4()}",
             json=_member_payload(),
             headers=headers,
         )
@@ -450,7 +451,7 @@ class TestContactCRUD:
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
-        resp = client.get("/api/standesdb/contacts/99999", headers=headers)
+        resp = client.get(f"/api/standesdb/contacts/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 
@@ -497,7 +498,7 @@ class TestSearchParent:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert any(r["id"] == parent.id for r in resp.json()["data"])
+        assert any(r["id"] == str(parent.id) for r in resp.json()["data"])
 
     def test_search_parent_excludes_other_org(self, client, db_session):
         """Regression: org scoping must survive the tsvector/pg_trgm

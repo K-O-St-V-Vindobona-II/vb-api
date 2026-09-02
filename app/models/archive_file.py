@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey
+from sqlalchemy import Computed, DateTime, ForeignKey, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -17,18 +18,18 @@ if TYPE_CHECKING:
 
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
-    __table_args__ = (
-        CheckConstraint(
-            "archive_dir_id IS NULL OR archive_dir_id >= 0",
-            name="archive_files_archive_dir_id_check",
-        ),
-    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    archive_dir_id: Mapped[int | None] = mapped_column(default=0)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    # NULL means "unfiled upload" (sitting directly at the synthetic
+    # root).
+    archive_dir_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("archive_dirs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
     description: Mapped[str | None]
-    archive_store_item_id: Mapped[int] = mapped_column(
-        ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE")
+    archive_store_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

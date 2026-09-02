@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,9 +27,13 @@ class MemberChangeRequest(Base):
     - there is no persisted "partially decided" state, per explicit product
     decision.
 
-    Plain integer id, not UUID: never exposed on a public/unauthenticated
-    endpoint (only to the owning member and their org admins), same
-    reasoning as app/models/scheduled_task_run.py.
+    UUID primary key for schema-wide consistency, not for enumeration-
+    resistance: only ever exposed to the owning member and their org
+    admins, not on a public/unauthenticated endpoint, so that particular
+    argument doesn't apply here - it was outweighed by the project-wide
+    decision to use UUIDs across every table without exception (see
+    app/models/scheduled_task_run.py for the same reasoning spelled out
+    in full).
     """
 
     __tablename__ = "member_change_requests"
@@ -58,8 +63,8 @@ class MemberChangeRequest(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    member_id: Mapped[int] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
@@ -74,8 +79,9 @@ class MemberChangeRequest(Base):
     )
     proposed_data: Mapped[dict[str, object]] = mapped_column(JSONB)
     field_decisions: Mapped[dict[str, str] | None] = mapped_column(JSONB)
-    resolved_by: Mapped[int | None] = mapped_column(
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

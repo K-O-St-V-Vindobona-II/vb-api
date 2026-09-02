@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import date
 from typing import Literal, Self
 
@@ -57,7 +58,7 @@ class RoleResponse(BaseModel):
 
 
 class BadgeResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     group: BadgeGroup | None = None
     order: int = 0
@@ -65,7 +66,7 @@ class BadgeResponse(BaseModel):
 
 
 class KeyResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,13 +102,13 @@ class RoleHistoryResponse(BaseModel):
 
 
 class BadgeEntry(BaseModel):
-    id: int
+    id: uuid.UUID
     presentationdate: date | None = None
     presentationdate_accuracy: int = 0
 
 
 class BadgeDetailResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     group: str | None = None
     order: int = 0
@@ -116,13 +117,13 @@ class BadgeDetailResponse(BaseModel):
 
 
 class KeyEntry(BaseModel):
-    id: int
+    id: uuid.UUID
     presentationdate: date | None = None
     presentationdate_accuracy: int = 0
 
 
 class KeyDetailResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     presentationdate: date | None = None
     presentationdate_accuracy: int = 0
@@ -132,7 +133,7 @@ class KeyDetailResponse(BaseModel):
 
 
 class KeysListMember(BaseModel):
-    id: int
+    id: uuid.UUID
     nachname: str | None = None
     vorname: str | None = None
     keys: dict[str, bool] = {}
@@ -147,7 +148,7 @@ class KeysListResponse(BaseModel):
 
 
 class TreeNodeResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     gruender: bool = False
     org_id: str | None = None
@@ -166,7 +167,7 @@ class MemberDismissedResponse(BaseModel):
     MemberDetailResponse, which stops being disclosed once someone is no
     longer a member (see get_member_detail() in standesdb_service.py)."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     org_id: str | None = None
     dataprotection: str = Field(
@@ -177,7 +178,7 @@ class MemberDismissedResponse(BaseModel):
 
 
 class MemberDetailResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     vortitel: str | None = None
     vorname: str | None = None
@@ -202,12 +203,12 @@ class MemberDetailResponse(BaseModel):
         default=None,
         description="Grave/burial site address, recorded for deceased members.",
     )
-    parent_id: int = Field(
-        default=0,
-        description="id of the member who sponsored this member's admission, or 0.",
+    parent_id: uuid.UUID | None = Field(
+        default=None,
+        description="id of the member who sponsored this member's admission.",
     )
     parent_cn: str = ""
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
 
     chroniclemail: bool = False
     auth_locked: bool = True
@@ -276,7 +277,7 @@ class MemberSelfServiceDetailResponse(BaseModel):
     the wire to the member's own client at all, same principle as
     FeeMemberSelfResponse in app/schemas/p4x.py excluding p4x_comment."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     vortitel: str | None = None
     vorname: str | None = None
@@ -383,7 +384,7 @@ class MemberSaveRequest(StrictInputModel):
     gruender: bool = False
     entlassen: bool = False
     verstorben: bool = False
-    parent_id: int = 0
+    parent_id: uuid.UUID | None = Field(default=None, strict=False)
     grabadresse: str | None = None
 
     # strict=False: JSON has no native date type, dates always arrive as
@@ -623,7 +624,7 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
 
 
 class ContactDetailResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     kontakttyp: ContactType
     anrede: str | None = None
@@ -640,7 +641,7 @@ class ContactDetailResponse(BaseModel):
     rufnummer: str | None = None
     datum: str | None = None
     datum_accuracy: int = Field(default=0, description=_DATE_ACCURACY_DESCRIPTION)
-    default_image: int | None = None
+    default_image: uuid.UUID | None = None
     anmerkungen: str | None = None
 
 
@@ -730,7 +731,7 @@ class ImageUpdateRequest(StrictInputModel):
 
 
 class RoleMemberEntry(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     startdate: date
     enddate: date | None = None
@@ -793,8 +794,8 @@ class MemberAuthActivityResponse(BaseModel):
 
 
 class MemberChangeRequestSummary(BaseModel):
-    id: int
-    member_id: int
+    id: uuid.UUID
+    member_id: uuid.UUID
     member_cn: str
     member_org_id: str | None = None
     field_count: int
@@ -814,8 +815,8 @@ class ChangeRequestFieldDiff(BaseModel):
 
 
 class MemberChangeRequestDetailResponse(BaseModel):
-    id: int
-    member_id: int
+    id: uuid.UUID
+    member_id: uuid.UUID
     member_cn: str
     status: MemberChangeRequestStatus
     created_at: UtcDatetime | None = None
@@ -827,7 +828,7 @@ class MemberChangeRequestDetailResponse(BaseModel):
 
 
 class MyChangeRequestResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     created_at: UtcDatetime | None = None
     proposed_fields: dict[str, object]
 
@@ -838,7 +839,7 @@ class MemberChangeRequestDecisionRequest(StrictInputModel):
 
 class SearchResultItem(BaseModel):
     type: Literal["member", "contact"]
-    id: int
+    id: uuid.UUID
     label: str
 
 
@@ -847,7 +848,7 @@ class SearchResponse(BaseModel):
 
 
 class ParentSearchResultItem(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
 
 
@@ -857,14 +858,14 @@ class ParentSearchResponse(BaseModel):
 
 class ImageOwnerResponse(BaseModel):
     type: Literal["member", "contact"]
-    id: int
+    id: uuid.UUID
     cn: str
     org_id: str | None
-    default_image: int | None
+    default_image: uuid.UUID | None
 
 
 class ImageListItem(BaseModel):
-    id: int
+    id: uuid.UUID
     type: str | None
     height: int | None
     width: int | None

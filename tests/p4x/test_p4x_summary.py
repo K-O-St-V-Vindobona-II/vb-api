@@ -41,7 +41,8 @@ def _seed(db) -> P4xAccount:
         updated_at=_now(),
     )
     cat = P4xCategory(
-        id=1,  # FEE_CATEGORY_ID (= 1) is a hardcoded app-level assumption
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         name="eingang.mitgliedsbeitrag",
         label="Mitgliedsbeitrag",
         background_color="#336600",

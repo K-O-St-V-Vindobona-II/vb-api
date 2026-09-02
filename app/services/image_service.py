@@ -19,6 +19,8 @@ from app.core.storage import (
 from app.models.standesdb_image import StandesdbImage
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy import ColumnElement
     from sqlalchemy.orm import Session
 
@@ -28,9 +30,10 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 STANDESDB_THUMB_SIZE = 400
 
 
-def _owner_filter(owner_type: str, owner_id: int) -> ColumnElement[bool]:
+def _owner_filter(owner_type: str, owner_id: uuid.UUID) -> ColumnElement[bool]:
     """Translates the owner_type/owner_id pair callers still use into the
-    matching exclusive-arc FK column (see StandesdbImage)."""
+    matching exclusive-arc FK column (see StandesdbImage) - owner_id is
+    already the member's or contact's own UUID primary key directly."""
     if owner_type == "member":
         return StandesdbImage.owner_member_id == owner_id
     if owner_type == "contact":
@@ -42,8 +45,8 @@ def _owner_filter(owner_type: str, owner_id: int) -> ColumnElement[bool]:
 def get_image_record(
     db: Session,
     owner_type: str,
-    owner_id: int,
-    image_id: int,
+    owner_id: uuid.UUID,
+    image_id: uuid.UUID,
 ) -> StandesdbImage:
     img = (
         db.query(StandesdbImage)
@@ -65,8 +68,8 @@ def get_image_record(
 def get_image_for_serving(
     db: Session,
     owner_type: str,
-    owner_id: int,
-    image_id: int,
+    owner_id: uuid.UUID,
+    image_id: uuid.UUID,
 ) -> StandesdbImage:
     """Like get_image_record(), but also releases the DB session right after
     the fetch - for callers that only need the record to serve S3 content
@@ -127,7 +130,7 @@ def get_presigned_url(
 def get_images_for_owner(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: uuid.UUID,
 ) -> list[StandesdbImage]:
     return (
         db.query(StandesdbImage)
@@ -172,11 +175,11 @@ def _ensure_cache(
 def upload_image(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: uuid.UUID,
     file: UploadFile,
     *,
     description: str | None,
-    created_by: int | None,
+    created_by: uuid.UUID | None,
     storage: StorageClient,
 ) -> StandesdbImage:
     content = file.file.read()
@@ -226,9 +229,11 @@ def upload_image(
     # Translates the owner_type/owner_id pair callers still use into the
     # matching exclusive-arc FK columns (see StandesdbImage).
     if owner_type == "member":
-        owner_member_id, owner_contact_id = owner_id, None
+        owner_member_id = owner_id
+        owner_contact_id = None
     elif owner_type == "contact":
-        owner_member_id, owner_contact_id = None, owner_id
+        owner_member_id = None
+        owner_contact_id = owner_id
     else:
         msg = f"Unbekannter owner_type: {owner_type!r}"
         raise ValueError(msg)

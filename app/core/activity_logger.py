@@ -16,6 +16,8 @@ from app.models.member import Member
 from app.models.request_log import RequestLog
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
     from starlette.requests import Request
 
@@ -101,7 +103,7 @@ def _extract_email(request: Request) -> str | None:
     return _email_from_token(auth_header[7:])
 
 
-def _resolve_member_id(db: Session, email: str | None) -> int | None:
+def _resolve_member_id(db: Session, email: str | None) -> uuid.UUID | None:
     if not email:
         return None
     member = db.query(Member.id).filter(Member.email == email).first()
@@ -111,7 +113,7 @@ def _resolve_member_id(db: Session, email: str | None) -> int | None:
 def _get_or_create_user_agent(
     db: Session,
     ua_string: str,
-) -> int | None:
+) -> uuid.UUID | None:
     if not ua_string:
         return None
     existing = (

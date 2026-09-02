@@ -1,4 +1,6 @@
-from sqlalchemy import CheckConstraint, Enum
+from datetime import datetime
+
+from sqlalchemy import CheckConstraint, DateTime, Enum, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -22,3 +24,9 @@ class Role(Base):
     )
     label: Mapped[str | None]
     order: Mapped[int | None] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )

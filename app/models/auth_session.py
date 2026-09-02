@@ -1,6 +1,7 @@
+import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -9,9 +10,10 @@ from app.db.database import Base
 class AuthSession(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    member_id: Mapped[int] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    member_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     jti: Mapped[str] = mapped_column(unique=True, index=True)  # JWT-ID claim
     refresh_token_hash: Mapped[str | None]

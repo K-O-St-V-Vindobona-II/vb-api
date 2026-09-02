@@ -39,6 +39,7 @@ from app.schemas.standesdb import (
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
+    import uuid
     from collections.abc import Sequence
 
 # --- Stats ---
@@ -100,7 +101,7 @@ def get_contact_stats(db: Session) -> dict[str, int]:
 
 def _member_search_result(
     member: Member, rank: float
-) -> tuple[float, dict[str, str | int]]:
+) -> tuple[float, dict[str, str | uuid.UUID]]:
     org_label = member.org_id.upper() if member.org_id else "?"
     label = f"Mitglied ({org_label}): {member.cn}"
     return (rank, {"type": "member", "id": member.id, "label": label})
@@ -108,7 +109,7 @@ def _member_search_result(
 
 def _contact_search_result(
     contact: Contact, rank: float
-) -> tuple[float, dict[str, str | int]]:
+) -> tuple[float, dict[str, str | uuid.UUID]]:
     label = f"Kontakt: {contact.cn}"
     return (rank, {"type": "contact", "id": contact.id, "label": label})
 
@@ -183,7 +184,9 @@ def _search_contacts_fuzzy(db: Session, term: str) -> list[tuple[Contact, float]
     return [(c, float(r)) for c, r in rows]
 
 
-def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | int]]:
+def search_members_and_contacts(
+    db: Session, term: str
+) -> list[dict[str, str | uuid.UUID]]:
     """Search members and contacts by name, minimum 3 characters (enforced
     at the router - no extra length gate needed here for the fuzzy stage,
     unlike archive_service.search_archive(), since 3 chars is already the
@@ -199,7 +202,7 @@ def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | 
     nothing at all, name fields only - see _search_members_fuzzy().
     """
     tsquery_text = build_prefix_tsquery_text(db, term)
-    ranked: list[tuple[float, dict[str, str | int]]] = []
+    ranked: list[tuple[float, dict[str, str | uuid.UUID]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked = [
@@ -278,7 +281,7 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
 
 
 def get_member_detail(
-    db: Session, member_id: int
+    db: Session, member_id: uuid.UUID
 ) -> MemberDetailResponse | MemberDismissedResponse:
     # Intentionally not org-scoped: any authenticated member (vbw or vbn)
     # can read any other member's directory entry - the two orgs
@@ -299,7 +302,7 @@ def get_member_detail(
         )
 
     parent_cn = ""
-    if member.parent_id and member.parent_id != 0:
+    if member.parent_id is not None:
         parent = db.get(Member, member.parent_id)
         if parent:
             parent_cn = parent.cn
@@ -318,7 +321,7 @@ def get_member_detail(
                 verstorben=current.verstorben or False,
             ).model_dump()
         )
-        if current.parent_id and current.parent_id != 0:
+        if current.parent_id is not None:
             current = current.parent
         else:
             break
@@ -345,7 +348,7 @@ def get_member_detail(
         entlassen=member.entlassen or False,
         verstorben=member.verstorben or False,
         grabadresse=member.grabadresse,
-        parent_id=member.parent_id or 0,
+        parent_id=member.parent_id,
         parent_cn=parent_cn,
         default_image=member.default_image,
         chroniclemail=member.chroniclemail or False,
@@ -448,11 +451,11 @@ def _persist_change_log(
     db: Session,
     log_model: type,
     fk_field: str,
-    entity_id: int,
+    entity_id: uuid.UUID,
     *,
     diff: dict[str, dict[str, object]],
     action: str,
-    modified_by: int,
+    modified_by: uuid.UUID,
     modified_at: datetime,
 ) -> None:
     for key, change in diff.items():
@@ -490,15 +493,6 @@ def apply_member_input(  # noqa: C901
     input_dict: dict[str, object] = data.model_dump(
         exclude={"roles_history", "badges", "keys"}
     )
-
-    # The API contract uses 0 as the "no parent" sentinel (matches how
-    # MemberDetailResponse serializes it back out via `parent_id or 0`),
-    # but parent_id is a nullable self-referencing FK — 0 is never a
-    # valid member id and would violate the FK constraint if not normalized
-    # to None here (the same issue applied to the original SQLite legacy
-    # data, cleaned up once during the historical Postgres migration).
-    if input_dict.get("parent_id") == 0:
-        input_dict["parent_id"] = None
 
     if input_dict["entlassen"] or input_dict["verstorben"]:
         input_dict["auth_locked"] = True
@@ -565,11 +559,12 @@ def _sync_badges(
     badges_input: list[BadgeEntry],
     diff: dict[str, dict[str, object]],
 ) -> None:
-    def _badge_sort_key(x: dict[str, int | str | None]) -> int:
-        val = x.get("id", 0)
-        return int(str(val)) if val is not None else 0
+    def _badge_sort_key(x: dict[str, uuid.UUID | str | int | None]) -> str:
+        # Purely for deterministic diff comparison, not a meaningful
+        # business order - badge_id is a UUID now, not a sequential int.
+        return str(x.get("id", ""))
 
-    old: list[dict[str, int | str | None]] = sorted(
+    old: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": mb.badge_id,
@@ -582,7 +577,7 @@ def _sync_badges(
         ],
         key=_badge_sort_key,
     )
-    new: list[dict[str, int | str | None]] = sorted(
+    new: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": b.id,
@@ -619,11 +614,12 @@ def _sync_keys(
     keys_input: list[KeyEntry],
     diff: dict[str, dict[str, object]],
 ) -> None:
-    def _key_sort_key(x: dict[str, int | str | None]) -> int:
-        val = x.get("id", 0)
-        return int(str(val)) if val is not None else 0
+    def _key_sort_key(x: dict[str, uuid.UUID | str | int | None]) -> str:
+        # Purely for deterministic diff comparison, not a meaningful
+        # business order - key_id is a UUID now, not a sequential int.
+        return str(x.get("id", ""))
 
-    old: list[dict[str, int | str | None]] = sorted(
+    old: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": mk.key_id,
@@ -636,7 +632,7 @@ def _sync_keys(
         ],
         key=_key_sort_key,
     )
-    new: list[dict[str, int | str | None]] = sorted(
+    new: list[dict[str, uuid.UUID | str | int | None]] = sorted(
         [
             {
                 "id": k.id,
@@ -730,7 +726,7 @@ def validate_member_org(data: MemberSaveRequest, current_user: Member) -> None:
 def validate_member_uniqueness(
     db: Session,
     data: MemberSaveRequest,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> None:
     q = db.query(Member).filter(
         func.lower(func.coalesce(Member.vorname, "")) == func.lower(data.vorname or ""),
@@ -750,11 +746,11 @@ def validate_member_uniqueness(
 
 def validate_parent_id(
     db: Session,
-    parent_id: int,
+    parent_id: uuid.UUID | None,
     org_id: str,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
 ) -> None:
-    if parent_id == 0:
+    if parent_id is None:
         return
 
     parent = db.get(Member, parent_id)
@@ -855,7 +851,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
     db: Session,
     roles_input: list[RoleHistoryEntry] | list[dict[str, object]],
     org_id: str,
-    member_id: int | None,
+    member_id: uuid.UUID | None,
 ) -> None:
     if not roles_input:
         return
@@ -938,7 +934,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
             )
 
         for overlap in query.all():
-            owner = db.get(Member, overlap.member_id)
+            owner = db.query(Member).filter(Member.id == overlap.member_id).first()
             if not owner:
                 continue
             label = entry_labels[idx]
@@ -1017,9 +1013,9 @@ def _search_parent_fuzzy(
 
 def search_parent(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
     term: str,
-) -> list[dict[str, int | str]]:
+) -> list[dict[str, uuid.UUID | str]]:
     """Search for potential parent members within the same org, minimum 3
     characters (enforced at the router). Same two-stage exact/prefix +
     pg_trgm-fuzzy shape as search_members_and_contacts(), see its
@@ -1034,7 +1030,7 @@ def search_parent(
         )
 
     tsquery_text = build_prefix_tsquery_text(db, term)
-    ranked: list[tuple[float, dict[str, int | str]]] = []
+    ranked: list[tuple[float, dict[str, uuid.UUID | str]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked = [
@@ -1055,7 +1051,7 @@ def search_parent(
 # --- Contact Detail ---
 
 
-def get_contact_detail(db: Session, contact_id: int) -> ContactDetailResponse:
+def get_contact_detail(db: Session, contact_id: uuid.UUID) -> ContactDetailResponse:
     # Intentionally not org-scoped, same reasoning as get_member_detail:
     # vbw and vbn deliberately share one contact directory for reads.
     contact = db.get(Contact, contact_id)
@@ -1162,7 +1158,7 @@ def soft_delete_contact(
 def validate_contact_uniqueness(
     db: Session,
     name: str,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> None:
     q = db.query(Contact).filter(
         Contact.deleted_at.is_(None),
@@ -1338,7 +1334,7 @@ def generate_keys_download(db: Session) -> bytes:
 def _changelog_name_map(
     db: Session,
     log_entries: Sequence[MembersLog | ContactsLog],
-) -> dict[int, str]:
+) -> dict[uuid.UUID, str]:
     ids = {e.modified_by for e in log_entries if e.modified_by}
     if not ids:
         return {}
@@ -1352,7 +1348,7 @@ def _changelog_name_map(
 
 def get_member_changelog(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
     page: int,
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:
@@ -1390,7 +1386,7 @@ def get_member_changelog(
 
 def get_contact_changelog(
     db: Session,
-    contact_id: int,
+    contact_id: uuid.UUID,
     page: int,
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:

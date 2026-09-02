@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
     from sqlalchemy.orm import Session
 
-from app.models.p4x_account import P4xAccount
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
@@ -31,7 +31,6 @@ from app.services import (
 
 logger = logging.getLogger(__name__)
 
-SUMUP_ACCOUNT_ID = 1
 SUMUP_CATEGORY_NAME = "projekt.bude.sumup"
 
 
@@ -44,7 +43,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
     account = (
         db.query(P4xAccount)
         .filter(
-            P4xAccount.id == SUMUP_ACCOUNT_ID,
+            P4xAccount.id == GIROKONTO_ACCOUNT_ID,
             P4xAccount.deleted_at.is_(None),
         )
         .first()

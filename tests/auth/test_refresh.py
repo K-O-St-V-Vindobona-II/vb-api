@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -208,3 +209,18 @@ class TestLogoutClearsCookie:
         assert resp.status_code == 200
         cookie_header = resp.headers.get("set-cookie", "")
         assert "refresh_token" in cookie_header
+
+
+class TestAuthSessionUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session, member):
+        session = AuthSession(member_id=member.id, jti="uuid-default-guard")
+        db_session.add(session)
+        db_session.flush()
+
+        assert isinstance(session.id, uuid.UUID)
+        assert session.id.version == 7

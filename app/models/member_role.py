@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey
@@ -22,13 +23,17 @@ class MemberRole(Base):
         ),
     )
 
-    member_id: Mapped[int] = mapped_column(
+    # No surrogate id - the primary key is the column combination itself.
+    # role_id stays untouched: roles.id is a string primary key, entirely
+    # outside this migration series' scope.
+    member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,
     )
     role_id: Mapped[str] = mapped_column(
         ForeignKey("roles.id", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
+        index=True,
     )
     startdate: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
     enddate: Mapped[datetime.date | None] = mapped_column(Date)

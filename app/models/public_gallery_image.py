@@ -8,12 +8,7 @@ from app.db.database import Base
 
 
 class PublicGalleryImage(Base):
-    """An image shown in the public www.vindobona2.at gallery section.
-
-    Uses a UUID primary key (unlike most other models in this codebase,
-    which use integer PKs) since this is a brand-new table with no legacy
-    data to migrate, following the project's UUID-for-new-tables convention.
-    """
+    """An image shown in the public www.vindobona2.at gallery section."""
 
     __tablename__ = "public_gallery_images"
     __table_args__ = (
@@ -27,7 +22,7 @@ class PublicGalleryImage(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     extension: Mapped[str]
     content_type: Mapped[str]
@@ -37,8 +32,9 @@ class PublicGalleryImage(Base):
     caption: Mapped[str | None]
     sort_order: Mapped[int] = mapped_column(index=True)
     is_published: Mapped[bool] = mapped_column(default=True)
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL"),
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

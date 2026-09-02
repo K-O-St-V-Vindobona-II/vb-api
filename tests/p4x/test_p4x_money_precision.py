@@ -190,9 +190,9 @@ class TestCalculateFeeBalancePrecision:
         )
         db_session.commit()
 
-        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         category = P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",
@@ -249,9 +249,9 @@ class TestGetFeeBalancesPrecision:
         )
         db_session.commit()
 
-        # FEE_CATEGORY_ID is hardcoded to 1 in p4x_fee_balance_service.py.
+        # FEE_CATEGORY_NAME (p4x_fee_balance_service.py) looks up the fee
+        # category by this exact name.
         category = P4xCategory(
-            id=1,
             name="eingang.mitgliedsbeitrag",
             label="Mitgliedsbeitrag",
             background_color="#336600",

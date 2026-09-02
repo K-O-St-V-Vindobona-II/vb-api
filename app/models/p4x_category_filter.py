@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -25,9 +26,9 @@ class P4xCategoryFilter(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(unique=True)
-    p4x_account_id: Mapped[int] = mapped_column(
+    p4x_account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_accounts.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
@@ -43,7 +44,7 @@ class P4xCategoryFilter(Base):
         )
     )
     subject: Mapped[str | None]
-    p4x_category_id: Mapped[int] = mapped_column(
+    p4x_category_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )

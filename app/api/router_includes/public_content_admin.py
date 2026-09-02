@@ -1,10 +1,12 @@
-from typing import Annotated, Literal
+import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.db.database import get_db
+from app.models.enums import AboutTabSlot
 from app.models.member import Member
 from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_content import (
@@ -37,8 +39,6 @@ public_content_admin_router = APIRouter()
 RequirePublicContentEditor = Annotated[
     Member, Depends(require_permission("publicContentEditor"))
 ]
-
-AboutTabSlot = Literal["anfang", "mkv", "heute"]
 
 
 # --- About tabs -----------------------------------------------------------
@@ -140,7 +140,7 @@ def create_programm_hint(
 
 @public_content_admin_router.put("/programm-hints/{hint_id}")
 def update_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     data: ProgrammHintRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -153,7 +153,7 @@ def update_programm_hint(
 
 @public_content_admin_router.post("/programm-hints/{hint_id}/move")
 def move_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -170,7 +170,7 @@ def move_programm_hint(
     "/programm-hints/{hint_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_programm_hint(
-    hint_id: int,
+    hint_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
@@ -209,7 +209,7 @@ def create_quote(
 
 @public_content_admin_router.put("/quotes/{quote_id}")
 def update_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     data: QuoteRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -222,7 +222,7 @@ def update_quote(
 
 @public_content_admin_router.post("/quotes/{quote_id}/move")
 def move_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -239,7 +239,7 @@ def move_quote(
     "/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_quote(
-    quote_id: int,
+    quote_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:
@@ -284,7 +284,7 @@ def create_social_link(
 
 @public_content_admin_router.put("/social-links/{link_id}")
 def update_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     data: SocialLinkUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -299,7 +299,7 @@ def update_social_link(
 
 @public_content_admin_router.post("/social-links/{link_id}/move")
 def move_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     data: MoveRequest,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
@@ -316,7 +316,7 @@ def move_social_link(
     "/social-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_social_link(
-    link_id: int,
+    link_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: RequirePublicContentEditor,
 ) -> None:

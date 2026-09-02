@@ -1,6 +1,7 @@
 """Tests for image gallery — upload, update, delete, permissions."""
 
 import io
+import uuid
 from datetime import date
 
 import bcrypt
@@ -407,7 +408,7 @@ class TestPresignedUrl:
         headers = _headers(client, db_session, admin)
 
         url_resp = client.get(
-            "/api/standesdb/members/999/images/999/url",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert url_resp.status_code == 404
@@ -479,7 +480,7 @@ class TestPresignedUrl:
 
     def test_presigned_url_unauthenticated(self, client, db_session):
         resp = client.get(
-            "/api/standesdb/members/1/images/1/url",
+            f"/api/standesdb/members/1/images/{uuid.uuid4()}/url",
         )
         assert resp.status_code == 401
 
@@ -501,7 +502,7 @@ class TestSelfService:
         resp = client.get("/api/standesdb/members/me/images", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["owner"]["id"] == member.id
+        assert data["owner"]["id"] == str(member.id)
         assert len(data["images"]) == 1
 
     def test_self_list_own_images_unauthenticated_rejected(self, client, db_session):

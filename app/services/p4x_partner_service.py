@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
     from app.models.p4x_transaction import P4xTransaction
@@ -96,8 +98,12 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
 def find_partner_entity(
     db: Session,
     partner_type: str,
-    partner_id: int,
+    partner_id: uuid.UUID,
 ) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
+    """Looks up the entity a search result/set-partner request refers to -
+    the identifier p4x_partners' own FK columns store, and the one
+    search_partners()/PartnerSearchResult hand out. Each target's own
+    UUID primary key, queried directly."""
     if partner_type == "member":
         return db.query(Member).filter(Member.id == partner_id).first()
     if partner_type == "contact":
@@ -119,26 +125,33 @@ def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_member_id = None
     transaction.delegating_contact_id = None
     transaction.delegating_p4x_account_id = None
-    transaction.delegating_p4x_specialcontact_id = None
+    transaction.delegating_p4x_special_contact_id = None
 
 
 def set_transaction_partner(  # noqa: C901, PLR0912
     db: Session,
     transaction: P4xTransaction,
-    partner_data: dict[str, str | int] | None,
+    partner_data: dict[str, str | uuid.UUID] | None,
     has_delegating: bool,  # noqa: FBT001
-    delegating_data: dict[str, str | int] | None,
+    delegating_data: dict[str, str | uuid.UUID] | None,
 ) -> None:
     """Sets the transaction's partner and, independently, its delegating
     partner. Kept as one function since both halves share the same
-    404-on-missing-remote / exclusive-arc-column-reset shape — splitting
+    404-on-missing-remote / exclusive-arc-column-reset shape - splitting
     them apart would be the artificial helper-spaghetti this review is
-    meant to remove, not genuine complexity reduction."""
+    meant to remove, not genuine complexity reduction.
+
+    Both partner_data["id"] and delegating_data["id"] are the target
+    entity's own UUID primary key (see find_partner_entity's docstring) -
+    the same identifier the frontend's one shared partner-search widget
+    hands out for both fields. Both halves store that identifier on their
+    respective exclusive-arc columns (p4x_partners.* and
+    p4x_transactions.delegating_*)."""
     now = datetime.now(UTC)
 
     if partner_data:
         p_type = str(partner_data["type"])
-        p_id = int(partner_data["id"])
+        p_id = cast("uuid.UUID", partner_data["id"])
         remote = find_partner_entity(db, p_type, p_id)
         if not remote:
             raise HTTPException(
@@ -161,15 +174,15 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         partner.member_id = None
         partner.contact_id = None
         partner.p4x_account_id = None
-        partner.p4x_specialcontact_id = None
-        if p_type == "member":
+        partner.p4x_special_contact_id = None
+        if isinstance(remote, Member):
             partner.member_id = remote.id
-        elif p_type == "contact":
+        elif isinstance(remote, Contact):
             partner.contact_id = remote.id
-        elif p_type == "account":
+        elif isinstance(remote, P4xAccount):
             partner.p4x_account_id = remote.id
         else:
-            partner.p4x_specialcontact_id = remote.id
+            partner.p4x_special_contact_id = remote.id
         partner.deleted_at = None
         db.flush()
     else:
@@ -180,7 +193,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
 
     if has_delegating and delegating_data:
         d_type = str(delegating_data["type"])
-        d_id = int(delegating_data["id"])
+        d_id = cast("uuid.UUID", delegating_data["id"])
         remote = find_partner_entity(db, d_type, d_id)
         if not remote:
             raise HTTPException(
@@ -188,14 +201,14 @@ def set_transaction_partner(  # noqa: C901, PLR0912
                 detail="Angegebener delegierender Partner wurde nicht gefunden.",
             )
         _clear_delegating(transaction)
-        if d_type == "member":
+        if isinstance(remote, Member):
             transaction.delegating_member_id = remote.id
-        elif d_type == "contact":
+        elif isinstance(remote, Contact):
             transaction.delegating_contact_id = remote.id
-        elif d_type == "account":
+        elif isinstance(remote, P4xAccount):
             transaction.delegating_p4x_account_id = remote.id
         else:
-            transaction.delegating_p4x_specialcontact_id = remote.id
+            transaction.delegating_p4x_special_contact_id = remote.id
     else:
         _clear_delegating(transaction)
 

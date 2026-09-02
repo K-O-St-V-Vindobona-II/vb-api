@@ -1,6 +1,7 @@
+import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import CheckConstraint, DateTime
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -12,11 +13,17 @@ class RequestLog(Base):
         CheckConstraint("memory_usage >= 0", name="request_logs_memory_usage_check"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     client_ip: Mapped[str]
     client_ips: Mapped[str | None]
-    client_user_agent_id: Mapped[int | None]
-    member_id: Mapped[int | None]
+    client_user_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("client_user_agents.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
     request_method: Mapped[str]
     request_path: Mapped[str]
     request_input: Mapped[str | None]

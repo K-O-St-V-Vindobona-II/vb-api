@@ -6,6 +6,7 @@ pagination logic, RuntimeError guards, and contact-only_without_email filter.
 """
 
 import base64
+import uuid
 from datetime import UTC, date, datetime
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -57,8 +58,8 @@ def _seed(db: object) -> None:
                 label="Standesführer",
                 order=1,
             ),
-            Badge(id=1, name="Fuxenband", group="jubelband", order=1),
-            Badge(id=2, name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Badge(name="Fuxenband", group="jubelband", order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
         ]
     )
     db.commit()
@@ -291,10 +292,14 @@ class TestClassifyBadges:
     def test_classifies_jubelband_and_ehrenzeichen(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="Badge", nachname="Test")
+        fuxenband = db_session.query(Badge).filter_by(name="Fuxenband").one()
+        ehrenzeichen_gold = (
+            db_session.query(Badge).filter_by(name="Ehrenzeichen Gold").one()
+        )
         db_session.add(
             MemberBadge(
                 member_id=m.id,
-                badge_id=1,
+                badge_id=fuxenband.id,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
             )
@@ -302,7 +307,7 @@ class TestClassifyBadges:
         db_session.add(
             MemberBadge(
                 member_id=m.id,
-                badge_id=2,
+                badge_id=ehrenzeichen_gold.id,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
             )
@@ -423,7 +428,7 @@ class TestGetImageBase64:
         assert result is None
 
     def test_image_not_found_returns_none(self, db_session: object) -> None:
-        result = _get_image_base64(db_session, 99999, MagicMock())
+        result = _get_image_base64(db_session, uuid.uuid4(), MagicMock())
         assert result is None
 
     def test_cached_image_returns_base64(self, db_session: object) -> None:

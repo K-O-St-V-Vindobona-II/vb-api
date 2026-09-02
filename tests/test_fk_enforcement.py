@@ -4,21 +4,41 @@ test suite was moved off SQLite onto real PostgreSQL. SQLite never enforces
 foreign keys by default, so none of this was ever exercised before."""
 
 import datetime
+import uuid
 
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.archive_dir import ArchiveDir
+from app.models.archive_file import ArchiveFile
+from app.models.archive_file_comment import ArchiveFileComment
+from app.models.archive_permission import ArchivePermission
+from app.models.archive_store_item import ArchiveStoreItem
 from app.models.auth_session import AuthSession
+from app.models.badge import Badge
+from app.models.client_user_agent import ClientUserAgent
 from app.models.contact import Contact
+from app.models.contacts_log import ContactsLog
+from app.models.key import Key
 from app.models.member import Member
+from app.models.member_badge import MemberBadge
+from app.models.member_change_request import MemberChangeRequest
+from app.models.member_key import MemberKey
 from app.models.member_role import MemberRole
+from app.models.members_log import MembersLog
+from app.models.members_oauth2binding import MembersOauth2Binding
+from app.models.org import Org
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
+from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
+from app.models.public_gallery_image import PublicGalleryImage
+from app.models.request_log import RequestLog
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
+from app.models.state import State
 
 
 def _seed_p4x_account(db) -> P4xAccount:
@@ -41,6 +61,23 @@ def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTrans
     db.add(tx)
     db.commit()
     return tx
+
+
+def _seed_archive_file(db, hash_suffix: str) -> ArchiveFile:
+    item = ArchiveStoreItem(
+        name="fk-test",
+        extension="jpg",
+        mime_type="image/jpeg",
+        size=1,
+        sha256_hash=f"fk_test_file_{hash_suffix}",
+    )
+    db.add(item)
+    db.commit()
+
+    archive_file = ArchiveFile(archive_store_item_id=item.id)
+    db.add(archive_file)
+    db.commit()
+    return archive_file
 
 
 def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
@@ -105,6 +142,305 @@ class TestFkInsertEnforcement:
             db_session.commit()
         db_session.rollback()
 
+    def test_inserting_an_archive_store_item_with_unknown_created_by_is_rejected(
+        self, db_session
+    ):
+        """archive_store_items.created_by -> members.id (Alembic
+        revision 31b5c04b297d) - the migration series' first real
+        Phase B Referrer-Cutover, so worth its own explicit guard."""
+        db_session.add(
+            ArchiveStoreItem(
+                name="fk-test",
+                extension="jpg",
+                mime_type="image/jpeg",
+                size=1,
+                sha256_hash="fk-enforcement-test-hash",
+                created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_file_with_unknown_archive_store_item_id_is_rejected(
+        self, db_session
+    ):
+        """archive_files.archive_store_item_id -> archive_store_items.id
+        (Alembic revision 673aa46dc3b3, archive_store_items' own
+        Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
+        db_session.add(ArchiveFile(archive_store_item_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.archive_dir_id -> archive_dirs.id (FK
+        established in 673aa46dc3b3, retargeted onto the real id column by
+        archive_dirs' own Final-Cutover in 2727a9187d6e)."""
+        org = Org(id="fk-test-org-dir", label="FK Test Org")
+        state = State(id="fk-test-state-dir", label="FK Test State")
+        db_session.add_all([org, state])
+        db_session.commit()
+
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=uuid.uuid4(),
+                org_id=org.id,
+                state_id=state.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_dir_with_unknown_parent_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_dirs.archive_dir_id (self-reference) -> archive_dirs.id -
+        a real FK only since archive_dirs' own Final-Cutover in
+        2727a9187d6e; the pre-migration integer column used a `0` sentinel
+        with no FK at all, so this constraint could never be exercised
+        before this migration."""
+        db_session.add(ArchiveDir(name="fk-test-dir", archive_dir_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_org_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.org_id -> orgs.id (Alembic revision
+        ce00727a65e4) - was a bare TEXT column with no FK at all until this
+        migration, unlike every other org_id column in the schema."""
+        state = State(id="fk-test-state", label="FK Test State")
+        dir_obj = ArchiveDir(name="fk-test-dir-org")
+        db_session.add_all([state, dir_obj])
+        db_session.commit()
+
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id,
+                org_id="does-not-exist",
+                state_id=state.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_state_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.state_id -> states.id (Alembic revision
+        ce00727a65e4), same reasoning as org_id above."""
+        org = Org(id="fk-test-org", label="FK Test Org")
+        dir_obj = ArchiveDir(name="fk-test-dir-state")
+        db_session.add_all([org, dir_obj])
+        db_session.commit()
+
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id,
+                org_id=org.id,
+                state_id="does-not-exist",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_file_with_unknown_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_files.archive_dir_id -> archive_dirs.id - a real FK only
+        since 2727a9187d6e, same reasoning as archive_dirs' self-reference
+        above."""
+        item = ArchiveStoreItem(
+            name="fk-test",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="fk-enforcement-test-hash-archive-dir-id",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(
+            ArchiveFile(archive_store_item_id=item.id, archive_dir_id=uuid.uuid4())
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_oauth2binding_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """members_oauth2bindings.member_id -> members.id (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            MembersOauth2Binding(
+                member_id=uuid.uuid4(),
+                provider="google",
+                remote_id="fk-test-remote-id",
+                remote_name="FK Test",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_summary_order_with_unknown_ordered_by_is_rejected(
+        self, db_session
+    ):
+        """p4x_summary_orders.ordered_by -> members.id (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            P4xSummaryOrder(
+                ordered_by=uuid.uuid4(),
+                email="fk-test@vindobona.at",
+                summary_start=datetime.date(2020, 1, 1),
+                summary_end=datetime.date(2020, 1, 2),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_gallery_image_with_unknown_created_by_is_rejected(
+        self, db_session
+    ):
+        """public_gallery_images.created_by -> members.id (Alembic
+        revision bc095b5fb813)."""
+        db_session.add(
+            PublicGalleryImage(
+                sha256_hash="fk-enforcement-gallery-hash",
+                extension="jpg",
+                content_type="image/jpeg",
+                size=1,
+                width=1,
+                height=1,
+                sort_order=1,
+                created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_change_request_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """member_change_requests.member_id -> members.id (Alembic
+        revision ec1af5390d0c)."""
+        db_session.add(
+            MemberChangeRequest(
+                member_id=uuid.uuid4(),
+                proposed_data={"nachname": {"old": "A", "new": "B"}},
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_change_request_with_unknown_resolved_by_is_rejected(
+        self, db_session
+    ):
+        """member_change_requests.resolved_by -> members.id (Alembic
+        revision ec1af5390d0c)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(
+            MemberChangeRequest(
+                member_id=member.id,
+                proposed_data={"nachname": {"old": "A", "new": "B"}},
+                resolved_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_members_role_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """members_roles.member_id -> members.id (Alembic revision
+        191cba0a57bd) - the composite-PK cutover for the three junction
+        tables without a surrogate id."""
+        role = Role(id="fk-test-role-2", label="FK Test Role 2")
+        db_session.add(role)
+        db_session.commit()
+
+        db_session.add(
+            MemberRole(
+                member_id=uuid.uuid4(),
+                role_id=role.id,
+                startdate=datetime.date(2020, 1, 1),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_badges_member_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """badges_members.member_id -> members.id (Alembic revision
+        191cba0a57bd)."""
+        badge = Badge(name="FK Test Badge")
+        db_session.add(badge)
+        db_session.commit()
+
+        db_session.add(MemberBadge(member_id=uuid.uuid4(), badge_id=badge.id))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_badges_member_with_unknown_badge_id_is_rejected(
+        self, db_session
+    ):
+        """badges_members.badge_id -> badges.id (Alembic revision
+        191cba0a57bd, badges' own Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(MemberBadge(member_id=member.id, badge_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_keys_member_with_unknown_member_id_is_rejected(
+        self, db_session
+    ):
+        """keys_members.member_id -> members.id (Alembic revision
+        191cba0a57bd)."""
+        key = Key(name="FK Test Key")
+        db_session.add(key)
+        db_session.commit()
+
+        db_session.add(MemberKey(member_id=uuid.uuid4(), key_id=key.id))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_a_keys_member_with_unknown_key_id_is_rejected(self, db_session):
+        """keys_members.key_id -> keys.id (Alembic revision 191cba0a57bd,
+        keys' own Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(MemberKey(member_id=member.id, key_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
 
 class TestSessionFk:
     """sessions.member_id -> members.id (Alembic revision 5292367fb696)
@@ -113,7 +449,7 @@ class TestSessionFk:
     instead of an exclusive-arc redesign."""
 
     def test_inserting_a_session_with_unknown_member_id_is_rejected(self, db_session):
-        db_session.add(AuthSession(member_id=999999, jti="jti-1"))
+        db_session.add(AuthSession(member_id=uuid.uuid4(), jti="jti-1"))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -163,13 +499,17 @@ class TestStandesdbImageExclusiveArc:
         db_session.rollback()
 
     def test_inserting_with_unknown_owner_member_id_is_rejected(self, db_session):
-        db_session.add(StandesdbImage(owner_member_id=999999, sha256_hash="c" * 64))
+        db_session.add(
+            StandesdbImage(owner_member_id=uuid.uuid4(), sha256_hash="c" * 64)
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_owner_contact_id_is_rejected(self, db_session):
-        db_session.add(StandesdbImage(owner_contact_id=999999, sha256_hash="d" * 64))
+        db_session.add(
+            StandesdbImage(owner_contact_id=uuid.uuid4(), sha256_hash="d" * 64)
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -205,13 +545,62 @@ class TestStandesdbImageExclusiveArc:
         assert db_session.get(StandesdbImage, img_id) is None
 
 
+class TestStandesdbImageCreatedByFk:
+    """standesdb_images.created_by -> members.id - a genuinely
+    missing FK added directly (not a Referrer-Cutover of an existing
+    one), same class of fix as slice 20's contacts_logs/members_logs
+    .modified_by and slice 22's request_logs FKs."""
+
+    def test_inserting_with_unknown_created_by_is_rejected(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        db_session.add(
+            StandesdbImage(
+                owner_member_id=member.id,
+                created_by=uuid.uuid4(),
+                sha256_hash="g" * 64,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_creator_sets_created_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        creator = Member(vorname="Creator", nachname="User")
+        db_session.add_all([member, creator])
+        db_session.commit()
+
+        img = StandesdbImage(
+            owner_member_id=member.id,
+            created_by=creator.id,
+            sha256_hash="h" * 64,
+        )
+        db_session.add(img)
+        db_session.commit()
+        img_id = img.id
+
+        db_session.execute(delete(Member).where(Member.id == creator.id))
+        db_session.commit()
+
+        refreshed = db_session.get(StandesdbImage, img_id)
+        assert refreshed is not None
+        assert refreshed.created_by is None
+
+
 class TestP4xPartnerExclusiveArc:
     """p4x_partners.member_id/contact_id/p4x_account_id/
-    p4x_specialcontact_id (Alembic revision 514ac66eb66e) replaces
-    partner_type/partner_id with an exclusive-arc pair of real FKs —
-    exactly one must be set, enforced by a CHECK constraint. ondelete is
-    RESTRICT (not CASCADE like standesdb_images) since a P4xPartner row is
-    a financial/accounting link, not owned content."""
+    p4x_special_contact_id replaces partner_type/partner_id with an
+    exclusive-arc pair of real FKs - exactly one must be set, enforced by
+    a CHECK constraint. ondelete is RESTRICT (not CASCADE like
+    standesdb_images) since a P4xPartner row is a financial/accounting
+    link, not owned content. member_id/contact_id each reference their
+    target's id_uuid column (Alembic revision ddc0a9d04eef), not its own
+    still-integer id - members/contacts each keep their own Final-Cutover
+    for a later slice. p4x_account_id/p4x_special_contact_id reference
+    their target's own UUID primary key directly."""
 
     def test_two_columns_set_is_rejected(self, db_session):
         member = Member(vorname="Test", nachname="User")
@@ -233,25 +622,27 @@ class TestP4xPartnerExclusiveArc:
         db_session.rollback()
 
     def test_inserting_with_unknown_member_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT003", member_id=999999))
+        db_session.add(P4xPartner(iban="AT003", member_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_contact_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT004", contact_id=999999))
+        db_session.add(P4xPartner(iban="AT004", contact_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_with_unknown_p4x_account_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT005", p4x_account_id=999999))
+        db_session.add(P4xPartner(iban="AT005", p4x_account_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
-    def test_inserting_with_unknown_p4x_specialcontact_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT006", p4x_specialcontact_id=999999))
+    def test_inserting_with_unknown_p4x_special_contact_id_is_rejected(
+        self, db_session
+    ):
+        db_session.add(P4xPartner(iban="AT006", p4x_special_contact_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -298,7 +689,7 @@ class TestP4xPartnerExclusiveArc:
         special = P4xSpecialcontact(cn="Test Special")
         db_session.add(special)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id))
+        db_session.add(P4xPartner(iban="AT010", p4x_special_contact_id=special.id))
         db_session.commit()
 
         db_session.delete(special)
@@ -309,7 +700,7 @@ class TestP4xPartnerExclusiveArc:
 
 class TestP4xTransactionDelegatingExclusiveArc:
     """p4x_transactions.delegating_member_id/delegating_contact_id/
-    delegating_p4x_account_id/delegating_p4x_specialcontact_id (Alembic
+    delegating_p4x_account_id/delegating_p4x_special_contact_id (Alembic
     revision 514ac66eb66e) replaces delegating_partner_type/
     delegating_partner_id with an exclusive-arc pair of real FKs — at most
     one may be set (the field is optional, "all four NULL" stays valid).
@@ -339,7 +730,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     def test_inserting_with_unknown_delegating_member_id_is_rejected(self, db_session):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_member")
-        tx.delegating_member_id = 999999
+        tx.delegating_member_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -347,7 +738,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
     def test_inserting_with_unknown_delegating_contact_id_is_rejected(self, db_session):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_contact")
-        tx.delegating_contact_id = 999999
+        tx.delegating_contact_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -357,17 +748,17 @@ class TestP4xTransactionDelegatingExclusiveArc:
     ):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_account")
-        tx.delegating_p4x_account_id = 999999
+        tx.delegating_p4x_account_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
-    def test_inserting_with_unknown_delegating_p4x_specialcontact_id_is_rejected(
+    def test_inserting_with_unknown_delegating_p4x_special_contact_id_is_rejected(
         self, db_session
     ):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_special")
-        tx.delegating_p4x_specialcontact_id = 999999
+        tx.delegating_p4x_special_contact_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -399,7 +790,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_special")
-        tx.delegating_p4x_specialcontact_id = special.id
+        tx.delegating_p4x_special_contact_id = special.id
         db_session.commit()
         tx_id = tx.id
 
@@ -410,4 +801,226 @@ class TestP4xTransactionDelegatingExclusiveArc:
 
         refreshed = db_session.get(P4xTransaction, tx_id)
         assert refreshed is not None
-        assert refreshed.delegating_p4x_specialcontact_id is None
+        assert refreshed.delegating_p4x_special_contact_id is None
+
+
+class TestContactsLogModifiedByFk:
+    """contacts_logs.modified_by -> members.id - a genuinely missing
+    FK added directly (not a Referrer-Cutover of an existing one)."""
+
+    def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
+        db_session.add(
+            ContactsLog(
+                modified_by=uuid.uuid4(),
+                action="update",
+                key="name",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_modifier_sets_modified_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        log = ContactsLog(modified_by=member.id, action="update", key="name")
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        refreshed = db_session.get(ContactsLog, log_id)
+        assert refreshed is not None
+        assert refreshed.modified_by is None
+
+
+class TestMembersLogModifiedByFk:
+    """members_logs.modified_by -> members.id - same as
+    TestContactsLogModifiedByFk, a genuinely missing FK added directly."""
+
+    def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
+        db_session.add(
+            MembersLog(
+                modified_by=uuid.uuid4(),
+                action="update",
+                key="name",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_modifier_sets_modified_by_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        modifier = Member(vorname="Mod", nachname="Ifier")
+        db_session.add_all([member, modifier])
+        db_session.commit()
+
+        log = MembersLog(modified_by=modifier.id, action="update", key="name")
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == modifier.id))
+        db_session.commit()
+
+        refreshed = db_session.get(MembersLog, log_id)
+        assert refreshed is not None
+        assert refreshed.modified_by is None
+
+
+class TestRequestLogFks:
+    """request_logs.member_id -> members.id and
+    request_logs.client_user_agent_id -> client_user_agents.id - both
+    genuinely missing FKs added directly (not Referrer-Cutovers of
+    existing ones)."""
+
+    def test_inserting_with_unknown_member_id_is_rejected(self, db_session):
+        db_session.add(
+            RequestLog(
+                client_ip="127.0.0.1",
+                member_id=uuid.uuid4(),
+                request_method="GET",
+                request_path="/",
+                response_status=200,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_with_unknown_client_user_agent_id_is_rejected(self, db_session):
+        db_session.add(
+            RequestLog(
+                client_ip="127.0.0.1",
+                client_user_agent_id=uuid.uuid4(),
+                request_method="GET",
+                request_path="/",
+                response_status=200,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_member_sets_member_id_null(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        log = RequestLog(
+            client_ip="127.0.0.1",
+            member_id=member.id,
+            request_method="GET",
+            request_path="/",
+            response_status=200,
+        )
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(Member).where(Member.id == member.id))
+        db_session.commit()
+
+        refreshed = db_session.get(RequestLog, log_id)
+        assert refreshed is not None
+        assert refreshed.member_id is None
+
+    def test_deleting_the_user_agent_sets_client_user_agent_id_null(self, db_session):
+        ua = ClientUserAgent(string="fk-enforcement-test-ua")
+        db_session.add(ua)
+        db_session.commit()
+
+        log = RequestLog(
+            client_ip="127.0.0.1",
+            client_user_agent_id=ua.id,
+            request_method="GET",
+            request_path="/",
+            response_status=200,
+        )
+        db_session.add(log)
+        db_session.commit()
+        log_id = log.id
+
+        db_session.execute(delete(ClientUserAgent).where(ClientUserAgent.id == ua.id))
+        db_session.commit()
+
+        refreshed = db_session.get(RequestLog, log_id)
+        assert refreshed is not None
+        assert refreshed.client_user_agent_id is None
+
+
+class TestArchiveFileCommentArchiveFileFk:
+    """archive_file_comments.archive_file_id -> archive_files.id (Alembic
+    revision dd8661641df7, archive_files' own Final-Cutover in
+    115c679b7348_archive_files_final_cutover.py) - ondelete strategy
+    (CASCADE) unchanged throughout."""
+
+    def test_inserting_with_unknown_archive_file_id_is_rejected(self, db_session):
+        db_session.add(
+            ArchiveFileComment(archive_file_id=uuid.uuid4(), content="Orphan comment")
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_file_cascades_to_its_comments(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-cascade")
+
+        comment = ArchiveFileComment(
+            archive_file_id=archive_file.id, content="Soon to be gone"
+        )
+        db_session.add(comment)
+        db_session.commit()
+        comment_id = comment.id
+
+        db_session.execute(delete(ArchiveFile).where(ArchiveFile.id == archive_file.id))
+        db_session.commit()
+
+        assert db_session.get(ArchiveFileComment, comment_id) is None
+
+
+class TestArchiveFileCommentCreatedByFk:
+    """archive_file_comments.created_by -> members.id (Alembic
+    revision dd8661641df7) - a Referrer-Cutover of a pre-existing FK,
+    ondelete strategy (SET NULL) unchanged from before the cutover."""
+
+    def test_inserting_with_unknown_created_by_is_rejected(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-created-by-reject")
+
+        db_session.add(
+            ArchiveFileComment(
+                archive_file_id=archive_file.id,
+                content="Orphan author",
+                created_by=uuid.uuid4(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_deleting_the_author_sets_created_by_null(self, db_session):
+        archive_file = _seed_archive_file(db_session, "comment-created-by-null")
+        author = Member(vorname="Test", nachname="User")
+        db_session.add(author)
+        db_session.commit()
+
+        comment = ArchiveFileComment(
+            archive_file_id=archive_file.id,
+            content="Attributed comment",
+            created_by=author.id,
+        )
+        db_session.add(comment)
+        db_session.commit()
+        comment_id = comment.id
+
+        db_session.execute(delete(Member).where(Member.id == author.id))
+        db_session.commit()
+
+        refreshed = db_session.get(ArchiveFileComment, comment_id)
+        assert refreshed is not None
+        assert refreshed.created_by is None

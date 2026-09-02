@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import re
+import uuid
 import zipfile
 from datetime import date, timedelta
 from decimal import Decimal
@@ -192,7 +193,7 @@ def create_account(
 
 @p4x_router.put("/admin/accounts/{account_id}")
 def update_account(
-    account_id: int,
+    account_id: uuid.UUID,
     data: AccountSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -207,7 +208,7 @@ def update_account(
     "/admin/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_account(
-    account_id: int,
+    account_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -223,7 +224,7 @@ def delete_account(
 
 @p4x_router.post("/admin/accounts/{account_id}/import")
 async def import_transactions(
-    account_id: int,
+    account_id: uuid.UUID,
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -284,7 +285,7 @@ async def import_transactions(
     "/accounts/{account_id}/transactions/by-month/{year}/{month}",
 )
 def get_transactions_by_month(
-    account_id: int,
+    account_id: uuid.UUID,
     year: int,
     month: int,
     db: Annotated[Session, Depends(get_db)],
@@ -325,9 +326,9 @@ def get_transactions_by_month(
     "/accounts/{account_id}/transactions/by-partner/{partner_type}/{partner_id}",
 )
 def get_transactions_by_partner(
-    account_id: int,
+    account_id: uuid.UUID,
     partner_type: str,
-    partner_id: int,
+    partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
@@ -356,8 +357,8 @@ def get_transactions_by_partner(
     "/accounts/{account_id}/transactions/by-category/{category_id}",
 )
 def get_transactions_by_category(
-    account_id: int,
-    category_id: int,
+    account_id: uuid.UUID,
+    category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
     page: int = 1,
@@ -390,8 +391,8 @@ def get_transactions_by_category(
     "/accounts/{account_id}/transactions/raw/{transaction_id}",
 )
 def get_transaction_raw(
-    account_id: int,
-    transaction_id: int,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> TransactionRawResponse:
@@ -407,8 +408,8 @@ def get_transaction_raw(
     "/accounts/{account_id}/transactions/attachment/{transaction_id}",
 )
 def get_transaction_attachment(
-    account_id: int,
-    transaction_id: int,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> StreamingResponse:
@@ -417,12 +418,6 @@ def get_transaction_attachment(
     tx = p4x_response_builders.get_transaction_for_account(
         db, account_id, transaction_id
     )
-    if not tx.has_attachment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kein Anhang vorhanden.",
-        )
-
     if not tx.attachment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -466,7 +461,7 @@ def search_partners(
 
 @p4x_router.post("/admin/transactions/{transaction_id}/set-partner")
 def set_transaction_partner(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     data: SetPartnerRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -504,7 +499,7 @@ def set_transaction_partner(
 
 @p4x_router.put("/admin/transactions/{transaction_id}")
 async def update_transaction(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
     comment: Annotated[str | None, Form()] = None,
@@ -565,7 +560,7 @@ def create_category(
 
 @p4x_router.put("/admin/categories/{category_id}")
 def update_category(
-    category_id: int,
+    category_id: uuid.UUID,
     data: CategorySaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -580,7 +575,7 @@ def update_category(
     "/admin/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_category_endpoint(
-    category_id: int,
+    category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -625,7 +620,7 @@ def create_category_filter(
 
 @p4x_router.put("/admin/category-filters/{filter_id}")
 def update_category_filter(
-    filter_id: int,
+    filter_id: uuid.UUID,
     data: CategoryFilterSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -640,7 +635,7 @@ def update_category_filter(
     "/admin/category-filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_category_filter_endpoint(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -651,7 +646,7 @@ def delete_category_filter_endpoint(
 
 @p4x_router.get("/admin/category-filters/{filter_id}/filter2direct")
 def get_filter2direct_preview(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> Filter2DirectPreviewResponse:
@@ -688,7 +683,7 @@ def get_filter2direct_preview(
 
 @p4x_router.post("/admin/category-filters/{filter_id}/filter2direct")
 def process_filter2direct(
-    filter_id: int,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> Filter2DirectResultResponse:
@@ -723,7 +718,7 @@ def process_filter2direct(
 
 @p4x_router.post("/admin/transactions/{transaction_id}/set-category-direct")
 def set_category_direct_endpoint(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     data: list[dict[str, object]],
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -744,7 +739,7 @@ def set_category_direct_endpoint(
 
 @p4x_router.delete("/admin/transactions/{transaction_id}/unset-category-direct")
 def unset_category_direct_endpoint(
-    transaction_id: int,
+    transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> TransactionResponse:
@@ -766,8 +761,8 @@ def unset_category_direct_endpoint(
     "/admin/accounts/{account_id}/transactions/by-filter/{filter_id}",
 )
 def get_transactions_by_filter(
-    account_id: int,
-    filter_id: int,
+    account_id: uuid.UUID,
+    filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
     page: int = 1,
@@ -921,10 +916,10 @@ def search_fee_members(
 
 
 # NOTE: these two "me" routes must stay registered before
-# "/fee-members/{member_id}" below. member_id has no explicit int path
+# "/fee-members/{member_id}" below. member_id has no explicit path
 # converter, so Starlette compiles a generic single-segment pattern for it;
 # if {member_id} were registered first, "/fee-members/me" would match THAT
-# route and fail int-conversion with a 422 instead of falling through to
+# route and fail uuid-conversion with a 422 instead of falling through to
 # these routes. Same technique already used by /fee-members/search above.
 @p4x_router.get("/fee-members/me")
 def get_own_fee_member(
@@ -968,7 +963,7 @@ def export_own_fee_member(
 
 @p4x_router.get("/fee-members/{member_id}")
 def get_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> FeeMemberResponse:
@@ -982,7 +977,7 @@ def get_fee_member(
 
 @p4x_router.get("/fee-members/{member_id}/export")
 def export_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> Response:
@@ -1005,7 +1000,7 @@ def export_fee_member(
 
 @p4x_router.post("/admin/fee-members/{member_id}")
 def update_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     data: FeeMemberUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],

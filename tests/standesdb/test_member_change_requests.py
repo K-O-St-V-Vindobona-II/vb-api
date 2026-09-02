@@ -5,6 +5,7 @@ untouched regression guard. See tests/standesdb/test_member_change_requests_
 queries.py for the dedicated N+1 query-count test.
 """
 
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -348,7 +349,7 @@ class TestListMemberChangeRequests:
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1
-        assert body["items"][0]["member_id"] == vbw_member.id
+        assert body["items"][0]["member_id"] == str(vbw_member.id)
 
     def test_non_admin_gets_403(self, db_session, client):
         _seed_base(db_session)
@@ -555,12 +556,9 @@ class TestDecideMemberChangeRequest:
         resolve_change_request() would do, since apply_member_input() fully
         replaces these from whatever lists it's given."""
         _seed_base(db_session)
-        db_session.add_all(
-            [
-                Badge(id=1, name="Testabzeichen", group="ehrenzeichen", order=1),
-                Key(id=1, name="Testschluessel"),
-            ]
-        )
+        badge = Badge(name="Testabzeichen", group="ehrenzeichen", order=1)
+        key = Key(name="Testschluessel")
+        db_session.add_all([badge, key])
         db_session.commit()
         member = _create_member(db_session, email="member17@test.at")
         db_session.add(
@@ -571,8 +569,8 @@ class TestDecideMemberChangeRequest:
                 enddate=None,
             )
         )
-        db_session.add(MemberBadge(member_id=member.id, badge_id=1))
-        db_session.add(MemberKey(member_id=member.id, key_id=1))
+        db_session.add(MemberBadge(member_id=member.id, badge_id=badge.id))
+        db_session.add(MemberKey(member_id=member.id, key_id=key.id))
         db_session.commit()
         admin = _create_admin(db_session, email="admin17@test.at")
         request = self._submit_and_get_request(
@@ -602,8 +600,8 @@ class TestDecideMemberChangeRequest:
             db_session.query(MemberKey).filter(MemberKey.member_id == member.id).all()
         )
         assert [r.role_id for r in roles] == ["senior"]
-        assert [b.badge_id for b in badges] == [1]
-        assert [k.key_id for k in keys] == [1]
+        assert [b.badge_id for b in badges] == [badge.id]
+        assert [k.key_id for k in keys] == [key.id]
 
     def test_resolution_produces_members_log_entry(self, db_session, client):
         _seed_base(db_session)
@@ -701,3 +699,24 @@ class TestDecideMemberChangeRequest:
         assert to_email == "member21@test.at"
         assert diff["nachname"]["new"] == "Geaendert"
         assert decisions == {"nachname": "approved"}
+
+
+class TestMemberChangeRequestIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    ec1af5390d0c_member_change_requests_id_member_id_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        _seed_base(db_session)
+        member = _create_member(db_session, email="uuid-guard@test.at")
+
+        request = MemberChangeRequest(
+            member_id=member.id,
+            proposed_data={"nachname": {"old": "Mustermann", "new": "Geaendert"}},
+        )
+        db_session.add(request)
+        db_session.flush()
+
+        assert isinstance(request.id, uuid.UUID)
+        assert request.id.version == 7

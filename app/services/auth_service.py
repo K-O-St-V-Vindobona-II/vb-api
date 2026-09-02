@@ -29,6 +29,8 @@ from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 _GOOGLE_CERTS_TIMEOUT_SECONDS = 5
@@ -450,7 +452,7 @@ def logout_user(db: Session, token: str) -> None:
         pass
 
 
-def unlink_google_account(db: Session, member_id: int) -> None:
+def unlink_google_account(db: Session, member_id: uuid.UUID) -> None:
     """
     Removes the Google binding for a specific user.
     """

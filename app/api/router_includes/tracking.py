@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -174,7 +175,7 @@ def get_email_template_preview(
 
 @tracking_router.get("/sent-emails/{email_id}", response_model=SentEmailDetail)
 def get_sent_email_detail(
-    email_id: int,
+    email_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
 ) -> SentEmail:
@@ -215,7 +216,7 @@ def get_activity_sessions(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     date_str: str | None = None,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> PaginatedResponse[ActivitySessionItem]:
@@ -243,7 +244,7 @@ def list_activity(
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> PaginatedResponse[ActivityLogItem]:

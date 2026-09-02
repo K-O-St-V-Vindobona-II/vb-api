@@ -24,6 +24,7 @@ from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 
 if TYPE_CHECKING:
+    import uuid
     from datetime import date
 
     from sqlalchemy.orm import Session
@@ -193,7 +194,7 @@ def generate_excel_full(  # noqa: C901
     contacts: list[Contact],
 ) -> bytes:
     state_cache: dict[str, str] = {}
-    member_cache: dict[int, str] = {}
+    member_cache: dict[uuid.UUID, str] = {}
 
     def get_state_label(state_id: str | None) -> str:
         if not state_id:
@@ -203,7 +204,7 @@ def generate_excel_full(  # noqa: C901
             state_cache[state_id] = (s.label or state_id) if s else state_id
         return state_cache[state_id]
 
-    def get_parent_cn(parent_id: int | None) -> str:
+    def get_parent_cn(parent_id: uuid.UUID | None) -> str:
         if not parent_id:
             return ""
         if parent_id not in member_cache:
@@ -392,7 +393,7 @@ def generate_excel_full(  # noqa: C901
 
 def _get_image_base64(
     db: Session,
-    image_id: int | None,
+    image_id: uuid.UUID | None,
     storage: StorageClient,
 ) -> str | None:
     if not image_id:
@@ -449,7 +450,7 @@ def _build_org_dates(member: Member) -> list[tuple[str, str]]:
 
 def _classify_badges(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     badges = db.query(MemberBadge).filter(MemberBadge.member_id == member_id).all()
     jubelbaender: list[dict[str, str]] = []

@@ -1,8 +1,10 @@
 import re
+import uuid
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.enums import AboutTabSlot
 from app.schemas.base import StrictInputModel
 
 # [text](url) - the only "formatting" allowed in about-tab body text. Only
@@ -55,7 +57,7 @@ class AboutTabAdminResponse(BaseModel):
     """Admin shape: includes `slot` so the admin UI can iterate all three
     as a list of forms."""
 
-    slot: str
+    slot: AboutTabSlot
     title: str
     body: str
 
@@ -129,7 +131,7 @@ class SiteSettingsUpdateRequest(StrictInputModel):
 
 
 class ProgrammHintResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     # The DB/model column is `content` (see PublicSiteProgrammHint - the DB
     # column is named "text", which would shadow sqlalchemy.text() as a
     # model attribute name), aliased back to the natural API field name.
@@ -148,7 +150,7 @@ class ProgrammHintRequest(StrictInputModel):
 
 
 class QuoteResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     quote: str
     author: str
 
@@ -168,7 +170,7 @@ class QuoteRequest(StrictInputModel):
 class SocialLinkResponse(BaseModel):
     """Public shape - only ever the enabled links, already sorted."""
 
-    id: int
+    id: uuid.UUID
     platform: str
     label: str
     url: str
@@ -177,7 +179,7 @@ class SocialLinkResponse(BaseModel):
 
 
 class SocialLinkAdminResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     platform: str
     label: str
     url: str

@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import (
@@ -76,7 +77,7 @@ def get_root(
 
 @archive_router.get("/dirs/{dir_id}")
 def get_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> ArchiveDirDetailResponse:
@@ -102,7 +103,7 @@ def create_dir(
 
 @archive_router.put("/dirs/{dir_id}")
 def update_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -115,7 +116,7 @@ def update_dir(
 
 @archive_router.delete("/dirs/{dir_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -126,7 +127,7 @@ def delete_dir(
 
 @archive_router.patch("/dirs/{dir_id}/restore")
 def restore_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusResponse:
@@ -137,7 +138,7 @@ def restore_dir(
 
 @archive_router.delete("/dirs/{dir_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
 def purge_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -148,7 +149,7 @@ def purge_dir(
 
 @archive_router.post("/dirs/{dir_id}/receive")
 def receive_in_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -167,7 +168,7 @@ def receive_in_root(
 ) -> StatusResponse:
     """Move files or directories (clipboard paste) into the root
     directory. Requires archiveAdmin."""
-    archive_service.receive_items(db, 0, data.type, data.ids, user)
+    archive_service.receive_items(db, None, data.type, data.ids, user)
     return StatusResponse(status="ok")
 
 
@@ -176,7 +177,7 @@ def receive_in_root(
 
 @archive_router.get("/files/{file_id}")
 def get_file(
-    file_id: int,
+    file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> ArchiveFileDetailResponse:
@@ -190,7 +191,7 @@ def get_file(
 
 @archive_router.put("/files/{file_id}")
 def update_file(
-    file_id: int,
+    file_id: uuid.UUID,
     data: FileUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -202,7 +203,7 @@ def update_file(
 
 @archive_router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(
-    file_id: int,
+    file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -212,7 +213,7 @@ def delete_file(
 
 @archive_router.patch("/files/{file_id}/restore")
 def restore_file(
-    file_id: int,
+    file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusResponse:
@@ -223,7 +224,7 @@ def restore_file(
 
 @archive_router.get("/files/{file_id}/url")
 def file_url(
-    file_id: int,
+    file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
@@ -241,7 +242,7 @@ def file_url(
 
 @archive_router.get("/files/{file_id}/url/{size}")
 def file_thumb_url(
-    file_id: int,
+    file_id: uuid.UUID,
     size: str,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -264,7 +265,7 @@ def file_thumb_url(
 
 @archive_router.post("/files/{file_id}/comments", status_code=status.HTTP_201_CREATED)
 def create_comment(
-    file_id: int,
+    file_id: uuid.UUID,
     data: CommentCreateRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -280,8 +281,8 @@ def create_comment(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_comment(
-    file_id: int,
-    comment_id: int,
+    file_id: uuid.UUID,
+    comment_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:

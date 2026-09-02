@@ -4,6 +4,7 @@ including the store-item reference-counting logic that decides whether the
 underlying S3 object may safely be removed.
 """
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -34,7 +35,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _make_dir(db, name="Fotos", parent_id=0):
+def _make_dir(db, name="Fotos", parent_id=None):
     now = _now()
     d = ArchiveDir(name=name, archive_dir_id=parent_id, created_at=now, updated_at=now)
     db.add(d)
@@ -62,7 +63,7 @@ def _make_store_item(db, hash_suffix="", size=5000):
 def _make_file(
     db,
     *,
-    dir_id=0,
+    dir_id=None,
     desc="test",
     item=None,
     deleted=True,
@@ -219,7 +220,7 @@ class TestListDeletedFilesInDir:
         assert [c.file_id for c in candidates] == [deleted.id]
 
     def test_empty_dir_returns_empty_list(self, db_session):
-        assert list_deleted_files_in_dir(db_session, 999999) == []
+        assert list_deleted_files_in_dir(db_session, uuid.uuid4()) == []
 
 
 class TestIsStillDuplicate:
@@ -258,7 +259,7 @@ class TestIsStillDuplicate:
 class TestPurgeFileValidation:
     def test_not_found_raises(self, db_session, mock_s3):
         with pytest.raises(ArchiveMaintenanceError):
-            purge_file(db_session, mock_s3, 999999)
+            purge_file(db_session, mock_s3, uuid.uuid4())
 
     def test_not_soft_deleted_raises(self, db_session, mock_s3):
         f = _make_file(db_session, deleted=False)
@@ -272,15 +273,16 @@ class TestPurgeFileValidation:
 class TestPurgeFileCascade:
     def test_deletes_comment_rows(self, db_session, mock_s3):
         f = _make_file(db_session)
-        db_session.add(ArchiveFileComment(archive_file_id=f.id, content="hi"))
+        file_id = f.id
+        db_session.add(ArchiveFileComment(archive_file_id=file_id, content="hi"))
         db_session.commit()
 
-        purge_file(db_session, mock_s3, f.id)
+        purge_file(db_session, mock_s3, file_id)
 
-        assert db_session.get(ArchiveFile, f.id) is None
+        assert db_session.get(ArchiveFile, file_id) is None
         assert (
             db_session.query(ArchiveFileComment)
-            .filter(ArchiveFileComment.archive_file_id == f.id)
+            .filter(ArchiveFileComment.archive_file_id == file_id)
             .count()
             == 0
         )
@@ -397,7 +399,7 @@ class TestRestoreFile:
 
     def test_not_found_raises(self, db_session):
         with pytest.raises(ArchiveMaintenanceError):
-            restore_file(db_session, 999999)
+            restore_file(db_session, uuid.uuid4())
 
     def test_not_currently_deleted_raises(self, db_session):
         f = _make_file(db_session, deleted=False)
@@ -469,12 +471,12 @@ class TestActiveDuplicatesOfFile:
 
     def test_not_found_raises(self, db_session):
         with pytest.raises(ArchiveMaintenanceError):
-            active_duplicates_of_file(db_session, 999999)
+            active_duplicates_of_file(db_session, uuid.uuid4())
 
 
 class TestActiveDuplicatesInDir:
     def test_empty_dir_returns_empty_list(self, db_session):
-        assert active_duplicates_in_dir(db_session, 999999) == []
+        assert active_duplicates_in_dir(db_session, uuid.uuid4()) == []
 
     def test_pairs_each_deleted_file_with_its_duplicates(self, db_session):
         d = _make_dir(db_session, "Fotos")
@@ -529,7 +531,7 @@ class TestFindFileLocation:
         assert location.deleted is False
 
     def test_returns_none_when_not_found(self, db_session):
-        assert find_file_location(db_session, 999999) is None
+        assert find_file_location(db_session, uuid.uuid4()) is None
 
 
 class TestFindDirLocation:
@@ -554,4 +556,4 @@ class TestFindDirLocation:
         assert location.deleted is True
 
     def test_returns_none_when_not_found(self, db_session):
-        assert find_dir_location(db_session, 999999) is None
+        assert find_dir_location(db_session, uuid.uuid4()) is None

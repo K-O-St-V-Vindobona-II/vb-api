@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from sqlalchemy import func, literal
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy import ColumnElement
     from sqlalchemy.orm import Session
 
 from app.core.datetime_utils import local_today
 from app.models.member import Member
+from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
@@ -23,7 +26,17 @@ from app.models.p4x_transaction import P4xTransaction
 from app.services import p4x_account_service
 from app.services.search_utils import build_prefix_tsquery_text
 
-FEE_CATEGORY_ID = 1
+FEE_CATEGORY_NAME = "eingang.mitgliedsbeitrag"
+
+
+def _fee_category_id(db: Session) -> uuid.UUID | None:
+    """Looks up the membership-fee category by its unique name rather than
+    a positional id - p4x_categories.name is unique=True, so this stays
+    correct even if the categories table is ever re-seeded in a different
+    row order, unlike a hardcoded id literal."""
+    return (
+        db.query(P4xCategory.id).filter(P4xCategory.name == FEE_CATEGORY_NAME).scalar()
+    )
 
 
 class FeeBalanceResult(TypedDict):
@@ -41,7 +54,7 @@ class FeeBalanceResult(TypedDict):
 class FeeMemberSearchResult(TypedDict):
     """Typed result of search_fee_members."""
 
-    id: int
+    id: uuid.UUID
     label: str
 
 
@@ -281,7 +294,7 @@ def _count_months(start_date: date, end_date: date) -> int:
 
 def _get_fee_payments_sum(
     db: Session,
-    member_id: int,
+    member: Member,
     from_date: date,
     to_date: date,
     *,
@@ -290,13 +303,13 @@ def _get_fee_payments_sum(
     """Get sum of fee payments for a member in a date range.
 
     Fee payments = byPartner('member', id)
-    AND byCategory(FEE_CATEGORY_ID) AND amount > 0
+    AND byCategory(membership fee category) AND amount > 0
     """
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            P4xPartner.member_id == member_id,
+            P4xPartner.member_id == member.id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -305,11 +318,12 @@ def _get_fee_payments_sum(
     if not partner_ibans:
         return Decimal(0)
 
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -319,7 +333,7 @@ def _get_fee_payments_sum(
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryFilter.p4x_category_id == fee_category_id,
         )
         .all()
     ]
@@ -359,7 +373,7 @@ def _get_fee_payments_sum(
             P4xTransaction.iban.in_(partner_ibans)
             & p4x_account_service.no_delegation_filter()
         )
-        | (P4xTransaction.delegating_member_id == member_id),
+        | (P4xTransaction.delegating_member_id == member.id),
     )
 
     if inclusive_end:
@@ -373,7 +387,7 @@ def _get_fee_payments_sum(
 
 def _get_fee_payments_list(
     db: Session,
-    member_id: int,
+    member: Member,
     from_date: date,
     to_date: date,
 ) -> list[dict[str, str | Decimal]]:
@@ -382,7 +396,7 @@ def _get_fee_payments_list(
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            P4xPartner.member_id == member_id,
+            P4xPartner.member_id == member.id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -391,11 +405,12 @@ def _get_fee_payments_list(
     if not partner_ibans:
         return []
 
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -405,7 +420,7 @@ def _get_fee_payments_list(
         r[0]
         for r in db.query(P4xCategoryFilter.id)
         .filter(
-            P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryFilter.p4x_category_id == fee_category_id,
         )
         .all()
     ]
@@ -448,7 +463,7 @@ def _get_fee_payments_list(
                 P4xTransaction.iban.in_(partner_ibans)
                 & p4x_account_service.no_delegation_filter()
             )
-            | (P4xTransaction.delegating_member_id == member_id),
+            | (P4xTransaction.delegating_member_id == member.id),
         )
         .all()
     )
@@ -535,7 +550,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
 
     start_balance += _get_fee_payments_sum(
         db,
-        member.id,
+        member,
         init_date,
         start_date,
         inclusive_end=False,
@@ -560,7 +575,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
             )
 
     progress.extend(
-        _get_fee_payments_list(db, member.id, start_date, end_date),
+        _get_fee_payments_list(db, member, start_date, end_date),
     )
 
     end_balance = start_balance + sum(
@@ -619,7 +634,7 @@ class FeeBalanceListEntry(TypedDict):
     ["end_balance"] for the same member with default (no-override) dates
     - see TestGetFeeBalancesMatchesCalculateFeeBalance."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_freed: bool
     end_balance: Decimal
@@ -642,7 +657,7 @@ class _FeeCategoryTxRow(NamedTuple):
     iban: str | None
     booking: date
     amount: Decimal
-    delegating_member_id: int | None
+    delegating_member_id: uuid.UUID | None
     no_delegation: bool
 
 
@@ -677,11 +692,11 @@ def _build_member_states(
     month_starts: list[date],
     month_fees: list[Decimal],
     default_end_date: date,
-) -> dict[int, _MemberFeeState]:
+) -> dict[uuid.UUID, _MemberFeeState]:
     """One entry per fee-eligible member with a usable init_date. Members
     without p4x_init_date/philistrierungsdatum are silently skipped
     (mirrors calculate_fee_balance's `return None` for them)."""
-    states: dict[int, _MemberFeeState] = {}
+    states: dict[uuid.UUID, _MemberFeeState] = {}
     for member in fee_members:
         init_date_raw = member.p4x_init_date or member.philistrierungsdatum
         if init_date_raw is None:
@@ -704,17 +719,18 @@ def _build_member_states(
     return states
 
 
-def _fee_category_tx_ids(db: Session) -> set[int]:
+def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
     """Member-independent set of transaction ids in the fee category.
     Deliberately duplicated from _get_fee_payments_sum/
     _get_fee_payments_list rather than extracted from them - those
     helpers back calculate_fee_balance() and are out of scope for
     refactoring here."""
+    fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -722,7 +738,7 @@ def _fee_category_tx_ids(db: Session) -> set[int]:
     filter_ids = [
         r[0]
         for r in db.query(P4xCategoryFilter.id)
-        .filter(P4xCategoryFilter.p4x_category_id == FEE_CATEGORY_ID)
+        .filter(P4xCategoryFilter.p4x_category_id == fee_category_id)
         .all()
     ]
     filter_tx_ids = (
@@ -745,7 +761,9 @@ def _fee_category_tx_ids(db: Session) -> set[int]:
     return direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
 
 
-def _iban_to_member_id_map(db: Session, member_ids: list[int]) -> dict[str, int]:
+def _iban_to_member_id_map(
+    db: Session, member_ids: set[uuid.UUID]
+) -> dict[str, uuid.UUID]:
     """One query for every fee member's own IBANs, instead of one query
     per member."""
     if not member_ids:
@@ -763,7 +781,7 @@ def _iban_to_member_id_map(db: Session, member_ids: list[int]) -> dict[str, int]
 
 def _fetch_fee_category_transactions(
     db: Session,
-    tx_ids: set[int],
+    tx_ids: set[uuid.UUID],
     booking_from: date,
     booking_to: date,
 ) -> list[_FeeCategoryTxRow]:
@@ -804,9 +822,9 @@ def _fetch_fee_category_transactions(
 
 
 def _attribute_payment(
-    states: dict[int, _MemberFeeState],
-    iban_map: dict[str, int],
-    members_with_own_iban: set[int],
+    states: dict[uuid.UUID, _MemberFeeState],
+    iban_map: dict[str, uuid.UUID],
+    members_with_own_iban: set[uuid.UUID],
     row: _FeeCategoryTxRow,
 ) -> None:
     """Same attribution rule as p4x_account_service.no_delegation_filter()
@@ -854,7 +872,8 @@ def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
     if not states:
         return []
 
-    iban_map = _iban_to_member_id_map(db, list(states.keys()))
+    member_ids = {m.id for m in fee_members if m.id in states}
+    iban_map = _iban_to_member_id_map(db, member_ids)
     members_with_own_iban = set(iban_map.values())
     booking_from = min(s.init_date for s in states.values())
     booking_to = max(s.end_date for s in states.values())

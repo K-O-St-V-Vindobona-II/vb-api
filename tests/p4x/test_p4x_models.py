@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 import pytest
@@ -84,6 +85,13 @@ class TestP4xAccount:
         db_session.commit()
         assert account.deleted_at is not None
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Every insert goes through the ORM instance, so `default=uuid.uuid7`
+        on the primary key fires without ever needing a server-side default."""
+        account = _seed_account(db_session)
+        assert isinstance(account.id, uuid.UUID)
+        assert account.id.version == 7
+
 
 class TestP4xTransaction:
     def test_create_with_account(self, db_session):
@@ -144,6 +152,27 @@ class TestP4xTransaction:
         assert len(account.transactions) == 1
         assert account.transactions[0].sha256_hash == "rel_test"
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        59abc303eb28_p4x_category_filters_and_transactions_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the model fires without ever needing a server-side default."""
+        account = _seed_account(db_session)
+        tx = P4xTransaction(
+            sha256_hash="final-cutover-guard",
+            booking=date(2026, 1, 1),
+            valuation=date(2026, 1, 1),
+            iban="AT00TEST",
+            amount=1.0,
+            subject="test",
+            p4x_account_id=account.id,
+        )
+        db_session.add(tx)
+        db_session.flush()
+
+        assert isinstance(tx.id, uuid.UUID)
+        assert tx.id.version == 7
+
 
 class TestP4xCategory:
     def test_create(self, db_session):
@@ -163,6 +192,15 @@ class TestP4xCategory:
         db_session.add(dup)
         with pytest.raises(IntegrityError):
             db_session.commit()
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
+        cat = _seed_category(db_session)
+        assert isinstance(cat.id, uuid.UUID)
+        assert cat.id.version == 7
 
 
 class TestP4xCategoryFilter:
@@ -187,6 +225,25 @@ class TestP4xCategoryFilter:
         assert f.id is not None
         assert f.account.id == account.id
         assert f.category.id == category.id
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        59abc303eb28_p4x_category_filters_and_transactions_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the model fires without ever needing a server-side default."""
+        account = _seed_account(db_session)
+        category = _seed_category(db_session)
+        f = P4xCategoryFilter(
+            name="final-cutover-guard",
+            p4x_account_id=account.id,
+            subject_mode="contains",
+            p4x_category_id=category.id,
+        )
+        db_session.add(f)
+        db_session.flush()
+
+        assert isinstance(f.id, uuid.UUID)
+        assert f.id.version == 7
 
 
 class TestP4xCategoryDirect:
@@ -274,6 +331,22 @@ class TestP4xPartner:
         assert partner.id is not None
         assert partner.partner_type == "member"
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        ddc0a9d04eef_p4x_partners_id_uuid_and_fk_cutover.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
+        member = Member(vorname="Test", nachname="Partner")
+        db_session.add(member)
+        db_session.commit()
+
+        partner = P4xPartner(iban="AT00UUIDGUARD", member_id=member.id)
+        db_session.add(partner)
+        db_session.flush()
+
+        assert isinstance(partner.id, uuid.UUID)
+        assert partner.id.version == 7
+
     def test_soft_delete(self, db_session):
         contact = Contact(kontakttyp="person", name="Soft Delete Contact")
         db_session.add(contact)
@@ -324,6 +397,17 @@ class TestP4xSpecialcontact:
         assert sc.id is not None
         assert sc.search_label == "Spezial: Konto-Intern(Sparkassen-Information)"
 
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
+        goes through the ORM instance, so `default=uuid.uuid7` on the
+        model fires without ever needing a server-side default."""
+        sc = P4xSpecialcontact(cn="Final-Cutover Guard")
+        db_session.add(sc)
+        db_session.flush()
+        assert isinstance(sc.id, uuid.UUID)
+        assert sc.id.version == 7
+
 
 class TestP4xSummaryOrder:
     def test_create(self, db_session):
@@ -344,6 +428,27 @@ class TestP4xSummaryOrder:
         db_session.commit()
         assert order.id is not None
         assert order.finished_ok is False
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Guards the UUID-PK migration's Final-Cutover assumption (see
+        bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
+        insert goes through the ORM instance, so `default=uuid.uuid7` on
+        the model fires without ever needing a server-side default."""
+        member = Member(vorname="Test", nachname="Orderer")
+        db_session.add(member)
+        db_session.commit()
+
+        order = P4xSummaryOrder(
+            ordered_by=member.id,
+            email="test@example.com",
+            summary_start=date(2025, 1, 1),
+            summary_end=date(2025, 12, 1),
+        )
+        db_session.add(order)
+        db_session.flush()
+
+        assert isinstance(order.id, uuid.UUID)
+        assert order.id.version == 7
 
 
 class TestPartnerTransactionRelationship:

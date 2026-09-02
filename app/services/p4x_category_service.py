@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
     from sqlalchemy.orm.query import RowReturningQuery
 
@@ -40,10 +42,10 @@ def apply_single_filter(db: Session, category_filter: P4xCategoryFilter) -> None
 
 
 def _apply_category_filter_criteria(
-    query: RowReturningQuery[tuple[int]],
+    query: RowReturningQuery[tuple[uuid.UUID]],
     category_filter: P4xCategoryFilter,
-    tx_with_directs: set[int],
-) -> RowReturningQuery[tuple[int]]:
+    tx_with_directs: set[uuid.UUID],
+) -> RowReturningQuery[tuple[uuid.UUID]]:
     if tx_with_directs:
         query = query.filter(~P4xTransaction.id.in_(tx_with_directs))
 
@@ -77,7 +79,7 @@ def _apply_category_filter_criteria(
 def _apply_filter_with_cache(
     db: Session,
     category_filter: P4xCategoryFilter,
-    tx_with_directs: set[int],
+    tx_with_directs: set[uuid.UUID],
 ) -> None:
     db.query(P4xCategoryFilterHit).filter(
         P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,

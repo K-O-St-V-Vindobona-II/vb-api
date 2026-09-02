@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey
@@ -12,9 +13,13 @@ class ContactsLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
-    contact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE")
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
+    )
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     action: Mapped[ChangeLogAction] = mapped_column(
         Enum(

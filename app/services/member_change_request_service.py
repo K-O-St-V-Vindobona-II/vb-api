@@ -22,6 +22,8 @@ from app.services.standesdb_service import (
 )
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -119,7 +121,9 @@ def get_pending_requests_for_admin(
     )
 
 
-def get_change_request_or_404(db: Session, request_id: int) -> MemberChangeRequest:
+def get_change_request_or_404(
+    db: Session, request_id: uuid.UUID
+) -> MemberChangeRequest:
     request = db.get(MemberChangeRequest, request_id)
     if not request:
         raise HTTPException(
@@ -155,7 +159,7 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "gruender": member.gruender or False,
         "entlassen": member.entlassen or False,
         "verstorben": member.verstorben or False,
-        "parent_id": member.parent_id or 0,
+        "parent_id": member.parent_id,
         "grabadresse": member.grabadresse,
         "geburtsdatum": member.geburtsdatum,
         "geburtsdatum_accuracy": member.geburtsdatum_accuracy or 0,

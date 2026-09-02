@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +28,7 @@ if TYPE_CHECKING:
 
 class P4xTransaction(Base):
     """delegating_member_id/delegating_contact_id/delegating_p4x_account_id/
-    delegating_p4x_specialcontact_id is an exclusive-arc polymorphic
+    delegating_p4x_special_contact_id is an exclusive-arc polymorphic
     association: at most one is set (the field is optional), enforced by
     the CHECK below."""
 
@@ -34,36 +36,38 @@ class P4xTransaction(Base):
     __table_args__ = (
         CheckConstraint(
             "num_nonnulls(delegating_member_id, delegating_contact_id,"
-            " delegating_p4x_account_id, delegating_p4x_specialcontact_id)"
+            " delegating_p4x_account_id, delegating_p4x_special_contact_id)"
             " <= 1",
             name="p4x_transactions_delegating_partner_arc_check",
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     booking: Mapped[date] = mapped_column(Date, index=True)
     valuation: Mapped[date] = mapped_column(Date, index=True)
     iban: Mapped[str] = mapped_column(String, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
-    p4x_account_id: Mapped[int] = mapped_column(
+    p4x_account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    delegating_member_id: Mapped[int | None] = mapped_column(
+    # Each of the four delegating_* columns references its target's own
+    # UUID primary key directly.
+    delegating_member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_contact_id: Mapped[int | None] = mapped_column(
+    delegating_contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_p4x_account_id: Mapped[int | None] = mapped_column(
+    delegating_p4x_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("p4x_accounts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_p4x_specialcontact_id: Mapped[int | None] = mapped_column(
+    delegating_p4x_special_contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
@@ -104,17 +108,17 @@ class P4xTransaction(Base):
             return "contact"
         if self.delegating_p4x_account_id is not None:
             return "account"
-        if self.delegating_p4x_specialcontact_id is not None:
+        if self.delegating_p4x_special_contact_id is not None:
             return "special"
         return None
 
     @property
-    def delegating_partner_id(self) -> int | None:
+    def delegating_partner_id(self) -> uuid.UUID | None:
         for col in (
             self.delegating_member_id,
             self.delegating_contact_id,
             self.delegating_p4x_account_id,
-            self.delegating_p4x_specialcontact_id,
+            self.delegating_p4x_special_contact_id,
         ):
             if col is not None:
                 return col

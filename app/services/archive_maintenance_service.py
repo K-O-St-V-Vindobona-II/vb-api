@@ -21,6 +21,7 @@ from app.models.archive_store_item import ArchiveStoreItem
 from app.services.archive_service import dir_path_string
 
 if TYPE_CHECKING:
+    import uuid
     from datetime import datetime
 
     from sqlalchemy.orm import Session
@@ -56,7 +57,7 @@ def _classify_impact(active_count: int, other_deleted_count: int) -> PurgeImpact
 
 @dataclass(frozen=True)
 class PurgeCandidate:
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -64,8 +65,8 @@ class PurgeCandidate:
     deleted_at: datetime
     size: int
     sha256_hash: str
-    archive_dir_id: int | None = None
-    archive_store_item_id: int = 0
+    archive_store_item_id: uuid.UUID
+    archive_dir_id: uuid.UUID | None = None
     active_sibling_count: int = 0
     other_deleted_sibling_count: int = 0
 
@@ -82,7 +83,7 @@ class PurgeCandidate:
 
 @dataclass(frozen=True)
 class PurgeResult:
-    file_id: int
+    file_id: uuid.UUID
     store_item_deleted: bool
     s3_keys_deleted: list[str]
     s3_errors: list[str]
@@ -97,7 +98,7 @@ class FileLocation:
     flag rather than assuming it from context.
     """
 
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -110,7 +111,7 @@ class FileLocation:
 
 @dataclass(frozen=True)
 class ActiveDuplicate:
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -122,7 +123,7 @@ class ActiveDuplicate:
 
 @dataclass(frozen=True)
 class DirLocation:
-    dir_id: int
+    dir_id: uuid.UUID
     path: str
     deleted: bool
 
@@ -145,8 +146,8 @@ def _describe_location(db: Session, file_obj: ArchiveFile) -> tuple[str, str, st
 
 
 def _reference_counts(
-    db: Session, store_item_ids: set[int]
-) -> dict[int, tuple[int, int]]:
+    db: Session, store_item_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
     """Maps store_item_id -> (active_file_count, deleted_file_count) across
     ALL ArchiveFile rows referencing it, including the candidate(s) currently
     being listed. A single aggregated query regardless of how many store
@@ -205,7 +206,7 @@ def list_deleted_files(db: Session) -> list[PurgeCandidate]:
     return _candidates_for(db, files)
 
 
-def list_deleted_files_in_dir(db: Session, dir_id: int) -> list[PurgeCandidate]:
+def list_deleted_files_in_dir(db: Session, dir_id: uuid.UUID) -> list[PurgeCandidate]:
     """All currently soft-deleted archive files directly in the given
     directory (non-recursive — subdirectories are not included), oldest
     deletion first.
@@ -222,7 +223,7 @@ def list_deleted_files_in_dir(db: Session, dir_id: int) -> list[PurgeCandidate]:
     return _candidates_for(db, files)
 
 
-def _live_sibling_counts(db: Session, store_item_id: int) -> tuple[int, int]:
+def _live_sibling_counts(db: Session, store_item_id: uuid.UUID) -> tuple[int, int]:
     """Freshly (re-)computes (active_count, deleted_count) for a single
     store item, including the candidate's own row. Used by
     `is_still_duplicate()` immediately before an actual batch purge.
@@ -241,7 +242,7 @@ def is_still_duplicate(db: Session, candidate: PurgeCandidate) -> bool:
     return active_count > 0
 
 
-def _get_file(db: Session, file_id: int) -> ArchiveFile:
+def _get_file(db: Session, file_id: uuid.UUID) -> ArchiveFile:
     """Shared existence check — raises regardless of soft-delete state."""
     file_obj = db.get(ArchiveFile, file_id)
     if file_obj is None:
@@ -250,7 +251,7 @@ def _get_file(db: Session, file_id: int) -> ArchiveFile:
     return file_obj
 
 
-def _get_soft_deleted_file(db: Session, file_id: int) -> ArchiveFile:
+def _get_soft_deleted_file(db: Session, file_id: uuid.UUID) -> ArchiveFile:
     """Shared existence/state check for both purge and restore targets."""
     file_obj = _get_file(db, file_id)
     if file_obj.deleted_at is None:
@@ -260,7 +261,7 @@ def _get_soft_deleted_file(db: Session, file_id: int) -> ArchiveFile:
 
 
 def _delete_orphaned_store_items(
-    db: Session, store_item_ids: set[int]
+    db: Session, store_item_ids: set[uuid.UUID]
 ) -> list[ArchiveStoreItem]:
     """Deletes ArchiveStoreItem rows no longer referenced by any ArchiveFile.
     Must only be called after the owning ArchiveFile row(s) have already been
@@ -321,7 +322,7 @@ def _purge_s3_object(
         _delete_s3_key(storage, key, deleted, errors)
 
 
-def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult:
+def purge_file(db: Session, storage: StorageClient, file_id: uuid.UUID) -> PurgeResult:
     """Permanently deletes a soft-deleted archive file: hard-deletes the DB
     row (cascading its comments), then removes the underlying S3 object(s)
     if no other file still references the same content hash.
@@ -360,7 +361,7 @@ def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult
     )
 
 
-def restore_file(db: Session, file_id: int) -> FileLocation:
+def restore_file(db: Session, file_id: uuid.UUID) -> FileLocation:
     """CLI-only restore: undoes a soft-delete by clearing deleted_at.
 
     Mirrors archive_service.restore_file()'s core logic (404 check,
@@ -402,9 +403,9 @@ def restore_file(db: Session, file_id: int) -> FileLocation:
 
 def _active_duplicates_for_store_items(
     db: Session,
-    store_item_ids: set[int],
-    exclude_file_ids: set[int] | None = None,
-) -> dict[int, list[ActiveDuplicate]]:
+    store_item_ids: set[uuid.UUID],
+    exclude_file_ids: set[uuid.UUID] | None = None,
+) -> dict[uuid.UUID, list[ActiveDuplicate]]:
     """Maps store_item_id -> its active (non-deleted) ArchiveFile
     duplicates. A single query regardless of how many store items are
     involved, so inspecting an entire directory's files doesn't turn into
@@ -412,7 +413,7 @@ def _active_duplicates_for_store_items(
     """
     if not store_item_ids:
         return {}
-    result: dict[int, list[ActiveDuplicate]] = {sid: [] for sid in store_item_ids}
+    result: dict[uuid.UUID, list[ActiveDuplicate]] = {sid: [] for sid in store_item_ids}
     query = db.query(ArchiveFile).filter(
         ArchiveFile.archive_store_item_id.in_(store_item_ids),
         ArchiveFile.deleted_at.is_(None),
@@ -430,7 +431,7 @@ def _active_duplicates_for_store_items(
 
 
 def active_duplicates_of_file(
-    db: Session, file_id: int
+    db: Session, file_id: uuid.UUID
 ) -> tuple[FileLocation, list[ActiveDuplicate]]:
     """Returns the given file's own location plus the active files sharing
     its content (any status for the given file itself — active or
@@ -455,7 +456,7 @@ def active_duplicates_of_file(
 
 
 def active_duplicates_in_dir(
-    db: Session, dir_id: int
+    db: Session, dir_id: uuid.UUID
 ) -> list[tuple[PurgeCandidate, list[ActiveDuplicate]]]:
     """Pairs every currently soft-deleted file directly in `dir_id` with its
     list of active duplicates. Empty list if the directory has no
@@ -471,7 +472,7 @@ def active_duplicates_in_dir(
     return [(c, by_store_item[c.archive_store_item_id]) for c in candidates]
 
 
-def find_file_location(db: Session, file_id: int) -> FileLocation | None:
+def find_file_location(db: Session, file_id: uuid.UUID) -> FileLocation | None:
     """Returns the file's location (any status) if a file with this id
     exists, else None. Used by the `urlpath` convenience lookup, where "not
     a file" just means the id might be a directory instead — not an error.
@@ -489,7 +490,7 @@ def find_file_location(db: Session, file_id: int) -> FileLocation | None:
     )
 
 
-def find_dir_location(db: Session, dir_id: int) -> DirLocation | None:
+def find_dir_location(db: Session, dir_id: uuid.UUID) -> DirLocation | None:
     """Returns the directory's own resolved path/status if a dir with this
     id exists, else None. Used by the `urlpath` convenience lookup, where
     "not a directory" just means the id might be a file instead — not an

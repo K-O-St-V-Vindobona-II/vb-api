@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,9 +16,10 @@ if TYPE_CHECKING:
 class MembersOauth2Binding(Base):
     __tablename__ = "members_oauth2bindings"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    member_id: Mapped[int] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"), index=True
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    member_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
 
     provider: Mapped[str]

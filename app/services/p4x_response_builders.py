@@ -22,6 +22,8 @@ from app.schemas.p4x import (
 from app.services import p4x_account_service, p4x_category_service, p4x_partner_service
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 
@@ -149,7 +151,7 @@ def build_account_response(
 
 def get_account_or_404(
     db: Session,
-    account_id: int,
+    account_id: uuid.UUID,
 ) -> P4xAccount:
     account = (
         db.query(P4xAccount)
@@ -169,14 +171,15 @@ def get_account_or_404(
 
 def get_transaction_for_account(
     db: Session,
-    account_id: int,
-    transaction_id: int,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
 ) -> P4xTransaction:
+    account = get_account_or_404(db, account_id)
     tx = (
         db.query(P4xTransaction)
         .filter(
             P4xTransaction.id == transaction_id,
-            P4xTransaction.p4x_account_id == account_id,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .first()
@@ -226,7 +229,7 @@ def build_filter_response(
 
 def get_filter_or_404(
     db: Session,
-    filter_id: int,
+    filter_id: uuid.UUID,
 ) -> P4xCategoryFilter:
     f = (
         db.query(P4xCategoryFilter)
@@ -242,7 +245,7 @@ def get_filter_or_404(
 
 def get_transaction_or_404(
     db: Session,
-    transaction_id: int,
+    transaction_id: uuid.UUID,
 ) -> P4xTransaction:
     tx = (
         db.query(P4xTransaction)
@@ -259,7 +262,7 @@ def get_transaction_or_404(
 
 def get_member_or_404(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
 ) -> Member:
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
@@ -269,7 +272,7 @@ def get_member_or_404(
 
 def get_category_or_404(
     db: Session,
-    category_id: int,
+    category_id: uuid.UUID,
 ) -> P4xCategory:
     cat = db.query(P4xCategory).filter(P4xCategory.id == category_id).first()
     if not cat:

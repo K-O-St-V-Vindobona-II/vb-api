@@ -1,6 +1,7 @@
 """Tests für Archiv-Dateien (Upload, Download, Kommentare)."""
 
 import os
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -106,7 +107,7 @@ def _login_user(db, _client, org="vbw", state="fu"):
 def _make_dir(
     db,
     name,
-    parent_id=0,
+    parent_id=None,
     perms=None,
     recursive=False,
 ):
@@ -133,7 +134,7 @@ def _make_dir(
     return d
 
 
-def _make_file(db, dir_id=0, desc="test"):
+def _make_file(db, dir_id=None, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
@@ -365,7 +366,7 @@ class TestUpload:
             db_session.add(item)
             db_session.flush()
             f = ArchiveFile(
-                archive_dir_id=0,
+                archive_dir_id=None,
                 description="unfiled",
                 archive_store_item_id=item.id,
                 created_at=now,
@@ -437,12 +438,12 @@ class TestFileDetail:
         client,
         db_session,
     ):
-        """archive_dir_id == 0 (unsorted upload, no real parent dir to
+        """archive_dir_id IS NULL (unsorted upload, no real parent dir to
         check can_insight() against) is archiveAdmin-only everywhere else
         in this module - the detail endpoint must follow the same rule."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        f = _make_file(db_session, dir_id=None, desc="unsorted")
         resp = client.get(
             f"/api/archive/files/{f.id}",
             headers=headers,
@@ -456,7 +457,7 @@ class TestFileDetail:
     ):
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        f = _make_file(db_session, dir_id=None, desc="unsorted")
         resp = client.get(
             f"/api/archive/files/{f.id}",
             headers=headers,
@@ -613,7 +614,7 @@ class TestPresignedUrl:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999/url",
+            f"/api/archive/files/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -623,7 +624,7 @@ class TestPresignedUrl:
         client,
         db_session,
     ):
-        resp = client.get("/api/archive/files/1/url")
+        resp = client.get(f"/api/archive/files/{uuid.uuid4()}/url")
         assert resp.status_code == 401
 
 
@@ -636,12 +637,12 @@ class TestMoveAndRestore:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         target = _make_dir(db_session, "Target")
-        f = _make_file(db_session, dir_id=0)
+        f = _make_file(db_session, dir_id=None)
         resp = client.post(
             f"/api/archive/dirs/{target.id}/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -664,7 +665,7 @@ class TestMoveAndRestore:
             "/api/archive/dirs/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -672,7 +673,7 @@ class TestMoveAndRestore:
         assert resp.status_code == 200
         db_session.expire_all()
         updated = db_session.get(ArchiveFile, f.id)
-        assert updated.archive_dir_id == 0
+        assert updated.archive_dir_id is None
 
     def test_restore_deleted_file(
         self,
@@ -723,8 +724,8 @@ class TestMoveAndRestore:
         content = resp.json()["content"]
         insight_ids = [f["id"] for f in content["files"]["insight"]]
         trashed_ids = [f["id"] for f in content["files"]["trashed"]]
-        assert f_active.id in insight_ids
-        assert f_deleted.id in trashed_ids
+        assert str(f_active.id) in insight_ids
+        assert str(f_deleted.id) in trashed_ids
 
     def test_move_requires_admin(
         self,
@@ -739,9 +740,98 @@ class TestMoveAndRestore:
             f"/api/archive/dirs/{d.id}/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+class TestArchiveDirIdDefault:
+    """Guards ArchiveDir's own UUID primary key: every insert goes
+    through the ORM instance, so `default=uuid.uuid7` fires without
+    ever needing a server-side default - same guard as every other
+    Final-Cutover table's primary key in this series."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        d = ArchiveDir(name="Final Cutover Guard")
+        db_session.add(d)
+        db_session.flush()
+
+        assert isinstance(d.id, uuid.UUID)
+        assert d.id.version == 7
+
+
+class TestArchiveStoreItemIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="final-cutover-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="final-cutover-guard-hash",
+        )
+        db_session.add(item)
+        db_session.flush()
+
+        assert isinstance(item.id, uuid.UUID)
+        assert item.id.version == 7
+
+
+class TestArchiveFileIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    115c679b7348_archive_files_final_cutover.py): every insert goes
+    through the ORM instance, so `default=uuid.uuid7` on the model fires
+    without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="final-cutover-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="final-cutover-guard-hash-file",
+        )
+        db_session.add(item)
+        db_session.flush()
+
+        f = ArchiveFile(archive_store_item_id=item.id)
+        db_session.add(f)
+        db_session.flush()
+
+        assert isinstance(f.id, uuid.UUID)
+        assert f.id.version == 7
+
+
+class TestArchiveFileCommentIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    dd8661641df7_archive_file_comments_id_and_fk_cutover.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        item = ArchiveStoreItem(
+            name="final-cutover-guard",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="final-cutover-guard-hash-comment",
+        )
+        db_session.add(item)
+        db_session.flush()
+        f = ArchiveFile(archive_store_item_id=item.id)
+        db_session.add(f)
+        db_session.flush()
+
+        comment = ArchiveFileComment(archive_file_id=f.id, content="Guard comment")
+        db_session.add(comment)
+        db_session.flush()
+
+        assert isinstance(comment.id, uuid.UUID)
+        assert comment.id.version == 7

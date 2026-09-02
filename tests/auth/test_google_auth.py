@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -276,3 +277,27 @@ class TestTimeoutHTTPAdapter:
             adapter.send(MagicMock(), timeout=42.0)
 
         assert mock_send.call_args.kwargs["timeout"] == 42.0
+
+
+class TestMembersOauth2BindingUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
+    insert goes through the ORM instance, so `default=uuid.uuid7` on the
+    model fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        binding = MembersOauth2Binding(
+            member_id=member.id,
+            provider="google",
+            remote_id="uuid-default-guard",
+            remote_name="Guard",
+        )
+        db_session.add(binding)
+        db_session.flush()
+
+        assert isinstance(binding.id, uuid.UUID)
+        assert binding.id.version == 7

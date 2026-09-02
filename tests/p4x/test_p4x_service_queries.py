@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 
 from app.models.member import Member
@@ -49,7 +50,7 @@ def _add_tx(
     iban: str = "AT001",
     subject: str = "Test",
     hash_suffix: str = "",
-    delegating_member_id: int | None = None,
+    delegating_member_id: uuid.UUID | None = None,
 ) -> P4xTransaction:
     tx = P4xTransaction(
         sha256_hash=f"q_{booking}_{amount}_{iban}_{hash_suffix}",
@@ -165,7 +166,7 @@ class TestGetTransactionsByPartner:
         _add_tx(db_session, account, date(2026, 3, 10), 15.0)
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", 999, 1
+            db_session, account, "member", uuid.uuid4(), 1
         )
         assert total == 0
         assert items == []
@@ -244,7 +245,9 @@ class TestGetTransactionsByCategory:
 
     def test_empty_when_no_category_match(self, db_session):
         account = _create_account(db_session)
-        items, total = get_transactions_by_category(db_session, account, 999, 1)
+        items, total = get_transactions_by_category(
+            db_session, account, uuid.uuid4(), 1
+        )
         assert total == 0
         assert items == []
 
@@ -345,7 +348,7 @@ class TestGetTransactionsByFilter:
 
     def test_empty_when_no_hits(self, db_session):
         account = _create_account(db_session)
-        items, total = get_transactions_by_filter(db_session, account, 999, 1)
+        items, total = get_transactions_by_filter(db_session, account, uuid.uuid4(), 1)
         assert total == 0
         assert items == []
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -14,12 +15,19 @@ if TYPE_CHECKING:
 class ArchivePermission(Base):
     __tablename__ = "archive_permissions"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    archive_dir_id: Mapped[int] = mapped_column(
-        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE")
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    archive_dir_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
-    org_id: Mapped[str]
-    state_id: Mapped[str]
+    org_id: Mapped[str] = mapped_column(
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
+    state_id: Mapped[str] = mapped_column(
+        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
 
     archive_dir: Mapped[ArchiveDir] = relationship(
         back_populates="archive_permissions",

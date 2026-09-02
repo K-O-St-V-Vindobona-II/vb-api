@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Text, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -31,7 +32,7 @@ class PublicSiteSocialLink(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     platform: Mapped[str] = mapped_column(Text)
     label: Mapped[str] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)

@@ -19,6 +19,8 @@ from app.schemas.tracking import (
 )
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
 ACTION_LABELS: dict[tuple[str, str], str] = {
@@ -179,7 +181,7 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
 ]
 
 
-def get_sent_email_detail(db: Session, email_id: int) -> SentEmail:
+def get_sent_email_detail(db: Session, email_id: uuid.UUID) -> SentEmail:
     email = db.query(SentEmail).filter(SentEmail.id == email_id).first()
     if not email:
         raise HTTPException(status_code=404, detail="Email nicht gefunden")
@@ -262,7 +264,7 @@ def get_email_templates(db: Session) -> list[EmailTemplateStats]:
 # ---------------------------------------------------------------------------
 
 
-def _member_name_map(db: Session, member_ids: set[int]) -> dict[int, str]:
+def _member_name_map(db: Session, member_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     if not member_ids:
         return {}
     members = (
@@ -295,7 +297,7 @@ def get_activity_stats(db: Session) -> ActivityStats:
 
 def _is_session_boundary(
     log: RequestLog,
-    current_member: int | None,
+    current_member: uuid.UUID | None,
     current_group: list[RequestLog],
     session_gap: timedelta,
 ) -> bool:
@@ -312,8 +314,8 @@ def _is_session_boundary(
 
 def _build_session(
     logs: list[RequestLog],
-    member_id: int,
-    names: dict[int, str],
+    member_id: uuid.UUID,
+    names: dict[uuid.UUID, str],
 ) -> ActivitySessionItem:
     now = datetime.now(UTC)
     return ActivitySessionItem(
@@ -344,12 +346,12 @@ def _build_session(
 
 def _group_logs_into_sessions(
     logs: list[RequestLog],
-    names: dict[int, str],
+    names: dict[uuid.UUID, str],
 ) -> list[ActivitySessionItem]:
     session_gap = timedelta(minutes=30)
     sessions: list[ActivitySessionItem] = []
     current_group: list[RequestLog] = []
-    current_member: int | None = None
+    current_member: uuid.UUID | None = None
 
     for log in logs:
         if _is_session_boundary(log, current_member, current_group, session_gap):
@@ -368,7 +370,7 @@ def _group_logs_into_sessions(
 def get_activity_sessions(
     db: Session,
     date_str: str | None,
-    member_id: int | None,
+    member_id: uuid.UUID | None,
     page: int,
     page_size: int,
 ) -> dict[str, list[ActivitySessionItem] | int]:
@@ -460,7 +462,7 @@ def list_activity(
     page: int,
     page_size: int,
     *,
-    member_id: int | None,
+    member_id: uuid.UUID | None,
     date_from: str | None,
     date_to: str | None,
 ) -> dict[str, list[ActivityLogItem] | int]:

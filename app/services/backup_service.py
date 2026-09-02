@@ -457,14 +457,31 @@ def run_restore(
         )
         _verify_restore_populated(host, user, password, port, dbname)
         if local_job_history is not None:
-            _restore_local_job_history(
-                local_job_history,
-                host=host,
-                user=user,
-                password=password,
-                port=port,
-                dbname=dbname,
-            )
+            try:
+                _restore_local_job_history(
+                    local_job_history,
+                    host=host,
+                    user=user,
+                    password=password,
+                    port=port,
+                    dbname=dbname,
+                )
+            except RuntimeError:
+                # The pre-restore snapshot reflects this stage's current
+                # scheduled_task_runs column types; the just-restored table
+                # reflects the backup source's. These can briefly diverge
+                # while a schema migration has landed on this stage but not
+                # yet on the backup source, making the snapshot's data
+                # incompatible with the freshly restored column types.
+                # Losing this stage's own job-run history is a cosmetic
+                # loss - aborting the whole restore here would also skip
+                # the caller's subsequent `alembic upgrade head`, leaving
+                # the database stuck mid-migration instead.
+                logger.exception(
+                    "Failed to restore local scheduled_task_runs history - "
+                    "continuing without it (likely a schema mismatch "
+                    "between this stage and the restored backup)."
+                )
     finally:
         Path(tmp_path).unlink()
 

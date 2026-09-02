@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import pytest
@@ -45,22 +46,22 @@ def test_state_model(db_session):
 
 def test_badge_model(db_session):
     """Badge reference data can be read."""
-    badge = Badge(id=1, name="Fuxenband", group="jubelband", order=1)
+    badge = Badge(name="Fuxenband", group="jubelband", order=1)
     db_session.add(badge)
     db_session.commit()
 
-    loaded = db_session.get(Badge, 1)
+    loaded = db_session.get(Badge, badge.id)
     assert loaded.name == "Fuxenband"
     assert loaded.group == "jubelband"
 
 
 def test_key_model(db_session):
     """Key reference data can be read."""
-    key = Key(id=1, name="Haustorschlüssel")
+    key = Key(name="Haustorschlüssel")
     db_session.add(key)
     db_session.commit()
 
-    loaded = db_session.get(Key, 1)
+    loaded = db_session.get(Key, key.id)
     assert loaded.name == "Haustorschlüssel"
 
 
@@ -239,7 +240,7 @@ def test_member_role_relationship(db_session):
 
 def test_member_badge_relationship(db_session):
     """Member badges with presentation date."""
-    badge = Badge(id=99, name="Testband", group="jubelband")
+    badge = Badge(name="Testband", group="jubelband")
     db_session.add(badge)
 
     member = Member(
@@ -253,7 +254,7 @@ def test_member_badge_relationship(db_session):
 
     mb = MemberBadge(
         member_id=member.id,
-        badge_id=99,
+        badge_id=badge.id,
         presentationdate=date(2023, 6, 15),
         presentationdate_accuracy=3,
     )
@@ -268,7 +269,7 @@ def test_member_badge_relationship(db_session):
 
 def test_member_key_relationship(db_session):
     """Member keys with presentation date."""
-    key = Key(id=99, name="Testschlüssel")
+    key = Key(name="Testschlüssel")
     db_session.add(key)
 
     member = Member(
@@ -282,7 +283,7 @@ def test_member_key_relationship(db_session):
 
     mk = MemberKey(
         member_id=member.id,
-        key_id=99,
+        key_id=key.id,
         presentationdate=date(2023, 1, 1),
         presentationdate_accuracy=1,
     )
@@ -350,6 +351,25 @@ def test_standesdb_image_model(db_session):
     assert loaded.deleted_at is None
 
 
+class TestStandesdbImageIdDefault:
+    """Guards StandesdbImage's own UUID primary key: every insert goes
+    through the ORM instance, so `default=uuid.uuid7` fires without
+    ever needing a server-side default - same guard as every other
+    Final-Cutover table's primary key in this series."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        member = Member(vorname="Test", nachname="User")
+        db_session.add(member)
+        db_session.commit()
+
+        img = StandesdbImage(owner_member_id=member.id, sha256_hash="uuid7test")
+        db_session.add(img)
+        db_session.flush()
+
+        assert isinstance(img.id, uuid.UUID)
+        assert img.id.version == 7
+
+
 def test_member_default_image(db_session):
     """default_image returns the default or oldest."""
     member = Member(
@@ -378,3 +398,43 @@ def test_member_default_image(db_session):
     db_session.refresh(member)
 
     assert member.default_image == img2.id
+
+
+class TestContactIdDefault:
+    """Every insert goes through the ORM instance, so `default=uuid.uuid7`
+    on the primary key fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        contact = Contact(kontakttyp="person", name="Final Cutover Guard")
+        db_session.add(contact)
+        db_session.flush()
+
+        assert isinstance(contact.id, uuid.UUID)
+        assert contact.id.version == 7
+
+
+class TestBadgeIdUuidDefault:
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        badge = Badge(name="Final-Cutover Guard")
+        db_session.add(badge)
+        db_session.flush()
+
+        assert isinstance(badge.id, uuid.UUID)
+        assert badge.id.version == 7
+
+
+class TestKeyIdUuidDefault:
+    """Same guard as TestBadgeIdUuidDefault, for keys."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        key = Key(name="Final-Cutover Guard")
+        db_session.add(key)
+        db_session.flush()
+
+        assert isinstance(key.id, uuid.UUID)
+        assert key.id.version == 7

@@ -1,6 +1,7 @@
 """Coverage tests for standesdb router and service."""
 
 import io
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -122,14 +123,16 @@ class TestMemberNotFound:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/auth-activity", headers=h)
+        resp = client.get(
+            f"/api/standesdb/members/{uuid.uuid4()}/auth-activity", headers=h
+        )
         assert resp.status_code == 404
 
     def test_list_images_404(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/images", headers=h)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}/images", headers=h)
         assert resp.status_code == 404
 
     def test_upload_image_404(self, client, db_session):
@@ -138,7 +141,7 @@ class TestMemberNotFound:
         h = _headers(db_session, admin)
         buf = io.BytesIO(b"fake")
         resp = client.post(
-            "/api/standesdb/members/99999/images",
+            f"/api/standesdb/members/{uuid.uuid4()}/images",
             headers=h,
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
@@ -149,7 +152,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.put(
-            "/api/standesdb/members/99999/images/1",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}",
             json={"description": "x"},
             headers=h,
         )
@@ -160,7 +163,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.delete(
-            "/api/standesdb/members/99999/images/1",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}",
             headers=h,
         )
         assert resp.status_code == 404
@@ -170,7 +173,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.get(
-            "/api/standesdb/members/99999/searchparent?q=test",
+            f"/api/standesdb/members/{uuid.uuid4()}/searchparent?q=test",
             headers=h,
         )
         assert resp.status_code == 404
@@ -223,7 +226,7 @@ class TestContactImages:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/contacts/99999/images", headers=h)
+        resp = client.get(f"/api/standesdb/contacts/{uuid.uuid4()}/images", headers=h)
         assert resp.status_code == 404
 
     def test_list_contact_images_soft_deleted(self, client, db_session):
@@ -242,7 +245,7 @@ class TestContactImages:
         h = _headers(db_session, admin)
         buf = io.BytesIO(b"fake")
         resp = client.post(
-            "/api/standesdb/contacts/99999/images",
+            f"/api/standesdb/contacts/{uuid.uuid4()}/images",
             headers=h,
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
@@ -376,7 +379,7 @@ class TestChangelog:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/changelog", headers=h)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}/changelog", headers=h)
         assert resp.status_code == 404
 
     def test_member_changelog_rejects_system_admin_without_standesdb_role(

@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Text, text
+from sqlalchemy import CheckConstraint, DateTime, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -21,7 +22,7 @@ class PublicSiteProgrammHint(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     # Attribute named `content`, not `text` - the DB column is "text" (see
     # migration), but that name collides with the sqlalchemy.text() import
     # needed below for server_default: as a class attribute it would

@@ -29,8 +29,8 @@ def _seed(db):
             State(id="fu", label="Fux", order=1),
             State(id="bu", label="Bursch", order=2),
             Role(id="standesfuehrer", group="funktion", label="Standesführer", order=1),
-            Badge(id=1, name="Fuxenband", group="jubelband", order=1),
-            Badge(id=2, name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Badge(name="Fuxenband", group="jubelband", order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
         ]
     )
     db.commit()
@@ -601,10 +601,14 @@ class TestExcelExport:
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
         m = _member(db_session, vorname="X", nachname="Y", email="x@t.at")
+        fuxenband = db_session.query(Badge).filter_by(name="Fuxenband").one()
+        ehrenzeichen_gold = (
+            db_session.query(Badge).filter_by(name="Ehrenzeichen Gold").one()
+        )
         db_session.add(
             MemberBadge(
                 member_id=m.id,
-                badge_id=1,
+                badge_id=fuxenband.id,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
             )
@@ -612,7 +616,7 @@ class TestExcelExport:
         db_session.add(
             MemberBadge(
                 member_id=m.id,
-                badge_id=2,
+                badge_id=ehrenzeichen_gold.id,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
             )

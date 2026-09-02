@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -58,11 +59,11 @@ class IdLabelOption(BaseModel):
 
 
 class StatusIdResponse(BaseModel):
-    """Generic acknowledgement for create endpoints that only need to
-    report the new row's id alongside the status."""
+    """Acknowledgement for create endpoints that only need to report the
+    new row's id alongside the status."""
 
     status: str
-    id: int
+    id: uuid.UUID
 
 
 class PaginatedResponse[T](BaseModel):

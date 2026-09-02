@@ -6,6 +6,7 @@ get/update_fee_member) previously only had service-level tests that
 bypassed the router entirely, leaving these fetch guards untested.
 """
 
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -112,7 +113,7 @@ class TestGetTransactionOr404:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["id"] == tx.id
+        assert resp.json()["id"] == str(tx.id)
 
     def test_set_partner_404_for_missing_transaction(self, db_session, client):
         _seed(db_session)
@@ -120,7 +121,7 @@ class TestGetTransactionOr404:
         headers = _login(db_session, admin)
 
         resp = client.post(
-            "/api/p4x/admin/transactions/99999/set-partner",
+            f"/api/p4x/admin/transactions/{uuid.uuid4()}/set-partner",
             json={"partner": None, "hasDelegatingPartner": False},
             headers=headers,
         )
@@ -134,7 +135,7 @@ class TestGetMemberOr404:
         admin = _create_admin(db_session)
         headers = _login(db_session, admin)
 
-        resp = client.get("/api/p4x/fee-members/99999", headers=headers)
+        resp = client.get(f"/api/p4x/fee-members/{uuid.uuid4()}", headers=headers)
 
         assert resp.status_code == 404
 
@@ -144,7 +145,7 @@ class TestGetMemberOr404:
         headers = _login(db_session, admin)
 
         resp = client.post(
-            "/api/p4x/admin/fee-members/99999",
+            f"/api/p4x/admin/fee-members/{uuid.uuid4()}",
             json={
                 "p4x_init_date": "2020-01-01",
                 "p4x_init_balance": "0.00",

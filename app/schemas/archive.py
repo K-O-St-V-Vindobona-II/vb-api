@@ -1,5 +1,6 @@
 import re
-from typing import Literal
+import uuid
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,7 +21,7 @@ class ArchiveDirShort(BaseModel):
     bucket - see _dir_short() in archive_service.py."""
 
     type: Literal["dir"] = "dir"
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     created_at: UtcDatetime | None
@@ -33,7 +34,7 @@ class ArchiveFileShort(BaseModel):
     archive_service.py."""
 
     type: Literal["file"] = "file"
-    id: int
+    id: uuid.UUID
     name: str
     extension: str
     description: str | None
@@ -69,7 +70,7 @@ class ArchiveDirContent(BaseModel):
 
 
 class ArchivePathEntry(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
 
 
@@ -126,7 +127,9 @@ class ArchiveDirDetailResponse(BaseModel):
     directories always have stats=None."""
 
     type: Literal["dir"] = "dir"
-    id: int
+    # None only for the synthetic root (GET /dirs) - a real directory
+    # (GET /dirs/{dir_id}) always has an id.
+    id: uuid.UUID | None
     name: str
     description: str | None
     path: list[ArchivePathEntry]
@@ -144,7 +147,7 @@ class ArchiveStoreItemResponse(BaseModel):
     """The currently-active version of a file's content-addressed store
     item - see _store_item_response() in archive_service.py."""
 
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     extension: str
@@ -156,7 +159,7 @@ class ArchiveStoreItemResponse(BaseModel):
 
 
 class ArchiveCommentResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     content: str
     author: str | None
     created_at: UtcDatetime | None
@@ -168,8 +171,8 @@ class ArchiveFileDetailResponse(BaseModel):
     non-admin caller."""
 
     type: Literal["file"] = "file"
-    id: int
-    archive_dir_id: int
+    id: uuid.UUID
+    archive_dir_id: uuid.UUID | None
     name: str
     extension: str
     description: str | None
@@ -186,7 +189,7 @@ class ArchiveFileDetailResponse(BaseModel):
 
 class ArchiveSearchDirResult(BaseModel):
     type: Literal["dir"] = "dir"
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     path: str
@@ -194,7 +197,7 @@ class ArchiveSearchDirResult(BaseModel):
 
 class ArchiveSearchFileResult(BaseModel):
     type: Literal["file"] = "file"
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     extension: str
@@ -236,7 +239,9 @@ class DirSaveRequest(StrictInputModel):
     description: str | None = None
     permissions: list[str] = Field(default_factory=list)
     recursive_permissions: bool = False
-    parentId: int | None = None  # noqa: N815
+    # strict=False: JSON has no native UUID type either, so it always
+    # arrives as a plain hex string, not a uuid.UUID instance.
+    parentId: uuid.UUID | None = Field(None, strict=False)  # noqa: N815
 
     @field_validator("name")
     @classmethod
@@ -273,7 +278,14 @@ class DirSaveRequest(StrictInputModel):
 
 class DirReceiveRequest(StrictInputModel):
     type: str
-    ids: list[int]
+    # A dir id or file id, depending on `type` - the service layer
+    # branches on `type` and only ever looks each id up against the
+    # matching table. Both are UUIDs.
+    # strict=False must sit on the list's item type, not the `ids` field
+    # itself - a field-level override does not cascade into a generic
+    # container's item validator, so it would otherwise still reject the
+    # plain hex strings JSON (which has no native UUID type) always sends.
+    ids: list[Annotated[uuid.UUID, Field(strict=False)]]
     action: str = "move"
 
     @field_validator("type")

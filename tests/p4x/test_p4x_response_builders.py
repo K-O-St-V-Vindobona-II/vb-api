@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -220,6 +221,7 @@ class TestBuildTransactionResponse:
         assert len(resp.p4x_category_filters) == 1
         assert resp.p4x_category_filters[0].id == category_filter.id
         assert resp.p4x_category_filters[0].hitCount == 1
+        assert resp.p4x_category_filters[0].p4x_account_id == account.id
         assert resp.p4x_category_filters[0].p4x_account_label == account.label
 
 
@@ -253,7 +255,7 @@ class TestGetAccountOr404:
 
     def test_raises_404_for_unknown_id(self, db_session):
         with pytest.raises(HTTPException) as exc_info:
-            get_account_or_404(db_session, 999999)
+            get_account_or_404(db_session, uuid.uuid4())
         assert exc_info.value.status_code == 404
 
     def test_raises_404_for_soft_deleted_account(self, db_session):
@@ -294,7 +296,7 @@ class TestGetTransactionForAccount:
     def test_raises_404_for_unknown_transaction(self, db_session):
         account, _member, _contact = _seed(db_session)
         with pytest.raises(HTTPException) as exc_info:
-            get_transaction_for_account(db_session, account.id, 999999)
+            get_transaction_for_account(db_session, account.id, uuid.uuid4())
         assert exc_info.value.status_code == 404
 
 
@@ -358,6 +360,7 @@ class TestBuildFilterResponse:
         resp = build_filter_response(db_session, category_filter)
 
         assert resp.id == category_filter.id
+        assert resp.p4x_account_id == account.id
         assert resp.p4x_account_label == account.label
         assert resp.hitCount == 0
 
@@ -392,5 +395,5 @@ class TestGetFilterOr404:
 
     def test_raises_404_for_unknown_filter(self, db_session):
         with pytest.raises(HTTPException) as exc_info:
-            get_filter_or_404(db_session, 999999)
+            get_filter_or_404(db_session, uuid.uuid4())
         assert exc_info.value.status_code == 404
