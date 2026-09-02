@@ -322,11 +322,12 @@ def _get_fee_payments_sum(
     if not partner_ibans:
         return Decimal(0)
 
+    fee_category_id_uuid = _fee_category_id_uuid(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -334,9 +335,9 @@ def _get_fee_payments_sum(
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id)
+        for r in db.query(P4xCategoryFilter.id_uuid)
         .filter(
-            P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db),
+            P4xCategoryFilter.p4x_category_id == fee_category_id_uuid,
         )
         .all()
     ]
@@ -370,7 +371,7 @@ def _get_fee_payments_sum(
     query = db.query(func.sum(P4xTransaction.amount)).filter(
         P4xTransaction.deleted_at.is_(None),
         P4xTransaction.amount > 0,
-        P4xTransaction.id.in_(fee_cat_tx_ids),
+        P4xTransaction.id_uuid.in_(fee_cat_tx_ids),
         P4xTransaction.booking >= from_date,
         (
             P4xTransaction.iban.in_(partner_ibans)
@@ -411,11 +412,12 @@ def _get_fee_payments_list(
     if not partner_ibans:
         return []
 
+    fee_category_id_uuid = _fee_category_id_uuid(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -423,9 +425,9 @@ def _get_fee_payments_list(
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id)
+        for r in db.query(P4xCategoryFilter.id_uuid)
         .filter(
-            P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db),
+            P4xCategoryFilter.p4x_category_id == fee_category_id_uuid,
         )
         .all()
     ]
@@ -461,7 +463,7 @@ def _get_fee_payments_list(
         .filter(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.amount > 0,
-            P4xTransaction.id.in_(fee_cat_tx_ids),
+            P4xTransaction.id_uuid.in_(fee_cat_tx_ids),
             P4xTransaction.booking >= from_date,
             P4xTransaction.booking <= to_date,
             (
@@ -724,25 +726,26 @@ def _build_member_states(
     return states
 
 
-def _fee_category_tx_ids(db: Session) -> set[int]:
+def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
     """Member-independent set of transaction ids in the fee category.
     Deliberately duplicated from _get_fee_payments_sum/
     _get_fee_payments_list rather than extracted from them - those
     helpers back calculate_fee_balance() and are out of scope for
     refactoring here."""
+    fee_category_id_uuid = _fee_category_id_uuid(db)
     direct_tx_ids = {
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == FEE_CATEGORY_ID,
+            P4xCategoryDirect.p4x_category_id == fee_category_id_uuid,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
     }
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id)
-        .filter(P4xCategoryFilter.p4x_category_id == _fee_category_id_uuid(db))
+        for r in db.query(P4xCategoryFilter.id_uuid)
+        .filter(P4xCategoryFilter.p4x_category_id == fee_category_id_uuid)
         .all()
     ]
     filter_tx_ids = (
@@ -789,7 +792,7 @@ def _iban_to_member_id_map(
 
 def _fetch_fee_category_transactions(
     db: Session,
-    tx_ids: set[int],
+    tx_ids: set[uuid.UUID],
     booking_from: date,
     booking_to: date,
 ) -> list[_FeeCategoryTxRow]:
@@ -811,7 +814,7 @@ def _fetch_fee_category_transactions(
         .filter(
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.amount > 0,
-            P4xTransaction.id.in_(tx_ids),
+            P4xTransaction.id_uuid.in_(tx_ids),
             P4xTransaction.booking >= booking_from,
             P4xTransaction.booking <= booking_to,
         )

@@ -73,7 +73,7 @@ def build_transaction_response(
         hit_count = (
             db.query(P4xCategoryFilterHit)
             .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id == cf.id,
+                P4xCategoryFilterHit.p4x_category_filter_id == cf.id_uuid,
             )
             .count()
         )

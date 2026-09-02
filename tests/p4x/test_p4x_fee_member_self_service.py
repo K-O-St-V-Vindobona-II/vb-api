@@ -130,6 +130,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     the member via P4xPartner AND tagged with the fee category, so both are
     required for the payment to actually show up in balance.sum.payments."""
     account = db.query(P4xAccount).first()
+    category = db.query(P4xCategory).filter(P4xCategory.id == FEE_CATEGORY_ID).first()
 
     tx = P4xTransaction(
         sha256_hash=f"self_service_test_{member.id}_{booking.isoformat()}_{amount}",
@@ -154,8 +155,8 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     )
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=FEE_CATEGORY_ID,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=amount,
         )
     )

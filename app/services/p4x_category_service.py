@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
     from sqlalchemy.orm.query import RowReturningQuery
 
@@ -40,12 +42,12 @@ def apply_single_filter(db: Session, category_filter: P4xCategoryFilter) -> None
 
 
 def _apply_category_filter_criteria(
-    query: RowReturningQuery[tuple[int]],
+    query: RowReturningQuery[tuple[uuid.UUID]],
     category_filter: P4xCategoryFilter,
-    tx_with_directs: set[int],
-) -> RowReturningQuery[tuple[int]]:
+    tx_with_directs: set[uuid.UUID],
+) -> RowReturningQuery[tuple[uuid.UUID]]:
     if tx_with_directs:
-        query = query.filter(~P4xTransaction.id.in_(tx_with_directs))
+        query = query.filter(~P4xTransaction.id_uuid.in_(tx_with_directs))
 
     if category_filter.p4x_account_id:
         query = query.filter(
@@ -77,13 +79,13 @@ def _apply_category_filter_criteria(
 def _apply_filter_with_cache(
     db: Session,
     category_filter: P4xCategoryFilter,
-    tx_with_directs: set[int],
+    tx_with_directs: set[uuid.UUID],
 ) -> None:
     db.query(P4xCategoryFilterHit).filter(
-        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
+        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id_uuid,
     ).delete()
 
-    query = db.query(P4xTransaction.id).filter(
+    query = db.query(P4xTransaction.id_uuid).filter(
         P4xTransaction.deleted_at.is_(None),
     )
     query = _apply_category_filter_criteria(query, category_filter, tx_with_directs)
@@ -93,7 +95,7 @@ def _apply_filter_with_cache(
         db.add(
             P4xCategoryFilterHit(
                 p4x_transaction_id=tx_id,
-                p4x_category_filter_id=category_filter.id,
+                p4x_category_filter_id=category_filter.id_uuid,
                 created_at=now,
                 updated_at=now,
             )
@@ -153,7 +155,7 @@ def get_category_usage(db: Session, category: P4xCategory) -> dict[str, int]:
     direct_count = (
         db.query(P4xCategoryDirect)
         .filter(
-            P4xCategoryDirect.p4x_category_id == category.id,
+            P4xCategoryDirect.p4x_category_id == category.id_uuid,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .count()
@@ -251,7 +253,7 @@ def get_filter_hit_count(db: Session, category_filter: P4xCategoryFilter) -> int
     }
 
     query = db.query(P4xCategoryFilterHit).filter(
-        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
+        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id_uuid,
     )
     if tx_with_directs:
         query = query.filter(
@@ -278,7 +280,7 @@ def get_filter_hits(
         r[0]
         for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
         .filter(
-            P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
+            P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id_uuid,
         )
         .all()
     ]
@@ -290,7 +292,7 @@ def get_filter_hits(
     return (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.id.in_(valid_ids),
+            P4xTransaction.id_uuid.in_(valid_ids),
             P4xTransaction.deleted_at.is_(None),
         )
         .all()
@@ -399,7 +401,7 @@ def update_category_filter(
 
 def delete_category_filter(db: Session, category_filter: P4xCategoryFilter) -> None:
     db.query(P4xCategoryFilterHit).filter(
-        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
+        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id_uuid,
     ).delete()
     db.delete(category_filter)
     db.commit()
@@ -419,20 +421,14 @@ def filter_to_direct(db: Session, category_filter: P4xCategoryFilter) -> str | N
             tx,
             [
                 {
-                    # p4x_category_directs.p4x_category_id is still the
-                    # category's legacy integer id (that table's own
-                    # UUID cutover is a later slice), while
-                    # category_filter.p4x_category_id now stores
-                    # id_uuid - bridged via the already-joined category
-                    # relationship.
-                    "p4x_category_id": category_filter.category.id,
+                    "p4x_category_id": category_filter.p4x_category_id,
                     "amount": tx.amount,
                 },
             ],
         )
 
     db.query(P4xCategoryFilterHit).filter(
-        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
+        P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id_uuid,
     ).delete()
     db.commit()
     return None
@@ -461,14 +457,14 @@ def _set_category_direct_core(
     now = datetime.now(UTC)
 
     db.query(P4xCategoryDirect).filter(
-        P4xCategoryDirect.p4x_transaction_id == transaction.id,
+        P4xCategoryDirect.p4x_transaction_id == transaction.id_uuid,
         P4xCategoryDirect.deleted_at.is_(None),
     ).update({"deleted_at": now})
 
     for slot in valid_slots:
         db.add(
             P4xCategoryDirect(
-                p4x_transaction_id=transaction.id,
+                p4x_transaction_id=transaction.id_uuid,
                 p4x_category_id=slot["p4x_category_id"],
                 amount=Decimal(str(slot["amount"])),
             )
@@ -493,7 +489,7 @@ def set_category_direct(
 def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
     now = datetime.now(UTC)
     db.query(P4xCategoryDirect).filter(
-        P4xCategoryDirect.p4x_transaction_id == transaction.id,
+        P4xCategoryDirect.p4x_transaction_id == transaction.id_uuid,
         P4xCategoryDirect.deleted_at.is_(None),
     ).update({"deleted_at": now})
     apply_all_category_filters_core(db)

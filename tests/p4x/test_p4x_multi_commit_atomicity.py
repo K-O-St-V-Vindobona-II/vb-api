@@ -136,8 +136,8 @@ class TestFilterToDirectAtomicity:
             tx_ids.append(tx.id)
             db.add(
                 P4xCategoryFilterHit(
-                    p4x_transaction_id=tx.id,
-                    p4x_category_filter_id=category_filter.id,
+                    p4x_transaction_id=tx.id_uuid,
+                    p4x_category_filter_id=category_filter.id_uuid,
                     created_at=_now(),
                     updated_at=_now(),
                 )
@@ -161,7 +161,7 @@ class TestFilterToDirectAtomicity:
         assert db_session.query(P4xCategoryDirect).count() == 0
         assert (
             db_session.query(P4xCategoryFilterHit)
-            .filter_by(p4x_category_filter_id=category_filter.id)
+            .filter_by(p4x_category_filter_id=category_filter.id_uuid)
             .count()
             == 2
         )
@@ -282,8 +282,8 @@ class TestUnsetCategoryDirectAtomicity:
         db_session.refresh(tx)
 
         direct = P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=category.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=100.0,
         )
         db_session.add(direct)
@@ -302,7 +302,7 @@ class TestUnsetCategoryDirectAtomicity:
         still_active = (
             db_session.query(P4xCategoryDirect)
             .filter(
-                P4xCategoryDirect.p4x_transaction_id == tx.id,
+                P4xCategoryDirect.p4x_transaction_id == tx.id_uuid,
                 P4xCategoryDirect.deleted_at.is_(None),
             )
             .count()

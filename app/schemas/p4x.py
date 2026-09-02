@@ -39,8 +39,8 @@ class PartnerRef(BaseModel):
 
 
 class CategoryDirectResponse(BaseModel):
-    id: int
-    p4x_category_id: int
+    id: uuid.UUID
+    p4x_category_id: uuid.UUID
     amount: MoneyOut
 
 

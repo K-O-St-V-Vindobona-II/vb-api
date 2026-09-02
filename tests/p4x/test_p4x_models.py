@@ -248,8 +248,8 @@ class TestP4xCategoryDirect:
         db_session.add(tx)
         db_session.commit()
         direct = P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=category.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=30.0,
         )
         db_session.add(direct)
@@ -286,8 +286,8 @@ class TestP4xCategoryFilterHit:
         db_session.add_all([tx, f])
         db_session.commit()
         hit = P4xCategoryFilterHit(
-            p4x_transaction_id=tx.id,
-            p4x_category_filter_id=f.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_filter_id=f.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

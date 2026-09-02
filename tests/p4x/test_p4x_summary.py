@@ -72,8 +72,8 @@ def _seed(db) -> P4xAccount:
     db.flush()
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=cat.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=cat.id_uuid,
             amount=15.0,
         )
     )
@@ -265,13 +265,13 @@ class TestSummaryXlsxEdgeCases:
         db_session.add_all(
             [
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id,
-                    p4x_category_id=cat1.id,
+                    p4x_transaction_id=tx.id_uuid,
+                    p4x_category_id=cat1.id_uuid,
                     amount=30.0,
                 ),
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id,
-                    p4x_category_id=cat2.id,
+                    p4x_transaction_id=tx.id_uuid,
+                    p4x_category_id=cat2.id_uuid,
                     amount=20.0,
                 ),
             ]
@@ -351,8 +351,8 @@ class TestSummaryXlsxEdgeCases:
 
         db_session.add(
             P4xCategoryFilterHit(
-                p4x_transaction_id=tx.id,
-                p4x_category_filter_id=cf.id,
+                p4x_transaction_id=tx.id_uuid,
+                p4x_category_filter_id=cf.id_uuid,
                 created_at=_now(),
                 updated_at=_now(),
             )

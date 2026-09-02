@@ -145,7 +145,7 @@ class TestSetCategoryDirectPrecision:
         db_session.refresh(tx)
 
         slots = [
-            {"p4x_category_id": category.id, "amount": "0.10"}
+            {"p4x_category_id": category.id_uuid, "amount": "0.10"}
             for category in categories
         ]
 
@@ -154,7 +154,7 @@ class TestSetCategoryDirectPrecision:
         assert error is None
         directs = (
             db_session.query(P4xCategoryDirect)
-            .filter(P4xCategoryDirect.p4x_transaction_id == tx.id)
+            .filter(P4xCategoryDirect.p4x_transaction_id == tx.id_uuid)
             .all()
         )
         assert len(directs) == 10
@@ -165,8 +165,8 @@ class TestSetCategoryDirectPrecision:
             db_session, amount=Decimal("100.00")
         )
         slots = [
-            {"p4x_category_id": category.id, "amount": "40.00"},
-            {"p4x_category_id": category.id, "amount": "59.99"},
+            {"p4x_category_id": category.id_uuid, "amount": "40.00"},
+            {"p4x_category_id": category.id_uuid, "amount": "59.99"},
         ]
 
         error = set_category_direct(db_session, tx, slots)
@@ -309,8 +309,8 @@ class TestGetFeeBalancesPrecision:
             db_session.flush()
             db_session.add(
                 P4xCategoryDirect(
-                    p4x_transaction_id=tx.id,
-                    p4x_category_id=category.id,
+                    p4x_transaction_id=tx.id_uuid,
+                    p4x_category_id=category.id_uuid,
                     amount=Decimal("0.10"),
                 )
             )

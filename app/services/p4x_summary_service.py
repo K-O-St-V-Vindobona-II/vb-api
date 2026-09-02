@@ -78,7 +78,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         r[0]
         for r in db.query(P4xCategoryDirect.p4x_transaction_id)
         .filter(
-            P4xCategoryDirect.p4x_category_id == category.id,
+            P4xCategoryDirect.p4x_category_id == category.id_uuid,
             P4xCategoryDirect.deleted_at.is_(None),
         )
         .all()
@@ -86,7 +86,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
 
     filter_ids = [
         r[0]
-        for r in db.query(P4xCategoryFilter.id)
+        for r in db.query(P4xCategoryFilter.id_uuid)
         .filter(
             P4xCategoryFilter.p4x_category_id == category.id_uuid,
         )
@@ -128,7 +128,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
     txs = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.id.in_(all_tx_ids),
+            P4xTransaction.id_uuid.in_(all_tx_ids),
             P4xTransaction.p4x_account_id == account.id_uuid,
             P4xTransaction.deleted_at.is_(None),
         )
@@ -168,7 +168,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     else:
         end = date(end.year, end.month + 1, 1) - timedelta(days=1)
 
-    categories = {c.id: c for c in db.query(P4xCategory).all()}
+    categories = {c.id_uuid: c for c in db.query(P4xCategory).all()}
     attachment_counter = count(1)
     attachments: list[tuple[str, bytes]] = []
 
@@ -287,11 +287,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
                         )
                         cat_fonts[i] = Font(color=cat.text_color.lstrip("#"))
             elif len(filter_hits) == 1:
-                # categories is keyed by P4xCategory's legacy integer id;
-                # category_filter.p4x_category_id now stores id_uuid, so
-                # the already-joined category relationship is used here
-                # instead.
-                cat = categories.get(filter_hits[0].category_filter.category.id)
+                cat = categories.get(filter_hits[0].category_filter.p4x_category_id)
                 if cat:
                     cat_cells[0] = cat.label
                     cat_fills[0] = PatternFill(

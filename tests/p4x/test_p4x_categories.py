@@ -267,8 +267,8 @@ class TestCategoryUsage:
         db_session.commit()
         db_session.add(
             P4xCategoryDirect(
-                p4x_transaction_id=tx.id,
-                p4x_category_id=cat.id,
+                p4x_transaction_id=tx.id_uuid,
+                p4x_category_id=cat.id_uuid,
                 amount=10.0,
             )
         )

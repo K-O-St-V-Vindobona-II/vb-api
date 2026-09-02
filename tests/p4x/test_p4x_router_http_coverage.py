@@ -616,15 +616,17 @@ class TestCategoryDirectEndpointsHttp:
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": cat.id, "amount": 100.0}],
+            json=[{"p4x_category_id": str(cat.id_uuid), "amount": 100.0}],
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == cat.id
+        assert resp.json()["p4x_category_directs"][0]["p4x_category_id"] == str(
+            cat.id_uuid
+        )
 
         resp = client.post(
             f"/api/p4x/admin/transactions/{tx.id}/set-category-direct",
-            json=[{"p4x_category_id": cat.id, "amount": 1.0}],
+            json=[{"p4x_category_id": str(cat.id_uuid), "amount": 1.0}],
             headers=headers,
         )
         assert resp.status_code == 422

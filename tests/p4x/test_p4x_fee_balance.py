@@ -157,8 +157,8 @@ def _add_fee_payment(
 
     db.add(
         P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=category.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=amount,
         )
     )

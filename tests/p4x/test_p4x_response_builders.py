@@ -164,13 +164,13 @@ class TestBuildTransactionResponse:
         db_session.add(category)
         db_session.commit()
         active = P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=category.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=Decimal("15.00"),
         )
         deleted = P4xCategoryDirect(
-            p4x_transaction_id=tx.id,
-            p4x_category_id=category.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_id=category.id_uuid,
             amount=Decimal("15.00"),
             deleted_at=_now(),
         )
@@ -207,8 +207,8 @@ class TestBuildTransactionResponse:
         db_session.add(category_filter)
         db_session.commit()
         hit = P4xCategoryFilterHit(
-            p4x_transaction_id=tx.id,
-            p4x_category_filter_id=category_filter.id,
+            p4x_transaction_id=tx.id_uuid,
+            p4x_category_filter_id=category_filter.id_uuid,
             created_at=_now(),
             updated_at=_now(),
         )

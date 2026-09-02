@@ -191,7 +191,7 @@ class TestRefreshCategoryFilterHits:
 
         hits = db_session.query(P4xCategoryFilterHit).all()
         assert len(hits) == 1
-        assert hits[0].p4x_category_filter_id == cf.id
+        assert hits[0].p4x_category_filter_id == cf.id_uuid
 
         mock_record_job_run.assert_called_once_with(
             "refresh_category_filter_hits", ANY, exit_code=0, output=ANY
