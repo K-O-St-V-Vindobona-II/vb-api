@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.datetime_utils import local_today
-from app.models.p4x_account import P4xAccount
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.services.p4x_fee_balance_service import fee_for_month
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ def get_payment_info(db: Session) -> list[dict[str, str | None]]:
     BIC is nullable on P4xAccount, so a dict value of None (vs. missing
     entirely) is a legitimate, pre-existing possibility here.
     """
-    account = db.get(P4xAccount, 1)
+    account = db.get(P4xAccount, GIROKONTO_ACCOUNT_ID)
 
     return [
         {

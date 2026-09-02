@@ -58,7 +58,7 @@ class TestImportBasic:
         assert len(txs) == 1
         assert txs[0].amount == 15.0
         assert txs[0].subject == "monatlicher MB"
-        assert txs[0].p4x_account_id == account.id_uuid
+        assert txs[0].p4x_account_id == account.id
 
     def test_import_deduplication(self, db_session):
         account = _create_account(db_session)
@@ -151,7 +151,7 @@ class TestImportAccountRebinding:
             )
             .first()
         )
-        assert tx.p4x_account_id == account2.id_uuid
+        assert tx.p4x_account_id == account2.id
 
 
 class TestImportEdgeCases:

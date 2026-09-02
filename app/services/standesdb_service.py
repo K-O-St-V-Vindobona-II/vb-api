@@ -101,7 +101,7 @@ def get_contact_stats(db: Session) -> dict[str, int]:
 
 def _member_search_result(
     member: Member, rank: float
-) -> tuple[float, dict[str, str | int]]:
+) -> tuple[float, dict[str, str | int | uuid.UUID]]:
     org_label = member.org_id.upper() if member.org_id else "?"
     label = f"Mitglied ({org_label}): {member.cn}"
     return (rank, {"type": "member", "id": member.id, "label": label})
@@ -109,7 +109,7 @@ def _member_search_result(
 
 def _contact_search_result(
     contact: Contact, rank: float
-) -> tuple[float, dict[str, str | int]]:
+) -> tuple[float, dict[str, str | int | uuid.UUID]]:
     label = f"Kontakt: {contact.cn}"
     return (rank, {"type": "contact", "id": contact.id, "label": label})
 
@@ -184,7 +184,9 @@ def _search_contacts_fuzzy(db: Session, term: str) -> list[tuple[Contact, float]
     return [(c, float(r)) for c, r in rows]
 
 
-def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | int]]:
+def search_members_and_contacts(
+    db: Session, term: str
+) -> list[dict[str, str | int | uuid.UUID]]:
     """Search members and contacts by name, minimum 3 characters (enforced
     at the router - no extra length gate needed here for the fuzzy stage,
     unlike archive_service.search_archive(), since 3 chars is already the
@@ -200,7 +202,7 @@ def search_members_and_contacts(db: Session, term: str) -> list[dict[str, str | 
     nothing at all, name fields only - see _search_members_fuzzy().
     """
     tsquery_text = build_prefix_tsquery_text(db, term)
-    ranked: list[tuple[float, dict[str, str | int]]] = []
+    ranked: list[tuple[float, dict[str, str | int | uuid.UUID]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked = [
@@ -449,7 +451,7 @@ def _persist_change_log(
     db: Session,
     log_model: type,
     fk_field: str,
-    entity_id: int,
+    entity_id: int | uuid.UUID,
     *,
     diff: dict[str, dict[str, object]],
     action: str,
@@ -1058,7 +1060,7 @@ def search_parent(
 # --- Contact Detail ---
 
 
-def get_contact_detail(db: Session, contact_id: int) -> ContactDetailResponse:
+def get_contact_detail(db: Session, contact_id: uuid.UUID) -> ContactDetailResponse:
     # Intentionally not org-scoped, same reasoning as get_member_detail:
     # vbw and vbn deliberately share one contact directory for reads.
     contact = db.get(Contact, contact_id)
@@ -1116,7 +1118,7 @@ def apply_contact_input(
             setattr(contact, field, new_val)
 
     contact.modified_at = now
-    contact.modified_by = current_user.id
+    contact.modified_by = current_user.id_uuid
 
     db.add(contact)
     db.flush()
@@ -1147,7 +1149,7 @@ def soft_delete_contact(
     now = datetime.now(UTC)
     contact.deleted_at = now
     contact.modified_at = now
-    contact.modified_by = current_user.id
+    contact.modified_by = current_user.id_uuid
     db.add(
         ContactsLog(
             contact_id=contact.id,
@@ -1165,7 +1167,7 @@ def soft_delete_contact(
 def validate_contact_uniqueness(
     db: Session,
     name: str,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> None:
     q = db.query(Contact).filter(
         Contact.deleted_at.is_(None),
@@ -1393,7 +1395,7 @@ def get_member_changelog(
 
 def get_contact_changelog(
     db: Session,
-    contact_id: int,
+    contact_id: uuid.UUID,
     page: int,
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:

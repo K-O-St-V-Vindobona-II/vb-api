@@ -76,7 +76,7 @@ def _create_tx(db, account: P4xAccount, iban: str = "DE001") -> P4xTransaction:
         iban=iban,
         amount=Decimal("15.00"),
         subject="test",
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -139,7 +139,7 @@ class TestBuildTransactionResponse:
             tx,
             {"type": "member", "id": member.id_uuid},
             True,
-            {"type": "contact", "id": contact.id_uuid},
+            {"type": "contact", "id": contact.id},
         )
         db_session.refresh(tx)
 
@@ -147,7 +147,7 @@ class TestBuildTransactionResponse:
 
         assert resp.delegating_partner is not None
         assert resp.delegating_partner.type == "contact"
-        assert resp.delegating_partner.id == contact.id_uuid
+        assert resp.delegating_partner.id == contact.id
         assert resp.delegating_partner.cn == contact.cn
 
     def test_includes_active_category_directs_only(self, db_session):
@@ -199,7 +199,7 @@ class TestBuildTransactionResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Alle Beiträge",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="contains",
             p4x_category_id=category.id,
             created_at=_now(),
@@ -221,7 +221,7 @@ class TestBuildTransactionResponse:
         assert len(resp.p4x_category_filters) == 1
         assert resp.p4x_category_filters[0].id == category_filter.id
         assert resp.p4x_category_filters[0].hitCount == 1
-        assert resp.p4x_category_filters[0].account_id == account.id
+        assert resp.p4x_category_filters[0].p4x_account_id == account.id
         assert resp.p4x_category_filters[0].p4x_account_label == account.label
 
 
@@ -255,7 +255,7 @@ class TestGetAccountOr404:
 
     def test_raises_404_for_unknown_id(self, db_session):
         with pytest.raises(HTTPException) as exc_info:
-            get_account_or_404(db_session, 999999)
+            get_account_or_404(db_session, uuid.uuid4())
         assert exc_info.value.status_code == 404
 
     def test_raises_404_for_soft_deleted_account(self, db_session):
@@ -316,7 +316,7 @@ class TestBuildCategoryResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Spenden-Filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="contains",
             p4x_category_id=category.id,
             created_at=_now(),
@@ -348,7 +348,7 @@ class TestBuildFilterResponse:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Alle Beiträge",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="contains",
             p4x_category_id=category.id,
             created_at=_now(),
@@ -360,8 +360,7 @@ class TestBuildFilterResponse:
         resp = build_filter_response(db_session, category_filter)
 
         assert resp.id == category_filter.id
-        assert resp.p4x_account_id == account.id_uuid
-        assert resp.account_id == account.id
+        assert resp.p4x_account_id == account.id
         assert resp.p4x_account_label == account.label
         assert resp.hitCount == 0
 
@@ -382,7 +381,7 @@ class TestGetFilterOr404:
         db_session.commit()
         category_filter = P4xCategoryFilter(
             name="Ein Filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="contains",
             p4x_category_id=category.id,
             created_at=_now(),

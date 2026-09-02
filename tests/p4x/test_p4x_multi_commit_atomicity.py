@@ -95,7 +95,7 @@ class TestFilterToDirectAtomicity:
 
         category_filter = P4xCategoryFilter(
             name="test.filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject="MB",
             subject_mode="contains",
             p4x_category_id=category.id,
@@ -109,7 +109,7 @@ class TestFilterToDirectAtomicity:
         db.add(
             P4xPartner(
                 iban="AT001",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -126,7 +126,7 @@ class TestFilterToDirectAtomicity:
                 iban="AT001",
                 amount=100.0,
                 subject="MB",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -188,7 +188,7 @@ class TestCategoryFilterCrudAtomicity:
         account, category = self._seed_account_and_category(db_session)
         data = CategoryFilterSaveRequest(
             name="new.filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             iban=None,
             min_amount=None,
             max_amount=None,
@@ -213,7 +213,7 @@ class TestCategoryFilterCrudAtomicity:
         account, category = self._seed_account_and_category(db_session)
         category_filter = P4xCategoryFilter(
             name="existing.filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject="OLD",
             subject_mode="contains",
             p4x_category_id=category.id,
@@ -226,7 +226,7 @@ class TestCategoryFilterCrudAtomicity:
 
         data = CategoryFilterSaveRequest(
             name="existing.filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             iban=None,
             min_amount=None,
             max_amount=None,
@@ -273,7 +273,7 @@ class TestUnsetCategoryDirectAtomicity:
             iban="AT001",
             amount=100.0,
             subject="Test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )

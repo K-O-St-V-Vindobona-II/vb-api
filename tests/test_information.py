@@ -6,7 +6,7 @@ import bcrypt
 
 from app.models.member import Member
 from app.models.org import Org
-from app.models.p4x_account import P4xAccount
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_fee import P4xFee
 from app.models.role import Role
 from app.models.state import State
@@ -53,12 +53,12 @@ def _login_user(db, _client):
 
 
 def _seed_p4x_account(db):
-    """The app looks up the single p4x_accounts row by id=1
-    (app/api/router_includes/information.py) — a deliberate
-    single-account business assumption, not a test artifact."""
+    """The app looks up the single p4x_accounts row by GIROKONTO_ACCOUNT_ID
+    (app/services/information_service.py) — a deliberate single-account
+    business assumption, not a test artifact."""
     db.add(
         P4xAccount(
-            id=1,
+            id=GIROKONTO_ACCOUNT_ID,
             iban="AT941234567890123456",
             bic="GIBAATWWXXX",
             label="AH-Kassa",
@@ -128,8 +128,9 @@ class TestPaymentEndpoint:
 
 class TestGetPaymentInfoService:
     def test_falls_back_to_empty_strings_when_account_missing(self, db_session):
-        """No p4x_accounts row with id=1 — pre-existing business assumption,
-        not exercised by the router tests above (they always seed one)."""
+        """No p4x_accounts row with GIROKONTO_ACCOUNT_ID — pre-existing
+        business assumption, not exercised by the router tests above (they
+        always seed one)."""
         result = get_payment_info(db_session)
         assert result[1]["iban"] == ""
         assert result[1]["bic"] == ""
@@ -137,7 +138,7 @@ class TestGetPaymentInfoService:
     def test_bic_can_be_none_when_account_has_no_bic(self, db_session):
         db_session.add(
             P4xAccount(
-                id=1,
+                id=GIROKONTO_ACCOUNT_ID,
                 iban="AT941234567890123456",
                 bic=None,
                 label="AH-Kassa",

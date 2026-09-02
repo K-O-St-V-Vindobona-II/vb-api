@@ -85,16 +85,12 @@ class TestP4xAccount:
         db_session.commit()
         assert account.deleted_at is not None
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        """Guards the UUID-PK migration's Phase A assumption (see
-        e0a57d5a7522_p4x_accounts_id_uuid_phase_a.py): every insert goes
-        through the ORM instance, so `default=uuid.uuid7` on the
-        additive `id_uuid` column fires without ever needing a
-        server-side default - same guard as every migrated table's
-        primary key, just on a column that isn't the primary key yet."""
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        """Every insert goes through the ORM instance, so `default=uuid.uuid7`
+        on the primary key fires without ever needing a server-side default."""
         account = _seed_account(db_session)
-        assert isinstance(account.id_uuid, uuid.UUID)
-        assert account.id_uuid.version == 7
+        assert isinstance(account.id, uuid.UUID)
+        assert account.id.version == 7
 
 
 class TestP4xTransaction:
@@ -107,7 +103,7 @@ class TestP4xTransaction:
             iban="DE49100110012624770917",
             amount=15.00,
             subject="monatlicher MB v. Kopernikus",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             raw='{"test": true}',
             created_at=_now(),
             updated_at=_now(),
@@ -128,7 +124,7 @@ class TestP4xTransaction:
             iban="AT00TEST",
             amount=-100.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             attachment="dGVzdA==",
             created_at=_now(),
             updated_at=_now(),
@@ -146,7 +142,7 @@ class TestP4xTransaction:
             iban="AT00TEST",
             amount=50.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -169,7 +165,7 @@ class TestP4xTransaction:
             iban="AT00TEST",
             amount=1.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
         )
         db_session.add(tx)
         db_session.flush()
@@ -213,7 +209,7 @@ class TestP4xCategoryFilter:
         category = _seed_category(db_session)
         f = P4xCategoryFilter(
             name="MB:starts.mitgliedsbeitrag",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             iban=None,
             min_amount=0.0,
             max_amount=30.0,
@@ -239,7 +235,7 @@ class TestP4xCategoryFilter:
         category = _seed_category(db_session)
         f = P4xCategoryFilter(
             name="final-cutover-guard",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="contains",
             p4x_category_id=category.id,
         )
@@ -261,7 +257,7 @@ class TestP4xCategoryDirect:
             iban="AT00TEST",
             amount=30.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -291,13 +287,13 @@ class TestP4xCategoryFilterHit:
             iban="AT00TEST",
             amount=15.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )
         f = P4xCategoryFilter(
             name="test_filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             p4x_category_id=category.id,
             created_at=_now(),
@@ -358,7 +354,7 @@ class TestP4xPartner:
 
         partner = P4xPartner(
             iban="AT00SOFTDELETE",
-            contact_id=contact.id_uuid,
+            contact_id=contact.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -477,7 +473,7 @@ class TestPartnerTransactionRelationship:
             iban="DE49100110012624770917",
             amount=15.0,
             subject="test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )

@@ -74,7 +74,7 @@ def _create_tx(db, account: P4xAccount, iban: str = "DE001") -> P4xTransaction:
         iban=iban,
         amount=15.0,
         subject="test",
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -163,7 +163,7 @@ class TestFindPartnerEntity:
 
     def test_find_contact(self, db_session):
         _, _, contact, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "contact", contact.id_uuid)
+        entity = find_partner_entity(db_session, "contact", contact.id)
         assert entity is not None
 
     def test_find_special(self, db_session):
@@ -173,7 +173,7 @@ class TestFindPartnerEntity:
 
     def test_find_account(self, db_session):
         account, _, _, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "account", account.id_uuid)
+        entity = find_partner_entity(db_session, "account", account.id)
         assert entity is not None
 
     def test_find_unknown_type(self, db_session):
@@ -252,7 +252,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "contact", "id": contact.id_uuid},
+            partner_data={"type": "contact", "id": contact.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -266,7 +266,7 @@ class TestSetTransactionPartner:
             .first()
         )
         assert partner.partner_type == "contact"
-        assert partner.partner_id == contact.id_uuid
+        assert partner.partner_id == contact.id
 
     def test_restore_soft_deleted_partner(self, db_session):
         account, member, _, _ = _seed(db_session)
@@ -330,12 +330,12 @@ class TestDelegatingPartner:
             tx,
             partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id_uuid},
+            delegating_data={"type": "contact", "id": contact.id},
         )
 
         db_session.refresh(tx)
         assert tx.delegating_partner_type == "contact"
-        assert tx.delegating_partner_id == contact.id_uuid
+        assert tx.delegating_partner_id == contact.id
 
     def test_unset_delegating(self, db_session):
         account, member, contact, _ = _seed(db_session)
@@ -346,7 +346,7 @@ class TestDelegatingPartner:
             tx,
             partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id_uuid},
+            delegating_data={"type": "contact", "id": contact.id},
         )
         set_transaction_partner(
             db_session,
@@ -383,7 +383,7 @@ class TestDelegatingPartner:
             tx,
             partner_data={"type": "member", "id": member.id_uuid},
             has_delegating=True,
-            delegating_data={"type": "contact", "id": contact.id_uuid},
+            delegating_data={"type": "contact", "id": contact.id},
         )
         set_transaction_partner(
             db_session,

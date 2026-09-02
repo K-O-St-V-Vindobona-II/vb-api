@@ -35,13 +35,7 @@ class Contact(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # 53b60b0b8bbb_contacts_id_uuid_phase_a.py) - not yet the primary key.
-    # `id` itself becomes UUID only in the Final-Cutover slice, after
-    # every referrer table (contacts_logs, p4x_transactions, p4x_partners,
-    # standesdb_images) has cut over onto this column.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     kontakttyp: Mapped[ContactType] = mapped_column(
         Enum(
             ContactType,
@@ -87,7 +81,11 @@ class Contact(Base):
     anmerkungen: Mapped[str | None] = mapped_column(Text)
 
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
+    # References members.id_uuid, not members.id - members itself won't
+    # have a UUID primary key until its own Final-Cutover.
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

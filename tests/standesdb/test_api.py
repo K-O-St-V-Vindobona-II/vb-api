@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import bcrypt
@@ -573,7 +574,7 @@ def test_delete_contact_404_for_missing(client, db_session):
     headers = _auth_headers(client, db_session, admin)
 
     resp = client.delete(
-        "/api/standesdb/contacts/99999",
+        f"/api/standesdb/contacts/{uuid.uuid4()}",
         headers=headers,
     )
     assert resp.status_code == 404

@@ -624,7 +624,7 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
 
 
 class ContactDetailResponse(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     kontakttyp: ContactType
     anrede: str | None = None
@@ -839,7 +839,7 @@ class MemberChangeRequestDecisionRequest(StrictInputModel):
 
 class SearchResultItem(BaseModel):
     type: Literal["member", "contact"]
-    id: int
+    id: int | uuid.UUID
     label: str
 
 
@@ -858,7 +858,7 @@ class ParentSearchResponse(BaseModel):
 
 class ImageOwnerResponse(BaseModel):
     type: Literal["member", "contact"]
-    id: int
+    id: int | uuid.UUID
     cn: str
     org_id: str | None
     default_image: uuid.UUID | None

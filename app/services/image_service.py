@@ -1,7 +1,7 @@
 import hashlib
 import io
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from botocore.exceptions import ClientError
@@ -17,7 +17,6 @@ from app.core.storage import (
     StorageClient,
     generate_thumbnail,
 )
-from app.models.contact import Contact
 from app.models.member import Member
 from app.models.standesdb_image import StandesdbImage
 
@@ -33,14 +32,17 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 STANDESDB_THUMB_SIZE = 400
 
 
-def _owner_filter(db: Session, owner_type: str, owner_id: int) -> ColumnElement[bool]:
-    """Translates the owner_type/owner_id pair callers still use (still the
-    owner's legacy integer id - members/contacts each keep their own
-    Final-Cutover for a later slice) into the matching exclusive-arc FK
-    column, which now stores the owner's id_uuid (see StandesdbImage).
+def _owner_filter(
+    db: Session, owner_type: str, owner_id: int | uuid.UUID
+) -> ColumnElement[bool]:
+    """Translates the owner_type/owner_id pair callers still use into the
+    matching exclusive-arc FK column (see StandesdbImage). owner_id is
+    still the member's legacy integer id - members keep their own
+    Final-Cutover for a later slice - but is already the contact's own
+    UUID primary key directly.
 
-    Falls back to sa_false() when owner_id doesn't resolve to a real
-    member/contact, rather than comparing the FK column to None - a plain
+    Falls back to sa_false() when a member owner_id doesn't resolve to a
+    real member, rather than comparing the FK column to None - a plain
     `column == None` would compile to `IS NULL` in SQLAlchemy, which would
     wrongly match every image owned by the *other* owner_type instead of
     matching nothing."""
@@ -50,10 +52,7 @@ def _owner_filter(db: Session, owner_type: str, owner_id: int) -> ColumnElement[
             return sa_false()
         return StandesdbImage.owner_member_id == member_uuid
     if owner_type == "contact":
-        contact_uuid = db.query(Contact.id_uuid).filter(Contact.id == owner_id).scalar()
-        if contact_uuid is None:
-            return sa_false()
-        return StandesdbImage.owner_contact_id == contact_uuid
+        return StandesdbImage.owner_contact_id == owner_id
     msg = f"Unbekannter owner_type: {owner_type!r}"
     raise ValueError(msg)
 
@@ -61,7 +60,7 @@ def _owner_filter(db: Session, owner_type: str, owner_id: int) -> ColumnElement[
 def get_image_record(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: int | uuid.UUID,
     image_id: uuid.UUID,
 ) -> StandesdbImage:
     img = (
@@ -84,7 +83,7 @@ def get_image_record(
 def get_image_for_serving(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: int | uuid.UUID,
     image_id: uuid.UUID,
 ) -> StandesdbImage:
     """Like get_image_record(), but also releases the DB session right after
@@ -146,7 +145,7 @@ def get_presigned_url(
 def get_images_for_owner(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: int | uuid.UUID,
 ) -> list[StandesdbImage]:
     return (
         db.query(StandesdbImage)
@@ -191,7 +190,7 @@ def _ensure_cache(
 def upload_image(
     db: Session,
     owner_type: str,
-    owner_id: int,
+    owner_id: int | uuid.UUID,
     file: UploadFile,
     *,
     description: str | None,
@@ -244,8 +243,9 @@ def upload_image(
 
     # Translates the owner_type/owner_id pair callers still use into the
     # matching exclusive-arc FK columns (see StandesdbImage). owner_id is
-    # still the owner's legacy integer id, so it's resolved to the
-    # matching id_uuid here too, same as _owner_filter() above.
+    # still the member's legacy integer id, so it's resolved to the
+    # matching id_uuid here too, same as _owner_filter() above - but is
+    # already the contact's own UUID primary key directly.
     if owner_type == "member":
         owner_member_id = (
             db.query(Member.id_uuid).filter(Member.id == owner_id).scalar()
@@ -253,9 +253,7 @@ def upload_image(
         owner_contact_id = None
     elif owner_type == "contact":
         owner_member_id = None
-        owner_contact_id = (
-            db.query(Contact.id_uuid).filter(Contact.id == owner_id).scalar()
-        )
+        owner_contact_id = cast("uuid.UUID", owner_id)
     else:
         msg = f"Unbekannter owner_type: {owner_type!r}"
         raise ValueError(msg)

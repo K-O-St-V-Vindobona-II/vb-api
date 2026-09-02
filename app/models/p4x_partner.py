@@ -11,12 +11,11 @@ class P4xPartner(Base):
     """member_id/contact_id/p4x_account_id/p4x_specialcontact_id is an
     exclusive-arc polymorphic association: exactly one is set, enforced by
     the CHECK below. Real FKs per target table since Postgres can't point a
-    single FK at "whichever table a discriminator column names". member_id/
-    contact_id/p4x_account_id each reference their target's id_uuid
-    column, not its own (still-integer) id - members/contacts/p4x_accounts
-    each keep their own Final-Cutover for a later slice. p4x_specialcontact_id
-    references p4x_special_contacts.id directly, that table's own UUID
-    primary key."""
+    single FK at "whichever table a discriminator column names". member_id
+    references members.id_uuid, not its own (still-integer) id - members
+    keeps its own Final-Cutover for a later slice. contact_id/
+    p4x_account_id/p4x_specialcontact_id each reference their target's own
+    UUID primary key directly."""
 
     __tablename__ = "p4x_partners"
     __table_args__ = (
@@ -34,11 +33,11 @@ class P4xPartner(Base):
         index=True,
     )
     contact_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("contacts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("contacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
     p4x_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("p4x_accounts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
     p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(

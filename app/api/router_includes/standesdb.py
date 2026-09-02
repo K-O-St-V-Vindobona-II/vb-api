@@ -566,7 +566,7 @@ async def submit_own_change_request(
 
 @standesdb_router.get("/contacts/{contact_id}")
 def get_contact(
-    contact_id: int,
+    contact_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> ContactDetailResponse:
@@ -602,18 +602,18 @@ async def create_contact(
     ],
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
-) -> StatusIdResponse[int]:
+) -> StatusIdResponse[uuid.UUID]:
     """Create a new contact record. Requires standesdbContactAdmin."""
     contact, notification = await run_in_threadpool(
         _create_contact_sync, db, data, current_user
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[int](status="ok", id=contact.id)
+    return StatusIdResponse[uuid.UUID](status="ok", id=contact.id)
 
 
 def _update_contact_sync(
-    db: Session, contact_id: int, data: ContactSaveRequest, current_user: Member
+    db: Session, contact_id: uuid.UUID, data: ContactSaveRequest, current_user: Member
 ) -> tuple[Contact, _EntryChangedNotification | None]:
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
@@ -636,14 +636,14 @@ def _update_contact_sync(
 
 @standesdb_router.put("/contacts/{contact_id}")
 async def update_contact(
-    contact_id: int,
+    contact_id: uuid.UUID,
     data: ContactSaveRequest,
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
     ],
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
-) -> StatusIdResponse[int]:
+) -> StatusIdResponse[uuid.UUID]:
     """Update an existing contact's data and notify subscribers by email if anything
     actually changed. Requires standesdbContactAdmin."""
     contact, notification = await run_in_threadpool(
@@ -651,14 +651,14 @@ async def update_contact(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[int](status="ok", id=contact.id)
+    return StatusIdResponse[uuid.UUID](status="ok", id=contact.id)
 
 
 @standesdb_router.delete(
     "/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_contact(
-    contact_id: int,
+    contact_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         Member, Depends(require_permission("standesdbContactAdmin"))
@@ -953,7 +953,7 @@ def delete_member_image(
 
 @standesdb_router.get("/contacts/{contact_id}/images")
 def list_contact_images(
-    contact_id: int,
+    contact_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> ImageListResponse:
@@ -993,7 +993,7 @@ def list_contact_images(
 
 @standesdb_router.get("/contacts/{contact_id}/images/{image_id}/download")
 def download_contact_image(
-    contact_id: int,
+    contact_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
@@ -1007,7 +1007,7 @@ def download_contact_image(
 
 @standesdb_router.get("/contacts/{contact_id}/images/{image_id}/url")
 def contact_image_url(
-    contact_id: int,
+    contact_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
@@ -1029,7 +1029,7 @@ def contact_image_url(
     "/contacts/{contact_id}/images", status_code=status.HTTP_201_CREATED
 )
 def upload_contact_image(
-    contact_id: int,
+    contact_id: uuid.UUID,
     *,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
@@ -1060,7 +1060,7 @@ def upload_contact_image(
 
 @standesdb_router.put("/contacts/{contact_id}/images/{image_id}")
 def update_contact_image(
-    contact_id: int,
+    contact_id: uuid.UUID,
     image_id: uuid.UUID,
     data: ImageUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -1080,7 +1080,7 @@ def update_contact_image(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_contact_image(
-    contact_id: int,
+    contact_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[
@@ -1121,7 +1121,7 @@ def list_member_changelog(
 
 @standesdb_router.get("/contacts/{contact_id}/changelog")
 def list_contact_changelog(
-    contact_id: int,
+    contact_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("standesdbContactAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,

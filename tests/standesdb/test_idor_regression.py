@@ -77,7 +77,7 @@ class TestContactDetailCrossOrgRead:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["id"] == contact.id
+        assert resp.json()["id"] == str(contact.id)
 
 
 class TestImageListCrossOrgRead:
@@ -108,7 +108,7 @@ class TestImageListCrossOrgRead:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["owner"]["id"] == contact.id
+        assert resp.json()["owner"]["id"] == str(contact.id)
 
 
 class TestSearchCrossOrgRead:

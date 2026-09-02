@@ -48,12 +48,6 @@ class CategoryFilterShortResponse(BaseModel):
     id: uuid.UUID
     name: str
     p4x_account_id: uuid.UUID
-    # The account's own (still-integer) primary key, distinct from
-    # p4x_account_id above - the frontend still needs this to build
-    # links into other account-scoped, integer-keyed views (e.g.
-    # transactions/by-filter), since p4x_account_id itself now only
-    # ever holds id_uuid.
-    account_id: int
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None
@@ -72,12 +66,7 @@ class CategoryFilterShortResponse(BaseModel):
 
 
 class AccountResponse(BaseModel):
-    id: int
-    # Additive id_uuid alongside the still-integer id - lets callers
-    # (e.g. the category-filter form) reference this account by the
-    # identifier p4x_category_filters.p4x_account_id now actually
-    # stores, without waiting for this table's own Final-Cutover.
-    id_uuid: uuid.UUID
+    id: uuid.UUID
     iban: str
     bic: str | None
     label: str | None
@@ -145,7 +134,7 @@ class TransactionResponse(BaseModel):
     iban: str
     amount: MoneyOut
     subject: str
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     p4x_account_cn: str
     p4x_account_iban: str
     comment: str | None = None
@@ -209,7 +198,7 @@ class WarningsResponse(BaseModel):
 
 
 class ImportGiven(BaseModel):
-    p4x_account_id: int
+    p4x_account_id: uuid.UUID
     parsed: bool = Field(
         ..., description="Whether the file parsed as a George-Bank export."
     )
@@ -269,9 +258,6 @@ class CategoryFilterResponse(BaseModel):
     id: uuid.UUID
     name: str
     p4x_account_id: uuid.UUID
-    # See CategoryFilterShortResponse.account_id above for why this is
-    # separate from p4x_account_id.
-    account_id: int
     p4x_account_label: str | None
     iban: str | None
     min_amount: MoneyOut | None

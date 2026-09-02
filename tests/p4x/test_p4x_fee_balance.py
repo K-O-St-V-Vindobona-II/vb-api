@@ -146,7 +146,7 @@ def _add_fee_payment(
         iban=iban,
         amount=amount,
         subject=f"MB {member.couleurname}",
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         delegating_member_id=delegating_member_id,
         created_at=_now(),
         updated_at=_now(),

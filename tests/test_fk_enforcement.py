@@ -54,7 +54,7 @@ def _seed_p4x_transaction(db, account: P4xAccount, hash_suffix: str) -> P4xTrans
         iban="AT999",
         amount=10.0,
         subject="FK test",
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
     )
     db.add(tx)
     db.commit()
@@ -434,7 +434,7 @@ class TestStandesdbImageExclusiveArc:
         db_session.add(
             StandesdbImage(
                 owner_member_id=member.id_uuid,
-                owner_contact_id=contact.id_uuid,
+                owner_contact_id=contact.id,
                 sha256_hash="a" * 64,
             )
         )
@@ -484,7 +484,7 @@ class TestStandesdbImageExclusiveArc:
         db_session.add(contact)
         db_session.commit()
 
-        img = StandesdbImage(owner_contact_id=contact.id_uuid, sha256_hash="f" * 64)
+        img = StandesdbImage(owner_contact_id=contact.id, sha256_hash="f" * 64)
         db_session.add(img)
         db_session.commit()
         img_id = img.id
@@ -546,12 +546,11 @@ class TestP4xPartnerExclusiveArc:
     exclusive-arc pair of real FKs - exactly one must be set, enforced by
     a CHECK constraint. ondelete is RESTRICT (not CASCADE like
     standesdb_images) since a P4xPartner row is a financial/accounting
-    link, not owned content. member_id/contact_id/p4x_account_id each
-    reference their target's id_uuid column (Alembic revision
-    ddc0a9d04eef), not its own still-integer id - members/contacts/
-    p4x_accounts each keep their own Final-Cutover for a later slice.
-    p4x_specialcontact_id references p4x_special_contacts.id directly,
-    that table's own UUID primary key."""
+    link, not owned content. member_id/contact_id each reference their
+    target's id_uuid column (Alembic revision ddc0a9d04eef), not its own
+    still-integer id - members/contacts each keep their own Final-Cutover
+    for a later slice. p4x_account_id/p4x_specialcontact_id reference
+    their target's own UUID primary key directly."""
 
     def test_two_columns_set_is_rejected(self, db_session):
         member = Member(vorname="Test", nachname="User")
@@ -560,9 +559,7 @@ class TestP4xPartnerExclusiveArc:
         db_session.commit()
 
         db_session.add(
-            P4xPartner(
-                iban="AT001", member_id=member.id_uuid, contact_id=contact.id_uuid
-            )
+            P4xPartner(iban="AT001", member_id=member.id_uuid, contact_id=contact.id)
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -614,7 +611,7 @@ class TestP4xPartnerExclusiveArc:
         contact = Contact(kontakttyp="person", name="Test Contact")
         db_session.add(contact)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT008", contact_id=contact.id_uuid))
+        db_session.add(P4xPartner(iban="AT008", contact_id=contact.id))
         db_session.commit()
 
         db_session.delete(contact)
@@ -626,7 +623,7 @@ class TestP4xPartnerExclusiveArc:
         self, db_session
     ):
         account = _seed_p4x_account(db_session)
-        db_session.add(P4xPartner(iban="AT009", p4x_account_id=account.id_uuid))
+        db_session.add(P4xPartner(iban="AT009", p4x_account_id=account.id))
         db_session.commit()
 
         db_session.delete(account)
@@ -667,7 +664,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
 
         tx = _seed_p4x_transaction(db_session, account, "two_cols")
         tx.delegating_member_id = member.id_uuid
-        tx.delegating_contact_id = contact.id_uuid
+        tx.delegating_contact_id = contact.id
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()

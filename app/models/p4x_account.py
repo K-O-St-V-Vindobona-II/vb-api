@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     from app.models.p4x_category_filter import P4xCategoryFilter
     from app.models.p4x_transaction import P4xTransaction
 
+# The "Girokonto" account (formerly integer id 1) - the sole account that
+# tracks SumUp settlements and is shown as the association's main IBAN/BIC
+# for donations. Fixed forever - unlike p4x_categories, p4x_accounts has
+# no unique business-name field robust enough for a name-based lookup
+# (IBAN is unique but represents an operational bank detail, not a stable
+# label), so this is a migration-fixed literal instead, analogous to
+# public_site_settings.SETTINGS_ROW_ID.
+GIROKONTO_ACCOUNT_ID = uuid.UUID("01a05d4d-14b5-7482-a9a3-d9e3e06fa7c6")
+
 
 class P4xAccount(Base):
     __tablename__ = "p4x_accounts"
@@ -27,12 +36,7 @@ class P4xAccount(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # e0a57d5a7522_p4x_accounts_id_uuid_phase_a.py) - not yet the primary
-    # key. p4x_partners/p4x_category_filters/p4x_transactions all cut
-    # over onto this, converging in the Final-Cutover slice.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     iban: Mapped[str] = mapped_column(unique=True)
     bic: Mapped[str | None]
     label: Mapped[str | None]

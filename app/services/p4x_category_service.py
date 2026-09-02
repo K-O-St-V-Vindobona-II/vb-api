@@ -313,7 +313,7 @@ def _validate_category_filter_input(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Mindestens ein Filterkriterium muss gesetzt sein.",
         )
-    if not db.query(P4xAccount).filter_by(id_uuid=data.p4x_account_id).first():
+    if not db.query(P4xAccount).filter_by(id=data.p4x_account_id).first():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Konto existiert nicht.",

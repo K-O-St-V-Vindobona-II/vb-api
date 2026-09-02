@@ -164,7 +164,7 @@ class TestAccountCRUD:
                 iban="AT00",
                 amount=10.0,
                 subject="test",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -204,7 +204,7 @@ class TestAccountBalance:
                     iban="AT00",
                     amount=50.0,
                     subject="test",
-                    p4x_account_id=account.id_uuid,
+                    p4x_account_id=account.id,
                     created_at=_now(),
                     updated_at=_now(),
                 )
@@ -224,7 +224,7 @@ class TestAccountBalance:
                 iban="AT00",
                 amount=50.0,
                 subject="test",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -237,7 +237,7 @@ class TestAccountBalance:
                 iban="AT00",
                 amount=200.0,
                 subject="test",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -268,7 +268,7 @@ class TestAccountBalance:
                 iban="AT00",
                 amount=50.0,
                 subject="test",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -281,7 +281,7 @@ class TestAccountBalance:
                 iban="AT00",
                 amount=200.0,
                 subject="test",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 created_at=_now(),
                 updated_at=_now(),
             )

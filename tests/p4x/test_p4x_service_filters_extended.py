@@ -59,7 +59,7 @@ def _seed(db) -> tuple[P4xAccount, P4xCategory, list[P4xTransaction]]:
             iban=iban,
             amount=amount,
             subject=subject,
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -77,7 +77,7 @@ class TestDeleteCategoryFilter:
 
         cf = P4xCategoryFilter(
             name="del_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="starts",
             subject="MB",
             p4x_category_id=cat.id,
@@ -134,7 +134,7 @@ class TestFilterToDirect:
 
         cf = P4xCategoryFilter(
             name="conv_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="Spende Verein",
             p4x_category_id=cat.id,
@@ -151,7 +151,7 @@ class TestFilterToDirect:
         # Create a second filter giving the remaining txs exactly 1 hit each
         cf2 = P4xCategoryFilter(
             name="catchall",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="starts",
             subject="MB",
             p4x_category_id=cat.id,
@@ -181,7 +181,7 @@ class TestFilterToDirect:
 
         cf = P4xCategoryFilter(
             name="block_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="Spende Verein",
             p4x_category_id=cat.id,
@@ -207,7 +207,7 @@ class TestFilterEngineEmptyIban:
 
         cf = P4xCategoryFilter(
             name="empty_iban_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             iban="",
             subject_mode="starts",
             subject="MB",
@@ -230,7 +230,7 @@ class TestGetFilterHitsExtended:
 
         cf = P4xCategoryFilter(
             name="alldir_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="Spende Verein",
             p4x_category_id=cat.id,
@@ -263,7 +263,7 @@ class TestGetFilterHitsExtended:
 
         cf = P4xCategoryFilter(
             name="nondirect_test",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="starts",
             subject="MB",
             p4x_category_id=cat.id,

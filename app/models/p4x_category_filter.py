@@ -28,11 +28,8 @@ class P4xCategoryFilter(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(unique=True)
-    # References p4x_accounts.id_uuid, not p4x_accounts.id -
-    # p4x_accounts itself won't have a UUID primary key until its own
-    # Final-Cutover (slice 27).
     p4x_account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("p4x_accounts.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("p4x_accounts.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
     iban: Mapped[str | None]

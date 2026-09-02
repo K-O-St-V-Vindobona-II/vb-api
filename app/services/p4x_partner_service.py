@@ -58,7 +58,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         .all()
     )
     results.extend(
-        PartnerSearchResult(type="contact", id=c.id_uuid, label=f"Kontakt: {c.cn}")
+        PartnerSearchResult(type="contact", id=c.id, label=f"Kontakt: {c.cn}")
         for c in contacts
     )
 
@@ -83,7 +83,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         .all()
     )
     results.extend(
-        PartnerSearchResult(type="account", id=a.id_uuid, label=f"Konto: {a.cn}")
+        PartnerSearchResult(type="account", id=a.id, label=f"Konto: {a.cn}")
         for a in accounts
     )
 
@@ -102,17 +102,17 @@ def find_partner_entity(
 ) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
     """Looks up the entity a search result/set-partner request refers to -
     the identifier p4x_partners' own FK columns store, and the one
-    search_partners()/PartnerSearchResult hand out. members/contacts/
-    p4x_accounts each keep their own Final-Cutover for a later slice, so
-    this deliberately queries their additive id_uuid column, not id;
-    p4x_special_contacts already has its own UUID primary key, queried
+    search_partners()/PartnerSearchResult hand out. members keeps its own
+    Final-Cutover for a later slice, so this deliberately queries its
+    additive id_uuid column, not id; contacts, p4x_accounts and
+    p4x_special_contacts already have their own UUID primary key, queried
     directly."""
     if partner_type == "member":
         return db.query(Member).filter(Member.id_uuid == partner_id).first()
     if partner_type == "contact":
-        return db.query(Contact).filter(Contact.id_uuid == partner_id).first()
+        return db.query(Contact).filter(Contact.id == partner_id).first()
     if partner_type == "account":
-        return db.query(P4xAccount).filter(P4xAccount.id_uuid == partner_id).first()
+        return db.query(P4xAccount).filter(P4xAccount.id == partner_id).first()
     if partner_type == "special":
         return (
             db.query(P4xSpecialcontact)
@@ -146,7 +146,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
 
     Both partner_data["id"] and delegating_data["id"] are the identifier
     search_partners()/find_partner_entity() use for the target entity's
-    type - id_uuid for member/contact/account, id for a special contact
+    type - id_uuid for member/contact, id for account/special contact
     (see find_partner_entity's docstring) - the same identifier the
     frontend's one shared partner-search widget hands out for both
     fields. Both halves store that identifier on their respective
@@ -183,9 +183,9 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         if isinstance(remote, Member):
             partner.member_id = remote.id_uuid
         elif isinstance(remote, Contact):
-            partner.contact_id = remote.id_uuid
+            partner.contact_id = remote.id
         elif isinstance(remote, P4xAccount):
-            partner.p4x_account_id = remote.id_uuid
+            partner.p4x_account_id = remote.id
         else:
             partner.p4x_specialcontact_id = remote.id
         partner.deleted_at = None
@@ -209,9 +209,9 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         if isinstance(remote, Member):
             transaction.delegating_member_id = remote.id_uuid
         elif isinstance(remote, Contact):
-            transaction.delegating_contact_id = remote.id_uuid
+            transaction.delegating_contact_id = remote.id
         elif isinstance(remote, P4xAccount):
-            transaction.delegating_p4x_account_id = remote.id_uuid
+            transaction.delegating_p4x_account_id = remote.id
         else:
             transaction.delegating_p4x_specialcontact_id = remote.id
     else:

@@ -84,7 +84,6 @@ def build_transaction_response(
                 id=cf.id,
                 name=cf.name,
                 p4x_account_id=cf.p4x_account_id,
-                account_id=cf.account.id,
                 p4x_account_label=cf.account.label if cf.account else None,
                 iban=cf.iban,
                 min_amount=cf.min_amount,
@@ -103,10 +102,7 @@ def build_transaction_response(
         iban=tx.iban,
         amount=tx.amount,
         subject=tx.subject,
-        # tx.account.id, not tx.p4x_account_id (which now stores id_uuid) -
-        # TransactionTable.vue routes raw/attachment downloads by this
-        # still-integer account id.
-        p4x_account_id=tx.account.id,
+        p4x_account_id=tx.p4x_account_id,
         p4x_account_cn=tx.account.cn if tx.account else "",
         p4x_account_iban=tx.account.iban if tx.account else "",
         comment=tx.comment,
@@ -125,7 +121,7 @@ def build_account_response(
     tx_count = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .count()
@@ -133,7 +129,7 @@ def build_account_response(
     latest = (
         db.query(P4xTransaction.booking)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .order_by(P4xTransaction.booking.desc())
@@ -142,7 +138,6 @@ def build_account_response(
 
     return AccountResponse(
         id=account.id,
-        id_uuid=account.id_uuid,
         iban=account.iban,
         bic=account.bic,
         label=account.label,
@@ -156,7 +151,7 @@ def build_account_response(
 
 def get_account_or_404(
     db: Session,
-    account_id: int,
+    account_id: uuid.UUID,
 ) -> P4xAccount:
     account = (
         db.query(P4xAccount)
@@ -176,7 +171,7 @@ def get_account_or_404(
 
 def get_transaction_for_account(
     db: Session,
-    account_id: int,
+    account_id: uuid.UUID,
     transaction_id: uuid.UUID,
 ) -> P4xTransaction:
     account = get_account_or_404(db, account_id)
@@ -184,7 +179,7 @@ def get_transaction_for_account(
         db.query(P4xTransaction)
         .filter(
             P4xTransaction.id == transaction_id,
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .first()
@@ -221,7 +216,6 @@ def build_filter_response(
         id=f.id,
         name=f.name,
         p4x_account_id=f.p4x_account_id,
-        account_id=f.account.id,
         p4x_account_label=f.account.label if f.account else None,
         iban=f.iban,
         min_amount=f.min_amount,

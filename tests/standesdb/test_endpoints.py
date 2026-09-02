@@ -1,5 +1,6 @@
 """Tests für Standesdb API-Endpoints — Member/Contact CRUD, Search, Reference-Data."""
 
+import uuid
 from datetime import date
 
 import bcrypt
@@ -450,7 +451,7 @@ class TestContactCRUD:
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
-        resp = client.get("/api/standesdb/contacts/99999", headers=headers)
+        resp = client.get(f"/api/standesdb/contacts/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 

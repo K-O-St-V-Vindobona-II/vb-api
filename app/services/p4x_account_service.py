@@ -98,7 +98,7 @@ def delete_account(db: Session, account: P4xAccount) -> None:
     tx_count = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .count()
@@ -132,7 +132,7 @@ def get_account_balance(
     total = (
         db.query(func.sum(P4xTransaction.amount))
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.booking <= up_to_date,
             P4xTransaction.deleted_at.is_(None),
         )
@@ -162,7 +162,7 @@ def get_transactions_by_month(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
             extract("year", P4xTransaction.booking) == year,
             extract("month", P4xTransaction.booking) == month,
@@ -223,7 +223,7 @@ def get_transactions_by_partner(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .filter(
@@ -293,7 +293,7 @@ def get_transactions_by_category(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(all_tx_ids),
         )
@@ -336,7 +336,7 @@ def get_transactions_by_filter(
     query = (
         db.query(P4xTransaction)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
             P4xTransaction.id.in_(tx_ids),
         )
@@ -430,7 +430,7 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         r[0]
         for r in db.query(P4xTransaction.id)
         .filter(
-            P4xTransaction.p4x_account_id == account.id_uuid,
+            P4xTransaction.p4x_account_id == account.id,
             P4xTransaction.deleted_at.is_(None),
         )
         .all()

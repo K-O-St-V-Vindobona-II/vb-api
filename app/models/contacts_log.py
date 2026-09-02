@@ -18,7 +18,7 @@ class ContactsLog(Base):
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
     )
-    contact_id: Mapped[int | None] = mapped_column(
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE")
     )
     action: Mapped[ChangeLogAction] = mapped_column(

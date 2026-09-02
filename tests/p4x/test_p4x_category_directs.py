@@ -50,7 +50,7 @@ def _seed(db) -> tuple[P4xAccount, P4xCategory, P4xTransaction]:
         iban="AT001",
         amount=100.0,
         subject="Test Transaktion",
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -224,7 +224,7 @@ class TestUnsetCategoryDirect:
 
         f = P4xCategoryFilter(
             name="auto_filter",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="Test Transaktion",
             p4x_category_id=cat.id,

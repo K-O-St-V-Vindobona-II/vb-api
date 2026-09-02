@@ -283,7 +283,7 @@ class TestCrossColumnAmountOrdering:
         db_session.add(
             P4xCategoryFilter(
                 name="check-test-filter",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 subject_mode="contains",
                 subject="x",
                 p4x_category_id=category.id,
@@ -300,7 +300,7 @@ class TestCrossColumnAmountOrdering:
         db_session.add(
             P4xCategoryFilter(
                 name="check-test-filter",
-                p4x_account_id=account.id_uuid,
+                p4x_account_id=account.id,
                 subject_mode="contains",
                 subject="x",
                 p4x_category_id=category.id,

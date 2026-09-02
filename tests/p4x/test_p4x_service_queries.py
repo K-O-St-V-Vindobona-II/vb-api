@@ -59,7 +59,7 @@ def _add_tx(
         iban=iban,
         amount=amount,
         subject=subject,
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         delegating_member_id=delegating_member_id,
         created_at=_now(),
         updated_at=_now(),
@@ -217,7 +217,7 @@ class TestGetTransactionsByCategory:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="FilterHit",
             p4x_category_id=cat.id,
@@ -269,7 +269,7 @@ class TestGetTransactionsByFilter:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="X",
             p4x_category_id=cat.id,
@@ -311,7 +311,7 @@ class TestGetTransactionsByFilter:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="X",
             p4x_category_id=cat.id,
@@ -403,7 +403,7 @@ class TestGetAccountCategories:
 
         cf = P4xCategoryFilter(
             name="f1",
-            p4x_account_id=account.id_uuid,
+            p4x_account_id=account.id,
             subject_mode="equals",
             subject="X",
             p4x_category_id=cat.id,

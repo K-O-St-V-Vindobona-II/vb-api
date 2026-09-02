@@ -193,7 +193,7 @@ def create_account(
 
 @p4x_router.put("/admin/accounts/{account_id}")
 def update_account(
-    account_id: int,
+    account_id: uuid.UUID,
     data: AccountSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -208,7 +208,7 @@ def update_account(
     "/admin/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_account(
-    account_id: int,
+    account_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
 ) -> None:
@@ -224,7 +224,7 @@ def delete_account(
 
 @p4x_router.post("/admin/accounts/{account_id}/import")
 async def import_transactions(
-    account_id: int,
+    account_id: uuid.UUID,
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -285,7 +285,7 @@ async def import_transactions(
     "/accounts/{account_id}/transactions/by-month/{year}/{month}",
 )
 def get_transactions_by_month(
-    account_id: int,
+    account_id: uuid.UUID,
     year: int,
     month: int,
     db: Annotated[Session, Depends(get_db)],
@@ -326,7 +326,7 @@ def get_transactions_by_month(
     "/accounts/{account_id}/transactions/by-partner/{partner_type}/{partner_id}",
 )
 def get_transactions_by_partner(
-    account_id: int,
+    account_id: uuid.UUID,
     partner_type: str,
     partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
@@ -357,7 +357,7 @@ def get_transactions_by_partner(
     "/accounts/{account_id}/transactions/by-category/{category_id}",
 )
 def get_transactions_by_category(
-    account_id: int,
+    account_id: uuid.UUID,
     category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
@@ -391,7 +391,7 @@ def get_transactions_by_category(
     "/accounts/{account_id}/transactions/raw/{transaction_id}",
 )
 def get_transaction_raw(
-    account_id: int,
+    account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
@@ -408,7 +408,7 @@ def get_transaction_raw(
     "/accounts/{account_id}/transactions/attachment/{transaction_id}",
 )
 def get_transaction_attachment(
-    account_id: int,
+    account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
@@ -761,7 +761,7 @@ def unset_category_direct_endpoint(
     "/admin/accounts/{account_id}/transactions/by-filter/{filter_id}",
 )
 def get_transactions_by_filter(
-    account_id: int,
+    account_id: uuid.UUID,
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],

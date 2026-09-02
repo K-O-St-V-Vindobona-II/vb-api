@@ -49,28 +49,25 @@ class P4xTransaction(Base):
     iban: Mapped[str] = mapped_column(String, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), index=True)
     subject: Mapped[str] = mapped_column(String, index=True)
-    # References p4x_accounts.id_uuid, not p4x_accounts.id - p4x_accounts
-    # itself won't have a UUID primary key until its own Final-Cutover.
     p4x_account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("p4x_accounts.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"),
+        ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    # delegating_member_id/delegating_contact_id/delegating_p4x_account_id
-    # each reference their target table's id_uuid, not its own
-    # (still-integer) id - members/contacts/p4x_accounts each keep their
-    # own Final-Cutover for a later slice. delegating_p4x_specialcontact_id
-    # references p4x_special_contacts.id directly, that table's own UUID
-    # primary key.
+    # delegating_member_id references members.id_uuid, not its own
+    # (still-integer) id - members keeps its own Final-Cutover for a
+    # later slice. delegating_contact_id/delegating_p4x_account_id/
+    # delegating_p4x_specialcontact_id each reference their target's own
+    # UUID primary key directly.
     delegating_member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     delegating_contact_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("contacts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     delegating_p4x_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("p4x_accounts.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("p4x_accounts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     delegating_p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(

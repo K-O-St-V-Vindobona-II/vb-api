@@ -117,7 +117,7 @@ def _create_transaction(
         iban=iban,
         amount=amount,
         subject=subject,
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         created_at=_now(),
         updated_at=_now(),
     )
@@ -155,7 +155,7 @@ def _create_filter(
 ) -> P4xCategoryFilter:
     f = P4xCategoryFilter(
         name=name,
-        p4x_account_id=account.id_uuid,
+        p4x_account_id=account.id,
         subject=subject,
         subject_mode=SubjectMode.CONTAINS,
         p4x_category_id=category.id,
@@ -530,7 +530,7 @@ class TestCategoryFilterEndpointsHttp:
             "/api/p4x/admin/category-filters",
             json={
                 "name": "Mitgliedsbeitrag",
-                "p4x_account_id": str(account.id_uuid),
+                "p4x_account_id": str(account.id),
                 "subject": "MB",
                 "subject_mode": "contains",
                 "p4x_category_id": str(cat.id),
@@ -544,7 +544,7 @@ class TestCategoryFilterEndpointsHttp:
             f"/api/p4x/admin/category-filters/{filter_id}",
             json={
                 "name": "Mitgliedsbeitrag geändert",
-                "p4x_account_id": str(account.id_uuid),
+                "p4x_account_id": str(account.id),
                 "subject": "MB",
                 "subject_mode": "contains",
                 "p4x_category_id": str(cat.id),

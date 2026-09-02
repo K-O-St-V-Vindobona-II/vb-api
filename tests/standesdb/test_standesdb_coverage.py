@@ -224,7 +224,7 @@ class TestContactImages:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/contacts/99999/images", headers=h)
+        resp = client.get(f"/api/standesdb/contacts/{uuid.uuid4()}/images", headers=h)
         assert resp.status_code == 404
 
     def test_list_contact_images_soft_deleted(self, client, db_session):
@@ -243,7 +243,7 @@ class TestContactImages:
         h = _headers(db_session, admin)
         buf = io.BytesIO(b"fake")
         resp = client.post(
-            "/api/standesdb/contacts/99999/images",
+            f"/api/standesdb/contacts/{uuid.uuid4()}/images",
             headers=h,
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
