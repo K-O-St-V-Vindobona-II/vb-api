@@ -5,11 +5,11 @@ themselves are already covered by tests/test_archive_maintenance_service.py
 — these tests only exercise the CLI wrapper's own logic (subcommand
 parsing, confirmation prompts, exit codes, output formatting).
 
-File ids are UUIDs since archive_files' own Final-Cutover; directory ids
-stay plain integers (archive_dirs' own Final-Cutover is a later slice).
-`_uid(n)`/`_fake_uuid(n)` below build a deterministic, readable UUID for
-a given small integer `n`, so assertions can still say "file 1"/"file 2"
-in spirit without a fresh random id every run.
+File ids and directory ids are both UUIDs (archive_files' and archive_dirs'
+own Final-Cutovers). `_uid(n)`/`_fake_uuid(n)` below build a deterministic,
+readable UUID for a given small integer `n`, so assertions can still say
+"file 1"/"dir 7" in spirit without a fresh random id every run - used for
+both id spaces.
 """
 
 import uuid
@@ -43,9 +43,9 @@ def _uid(n: int) -> uuid.UUID:
 
 
 def _fake_uuid(n: int) -> str:
-    """String form of `_uid(n)`, for CLI argv - argparse now parses file
-    ids as uuid.UUID, so a bare digit string like "1" or "42" no longer
-    parses."""
+    """String form of `_uid(n)`, for CLI argv - argparse now parses both
+    file and directory ids as uuid.UUID, so a bare digit string like "1"
+    or "42" no longer parses."""
     return str(_uid(n))
 
 
@@ -53,7 +53,7 @@ def _candidate(
     file_id: int = 1,
     path: str = "Fotos",
     filename: str = "gruppenfoto.jpg",
-    archive_dir_id: int = 7,
+    archive_dir_id: int | None = 7,
     archive_store_item_id: uuid.UUID | None = None,
     active_sibling_count: int = 0,
     other_deleted_sibling_count: int = 0,
@@ -68,7 +68,7 @@ def _candidate(
         deleted_at=datetime(2026, 7, 20, 14, 32, 10, tzinfo=UTC),
         size=100,
         sha256_hash="a" * 64,
-        archive_dir_id=archive_dir_id,
+        archive_dir_id=_uid(archive_dir_id) if archive_dir_id is not None else None,
         archive_store_item_id=archive_store_item_id or uuid.uuid4(),
         active_sibling_count=active_sibling_count,
         other_deleted_sibling_count=other_deleted_sibling_count,
@@ -124,7 +124,7 @@ def test_list_prints_candidates_without_prompting_and_exits_zero(capsys) -> None
     assert "gruppenfoto" in out
     assert "jpg" in out
     assert "2026-07-20" in out
-    assert "(dir_id: 7)" in out
+    assert f"(dir_id: {_fake_uuid(7)})" in out
     assert "CREATED_BY" not in out
     mock_db.close.assert_called_once()
 
@@ -163,8 +163,8 @@ def test_list_groups_by_directory_sorted_alphabetically_with_repeated_header(
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
     assert out.count("ID") >= 2  # header line repeated per directory paragraph
-    antilope_pos = out.index("Antilope (dir_id: 10)")
-    zebra_pos = out.index("Zebra (dir_id: 20)")
+    antilope_pos = out.index(f"Antilope (dir_id: {_fake_uuid(10)})")
+    zebra_pos = out.index(f"Zebra (dir_id: {_fake_uuid(20)})")
     assert antilope_pos < zebra_pos  # alphabetical, not insertion order
     assert out.index("afile") < out.index("bfile") < zebra_pos  # both under Antilope
     assert out.index("zfile") > zebra_pos  # under Zebra
@@ -181,15 +181,15 @@ def test_list_with_dir_id_filters_to_one_directory(capsys) -> None:
         patch.object(maintain_script, "list_deleted_files") as mock_list_all,
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["list", "7"])
+        _run_main(["list", _fake_uuid(7)])
 
     assert exc_info.value.code == 0
-    mock_list_in_dir.assert_called_once_with(mock_db, 7)
+    mock_list_in_dir.assert_called_once_with(mock_db, _uid(7))
     mock_list_all.assert_not_called()
-    assert "(dir_id: 7)" in capsys.readouterr().out
+    assert f"(dir_id: {_fake_uuid(7)})" in capsys.readouterr().out
 
 
-def test_list_with_non_integer_dir_id_is_rejected_by_argparse() -> None:
+def test_list_with_malformed_dir_id_is_rejected_by_argparse() -> None:
     with pytest.raises(SystemExit) as exc_info:
         _run_main(["list", "abc"])
 
@@ -214,7 +214,10 @@ def test_list_short_shows_one_line_per_directory_with_count(capsys) -> None:
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
     lines = [line for line in out.splitlines() if "(dir_id:" in line]
-    assert lines == ["Antilope (dir_id: 10): 2", "Zebra (dir_id: 20): 1"]
+    assert lines == [
+        f"Antilope (dir_id: {_fake_uuid(10)}): 2",
+        f"Zebra (dir_id: {_fake_uuid(20)}): 1",
+    ]
     # no per-file detail in short mode
     assert "z.jpg" not in out
     assert "a.jpg" not in out
@@ -235,11 +238,11 @@ def test_list_short_combines_with_dir_id(capsys) -> None:
         ) as mock_list_in_dir,
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["list", "7", "--short"])
+        _run_main(["list", _fake_uuid(7), "--short"])
 
     assert exc_info.value.code == 0
-    mock_list_in_dir.assert_called_once_with(mock_db, 7)
-    assert "Fotos (dir_id: 7): 1" in capsys.readouterr().out
+    mock_list_in_dir.assert_called_once_with(mock_db, _uid(7))
+    assert f"Fotos (dir_id: {_fake_uuid(7)}): 1" in capsys.readouterr().out
 
 
 def test_list_truncates_long_filename_and_keeps_columns_aligned(capsys) -> None:
@@ -529,7 +532,7 @@ class TestPurgeDuplicatesCommand:
 
         assert exc_info.value.code == 2
 
-    def test_non_integer_dir_id_is_rejected_by_argparse(self) -> None:
+    def test_malformed_dir_id_is_rejected_by_argparse(self) -> None:
         with pytest.raises(SystemExit) as exc_info:
             _run_main(["purge-duplicates", "abc"])
 
@@ -544,7 +547,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input") as mock_input,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         mock_input.assert_not_called()
@@ -574,7 +577,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input", return_value="yes"),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         assert mock_purge_file.call_count == 2
@@ -593,7 +596,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input", return_value="no"),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         mock_purge_file.assert_not_called()
@@ -613,7 +616,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input", return_value="yes"),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         mock_purge_file.assert_not_called()
@@ -642,7 +645,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input", return_value="yes"),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 1
         assert "unexpectedly" in capsys.readouterr().err
@@ -663,7 +666,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input") as mock_input,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         mock_input.assert_not_called()
@@ -700,7 +703,7 @@ class TestPurgeDuplicatesCommand:
             patch("builtins.input", return_value="yes") as mock_input,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["purge-duplicates", "7"])
+            _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         mock_input.assert_called_once()  # only the batch prompt, no walkthrough
@@ -999,7 +1002,7 @@ class TestListDuplicatesCommand:
             patch.object(maintain_script, "active_duplicates_in_dir", return_value=[]),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--dir", "7"])
+            _run_main(["list-duplicates", "--dir", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         assert "no soft-deleted files" in capsys.readouterr().out.lower()
@@ -1018,7 +1021,7 @@ class TestListDuplicatesCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--dir", "7"])
+            _run_main(["list-duplicates", "--dir", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
@@ -1048,11 +1051,13 @@ class TestListDuplicatesCommand:
             ) as mock_dir,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", _fake_uuid(1), "--dir", "10"])
+            _run_main(
+                ["list-duplicates", "--file", _fake_uuid(1), "--dir", _fake_uuid(10)]
+            )
 
         assert exc_info.value.code == 0
         mock_file.assert_called_once_with(mock_db, _uid(1))
-        mock_dir.assert_called_once_with(mock_db, 10)
+        mock_dir.assert_called_once_with(mock_db, _uid(10))
 
 
 class TestUrlpathCommand:
@@ -1063,12 +1068,12 @@ class TestUrlpathCommand:
         assert exc_info.value.code == 2
 
     def test_malformed_id_is_treated_as_not_found(self, capsys) -> None:
-        """Neither a valid UUID nor a valid int - `id` has no argparse
-        `type=` any more (it must work as both a file and a directory
-        lookup), so a malformed value is never rejected at the argparse
-        level. Both internal lookups catch their own ValueError before
-        ever calling the mocked service function, so this behaves exactly
-        like "not found", not a crash."""
+        """`id` has no argparse `type=` (it must work as both a file and a
+        directory lookup, both UUID-shaped), so a malformed value is never
+        rejected at the argparse level. The single internal uuid.UUID()
+        parse shared by both lookups fails before either mocked service
+        function is ever called, so this behaves exactly like "not found",
+        not a crash."""
         mock_db = MagicMock()
 
         with (
@@ -1093,10 +1098,12 @@ class TestUrlpathCommand:
             patch.object(maintain_script, "find_dir_location", return_value=None),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["urlpath", "42"])
+            _run_main(["urlpath", _fake_uuid(42)])
 
         assert exc_info.value.code == 1
-        assert "no file or directory with id 42" in capsys.readouterr().err
+        assert (
+            f"no file or directory with id {_fake_uuid(42)}" in capsys.readouterr().err
+        )
         mock_db.close.assert_called_once()
 
     def test_deleted_file_only(self, capsys) -> None:
@@ -1143,7 +1150,7 @@ class TestUrlpathCommand:
 
     def test_active_dir_only(self, capsys) -> None:
         mock_db = MagicMock()
-        location = DirLocation(dir_id=7, path="Bilder / 2012", deleted=False)
+        location = DirLocation(dir_id=_uid(7), path="Bilder / 2012", deleted=False)
 
         with (
             patch.object(maintain_script, "SessionLocal", return_value=mock_db),
@@ -1151,19 +1158,19 @@ class TestUrlpathCommand:
             patch.object(maintain_script, "find_dir_location", return_value=location),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["urlpath", "7"])
+            _run_main(["urlpath", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
         assert "ACTIVE DIRECTORY:" in out
         assert "DELETED DIRECTORY:" not in out
         assert "Bilder / 2012" in out
-        assert "URL PATH: /archive/dirs/7" in out
+        assert f"URL PATH: /archive/dirs/{_fake_uuid(7)}" in out
         assert "FILE:" not in out
 
     def test_deleted_dir_shows_deleted_label(self, capsys) -> None:
         mock_db = MagicMock()
-        location = DirLocation(dir_id=7, path="Bilder / 2012", deleted=True)
+        location = DirLocation(dir_id=_uid(7), path="Bilder / 2012", deleted=True)
 
         with (
             patch.object(maintain_script, "SessionLocal", return_value=mock_db),
@@ -1171,6 +1178,6 @@ class TestUrlpathCommand:
             patch.object(maintain_script, "find_dir_location", return_value=location),
             pytest.raises(SystemExit),
         ):
-            _run_main(["urlpath", "7"])
+            _run_main(["urlpath", _fake_uuid(7)])
 
         assert "DELETED DIRECTORY:" in capsys.readouterr().out

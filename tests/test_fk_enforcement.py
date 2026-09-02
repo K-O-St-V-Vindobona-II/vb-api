@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
+from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
 from app.models.archive_permission import ArchivePermission
@@ -174,14 +175,50 @@ class TestFkInsertEnforcement:
     def test_inserting_an_archive_permission_with_unknown_archive_dir_id_is_rejected(
         self, db_session
     ):
-        """archive_permissions.archive_dir_id -> archive_dirs.id_uuid
-        (Alembic revision 673aa46dc3b3)."""
+        """archive_permissions.archive_dir_id -> archive_dirs.id (FK
+        established in 673aa46dc3b3, retargeted onto the real id column by
+        archive_dirs' own Final-Cutover in 2727a9187d6e)."""
         db_session.add(
             ArchivePermission(
                 archive_dir_id=uuid.uuid4(),
                 org_id="vbw",
                 state_id="fu",
             )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_dir_with_unknown_parent_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_dirs.archive_dir_id (self-reference) -> archive_dirs.id -
+        a real FK only since archive_dirs' own Final-Cutover in
+        2727a9187d6e; the pre-migration integer column used a `0` sentinel
+        with no FK at all, so this constraint could never be exercised
+        before this migration."""
+        db_session.add(ArchiveDir(name="fk-test-dir", archive_dir_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_file_with_unknown_archive_dir_id_is_rejected(
+        self, db_session
+    ):
+        """archive_files.archive_dir_id -> archive_dirs.id - a real FK only
+        since 2727a9187d6e, same reasoning as archive_dirs' self-reference
+        above."""
+        item = ArchiveStoreItem(
+            name="fk-test",
+            extension="jpg",
+            mime_type="image/jpeg",
+            size=1,
+            sha256_hash="fk-enforcement-test-hash-archive-dir-id",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(
+            ArchiveFile(archive_store_item_id=item.id, archive_dir_id=uuid.uuid4())
         )
         with pytest.raises(IntegrityError):
             db_session.commit()

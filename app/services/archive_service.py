@@ -1,5 +1,4 @@
 import hashlib
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -33,6 +32,8 @@ from app.services.permission_service import (
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
+    import uuid
+
     from sqlalchemy.orm import Session
 
     from app.models.member import Member
@@ -122,7 +123,9 @@ def _inherited_permissions(
     perm_sets: _PermSets,
 ) -> list[str]:
     parent = (
-        db.get(ArchiveDir, dir_obj.archive_dir_id) if dir_obj.archive_dir_id else None
+        db.get(ArchiveDir, dir_obj.archive_dir_id)
+        if dir_obj.archive_dir_id is not None
+        else None
     )
     if not parent:
         return []
@@ -201,12 +204,12 @@ def build_path(
     dir_obj: ArchiveDir,
 ) -> list[dict[str, object]]:
     path = []
-    current = dir_obj
-    while current:
+    current: ArchiveDir | None = dir_obj
+    while current is not None:
         path.append({"id": current.id, "name": current.name})
         current = (
             db.get(ArchiveDir, current.archive_dir_id)
-            if current.archive_dir_id
+            if current.archive_dir_id is not None
             else None
         )
     path.reverse()
@@ -279,7 +282,7 @@ def get_root_content(
 
     dirs = (
         db.query(ArchiveDir)
-        .filter(ArchiveDir.archive_dir_id == 0)
+        .filter(ArchiveDir.archive_dir_id.is_(None))
         .order_by(ArchiveDir.name)
         .all()
     )
@@ -293,7 +296,7 @@ def get_root_content(
             perm_sets=perm_sets,
         )
 
-    files = db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).all()
+    files = db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id.is_(None)).all()
     for f in files:
         if f.deleted_at:
             if admin:
@@ -304,7 +307,7 @@ def get_root_content(
 
     return {
         "type": "dir",
-        "id": 0,
+        "id": None,
         "name": "Archiv",
         "description": None,
         "path": [],
@@ -360,7 +363,7 @@ def _build_dir_detail_content(
 
 def get_dir_detail(
     db: Session,
-    dir_id: int,
+    dir_id: uuid.UUID,
     user: Member,
 ) -> dict[str, object]:
     dir_obj = db.get(ArchiveDir, dir_id)
@@ -412,8 +415,8 @@ def create_dir(
     user: Member,
 ) -> ArchiveDir:
     _require_admin(user)
-    parent_id = data.get("parentId") or 0
-    if parent_id:
+    parent_id = data.get("parentId")
+    if parent_id is not None:
         parent = db.get(ArchiveDir, parent_id)
         if not parent:
             raise HTTPException(
@@ -442,7 +445,7 @@ def create_dir(
 
 def update_dir(
     db: Session,
-    dir_id: int,
+    dir_id: uuid.UUID,
     data: dict[str, object],
     user: Member,
 ) -> ArchiveDir:
@@ -464,11 +467,12 @@ def update_dir(
     return dir_obj
 
 
-def _dir_has_content(db: Session, dir_id: int) -> bool:
+def _dir_has_content(db: Session, dir_id: uuid.UUID) -> bool:
     """True if dir_id has any child dir or file row, regardless of their own
-    deleted_at status — archive_dir_id has no real FK, so purging a
-    directory that still has (even soft-deleted) children would leave those
-    children pointing at a non-existent parent forever.
+    deleted_at status. Both archive_dir_id FKs are ON DELETE RESTRICT, so
+    the database itself would already refuse a hard-delete here as a
+    second line of defense — this check exists to turn that into a clean
+    409/soft-delete instead of a raw IntegrityError.
     """
     has_children = (
         db.query(ArchiveDir).filter(ArchiveDir.archive_dir_id == dir_id).count() > 0
@@ -481,7 +485,7 @@ def _dir_has_content(db: Session, dir_id: int) -> bool:
 
 def delete_dir(
     db: Session,
-    dir_id: int,
+    dir_id: uuid.UUID,
     user: Member,
 ) -> None:
     _require_admin(user)
@@ -503,7 +507,7 @@ def delete_dir(
 
 def purge_dir(
     db: Session,
-    dir_id: int,
+    dir_id: uuid.UUID,
     user: Member,
 ) -> None:
     """Permanently deletes an empty, soft-deleted directory. Unlike
@@ -537,7 +541,7 @@ def purge_dir(
 
 def restore_dir(
     db: Session,
-    dir_id: int,
+    dir_id: uuid.UUID,
     user: Member,
 ) -> None:
     _require_admin(user)
@@ -551,16 +555,53 @@ def restore_dir(
     db.commit()
 
 
-def receive_items(  # noqa: C901
+def _receive_dirs(
     db: Session,
-    target_dir_id: int,
+    target_dir_id: uuid.UUID | None,
+    dir_ids: list[uuid.UUID],
+) -> None:
+    for did in dir_ids:
+        d = db.get(ArchiveDir, did)
+        if not d:
+            continue
+        if did == target_dir_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Verzeichnis kann nicht in sich selbst verschoben werden.",
+            )
+        if target_dir_id is not None and _is_descendant(db, target_dir_id, did):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "Verzeichnis kann nicht in eigenes Unterverzeichnis "
+                    "verschoben werden."
+                ),
+            )
+        d.archive_dir_id = target_dir_id
+
+
+def _receive_files(
+    db: Session,
+    target_dir_id: uuid.UUID | None,
+    file_ids: list[uuid.UUID],
+) -> None:
+    for fid in file_ids:
+        f = db.get(ArchiveFile, fid)
+        if not f:
+            continue
+        f.archive_dir_id = target_dir_id
+
+
+def receive_items(
+    db: Session,
+    target_dir_id: uuid.UUID | None,
     item_type: str,
-    item_ids: list[int | uuid.UUID],
+    item_ids: list[uuid.UUID],
     user: Member,
 ) -> None:
     _require_admin(user)
 
-    if target_dir_id:
+    if target_dir_id is not None:
         target = db.get(ArchiveDir, target_dir_id)
         if not target:
             raise HTTPException(
@@ -569,52 +610,21 @@ def receive_items(  # noqa: C901
             )
 
     if item_type == "dir":
-        for did in item_ids:
-            if not isinstance(did, int):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Verzeichnis-IDs müssen Ganzzahlen sein.",
-                )
-            d = db.get(ArchiveDir, did)
-            if not d:
-                continue
-            if did == target_dir_id:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Verzeichnis kann nicht in sich selbst verschoben werden.",
-                )
-            if target_dir_id and _is_descendant(db, target_dir_id, did):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=(
-                        "Verzeichnis kann nicht in eigenes Unterverzeichnis "
-                        "verschoben werden."
-                    ),
-                )
-            d.archive_dir_id = target_dir_id
-    elif item_type == "file":
-        for fid in item_ids:
-            if not isinstance(fid, uuid.UUID):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Datei-IDs müssen UUIDs sein.",
-                )
-            f = db.get(ArchiveFile, fid)
-            if not f:
-                continue
-            f.archive_dir_id = target_dir_id
+        _receive_dirs(db, target_dir_id, item_ids)
+    else:
+        _receive_files(db, target_dir_id, item_ids)
 
     db.commit()
 
 
 def _is_descendant(
     db: Session,
-    candidate_id: int,
-    ancestor_id: int,
+    candidate_id: uuid.UUID,
+    ancestor_id: uuid.UUID,
 ) -> bool:
-    current_id = candidate_id
-    visited: set[int] = set()
-    while current_id and current_id not in visited:
+    current_id: uuid.UUID | None = candidate_id
+    visited: set[uuid.UUID] = set()
+    while current_id is not None and current_id not in visited:
         visited.add(current_id)
         d = db.get(ArchiveDir, current_id)
         if not d:
@@ -631,14 +641,14 @@ def _sync_permissions(
     perms: list[str],
 ) -> None:
     db.query(ArchivePermission).filter(
-        ArchivePermission.archive_dir_id == dir_obj.id_uuid
+        ArchivePermission.archive_dir_id == dir_obj.id
     ).delete()
     for p in perms:
         parts = p.split("_", 1)
         if len(parts) == 2:
             db.add(
                 ArchivePermission(
-                    archive_dir_id=dir_obj.id_uuid,
+                    archive_dir_id=dir_obj.id,
                     org_id=parts[0],
                     state_id=parts[1],
                 )
@@ -674,12 +684,12 @@ def get_file_detail(
             detail="Datei nicht gefunden.",
         )
 
-    if file_obj.archive_dir_id:
+    if file_obj.archive_dir_id is not None:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
     elif not is_archive_admin(user):
-        # archive_dir_id == 0 is the "unsorted upload" sentinel - no real
+        # archive_dir_id IS NULL means "unsorted upload" - no real
         # ArchiveDir row to check can_insight() against. Admin-only
         # everywhere else in this module (get_root_content(),
         # search_archive(), create_comment()), so viewing one follows the
@@ -692,7 +702,7 @@ def get_file_detail(
     admin = is_archive_admin(user)
     item = file_obj.store_item
     path = []
-    if file_obj.archive_dir_id:
+    if file_obj.archive_dir_id is not None:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
             path = build_path(db, dir_obj)
@@ -713,7 +723,7 @@ def get_file_detail(
     return {
         "type": "file",
         "id": file_obj.id,
-        "archive_dir_id": file_obj.archive_dir_id or 0,
+        "archive_dir_id": file_obj.archive_dir_id,
         "name": item.name,
         "extension": item.extension,
         "description": file_obj.description,
@@ -795,7 +805,7 @@ def get_presigned_url(
             detail="Datei nicht gefunden.",
         )
 
-    if file_obj.archive_dir_id:
+    if file_obj.archive_dir_id is not None:
         dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
         if dir_obj:
             _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
@@ -885,7 +895,7 @@ def get_unfiled_uploads(
             ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
         )
         .filter(
-            ArchiveFile.archive_dir_id == 0,
+            ArchiveFile.archive_dir_id.is_(None),
             ArchiveStoreItem.created_by == user_id,
         )
         .all()
@@ -899,7 +909,7 @@ def get_unsorted_upload_count(db: Session) -> int:
     Unlike get_unfiled_uploads(), this is not scoped to a single uploader -
     used for the weekly archive health-check report to all archive admins.
     """
-    return db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id == 0).count()
+    return db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id.is_(None)).count()
 
 
 def get_archive_stats(db: Session) -> dict[str, object]:
@@ -940,7 +950,7 @@ def get_archive_stats(db: Session) -> dict[str, object]:
         .filter(
             ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
             ArchiveFile.deleted_at.is_(None),
-            ArchiveFile.archive_dir_id != 0,
+            ArchiveFile.archive_dir_id.is_not(None),
             ~ArchiveFile.archive_dir_id.in_(under_trash),
         )
         .correlate(ArchiveStoreItem)
@@ -951,7 +961,7 @@ def get_archive_stats(db: Session) -> dict[str, object]:
         db.query(ArchiveFile)
         .filter(
             ArchiveFile.deleted_at.is_(None),
-            ArchiveFile.archive_dir_id != 0,
+            ArchiveFile.archive_dir_id.is_not(None),
             ~ArchiveFile.archive_dir_id.in_(under_trash),
         )
         .count()
@@ -1077,7 +1087,7 @@ def upload_file(
     db.flush()
 
     archive_file = ArchiveFile(
-        archive_dir_id=0,
+        archive_dir_id=None,
         description=description,
         archive_store_item_id=store_item.id,
         created_at=now,
@@ -1105,12 +1115,14 @@ def create_comment(
             detail="Datei nicht gefunden.",
         )
 
-    # archive_dir_id == 0 is the "unsorted upload" sentinel - no real
-    # ArchiveDir row to check can_insight() against. Those files are
-    # archiveAdmin-only everywhere else in this module (get_root_content(),
-    # search_archive()), so commenting on one follows the same rule.
+    # archive_dir_id IS NULL means "unsorted upload" - no real ArchiveDir
+    # row to check can_insight() against. Those files are archiveAdmin-only
+    # everywhere else in this module (get_root_content(), search_archive()),
+    # so commenting on one follows the same rule.
     parent = (
-        db.get(ArchiveDir, file_obj.archive_dir_id) if file_obj.archive_dir_id else None
+        db.get(ArchiveDir, file_obj.archive_dir_id)
+        if file_obj.archive_dir_id is not None
+        else None
     )
     if parent is not None:
         _require_insight_or_admin(user, db, parent, _load_perm_sets(db))
@@ -1205,16 +1217,21 @@ def _collect_file_hits(
     perm_sets: _PermSets,
 ) -> list[tuple[float, dict[str, object]]]:
     """Same as _collect_dir_hits(), for files - including the unsorted-
-    upload (archive_dir_id 0, no resolvable parent) admin-only rule."""
+    upload (archive_dir_id IS NULL, no resolvable parent) admin-only
+    rule."""
     collected: list[tuple[float, dict[str, object]]] = []
     for f, rank in hits:
-        parent = db.get(ArchiveDir, f.archive_dir_id)
+        parent = (
+            db.get(ArchiveDir, f.archive_dir_id)
+            if f.archive_dir_id is not None
+            else None
+        )
         # No resolvable parent means an unsorted upload sitting directly at
-        # the root (archive_dir_id 0, which is a sentinel, not a real row —
-        # see get_root_content()) — those are archiveAdmin-only, same as in
-        # regular directory browsing, so a missing parent must NOT skip the
-        # permission check (that would silently show unsorted uploads to
-        # every authenticated user, admin or not).
+        # the root (archive_dir_id IS NULL - see get_root_content()) —
+        # those are archiveAdmin-only, same as in regular directory
+        # browsing, so a missing parent must NOT skip the permission check
+        # (that would silently show unsorted uploads to every authenticated
+        # user, admin or not).
         if not admin and (
             parent is None or not can_insight(user, db, parent, perm_sets)
         ):

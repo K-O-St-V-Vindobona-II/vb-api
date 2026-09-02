@@ -77,7 +77,7 @@ def get_root(
 
 @archive_router.get("/dirs/{dir_id}")
 def get_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> ArchiveDirDetailResponse:
@@ -94,16 +94,16 @@ def create_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[int]:
+) -> StatusIdResponse[uuid.UUID]:
     """Create a new subdirectory within an existing directory (or the root, if parentId
     is omitted). Requires archiveAdmin."""
     d = archive_service.create_dir(db, data.model_dump(), user)
-    return StatusIdResponse[int](status="ok", id=d.id)
+    return StatusIdResponse[uuid.UUID](status="ok", id=d.id)
 
 
 @archive_router.put("/dirs/{dir_id}")
 def update_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -116,7 +116,7 @@ def update_dir(
 
 @archive_router.delete("/dirs/{dir_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -127,7 +127,7 @@ def delete_dir(
 
 @archive_router.patch("/dirs/{dir_id}/restore")
 def restore_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusResponse:
@@ -138,7 +138,7 @@ def restore_dir(
 
 @archive_router.delete("/dirs/{dir_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
 def purge_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
 ) -> None:
@@ -149,7 +149,7 @@ def purge_dir(
 
 @archive_router.post("/dirs/{dir_id}/receive")
 def receive_in_dir(
-    dir_id: int,
+    dir_id: uuid.UUID,
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
@@ -168,7 +168,7 @@ def receive_in_root(
 ) -> StatusResponse:
     """Move files or directories (clipboard paste) into the root
     directory. Requires archiveAdmin."""
-    archive_service.receive_items(db, 0, data.type, data.ids, user)
+    archive_service.receive_items(db, None, data.type, data.ids, user)
     return StatusResponse(status="ok")
 
 

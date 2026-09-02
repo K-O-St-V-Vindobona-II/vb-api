@@ -131,7 +131,7 @@ class TestArchiveEndpointReturnsOffsetTimestamp:
         db_session.add(item)
         db_session.flush()
         file_ = ArchiveFile(
-            archive_dir_id=0,
+            archive_dir_id=None,
             description="tz-endpoint-test",
             archive_store_item_id=item.id,
             created_at=now,

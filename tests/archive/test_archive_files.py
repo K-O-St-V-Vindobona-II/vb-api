@@ -107,7 +107,7 @@ def _login_user(db, _client, org="vbw", state="fu"):
 def _make_dir(
     db,
     name,
-    parent_id=0,
+    parent_id=None,
     perms=None,
     recursive=False,
 ):
@@ -125,7 +125,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id_uuid,
+                archive_dir_id=d.id,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -134,7 +134,7 @@ def _make_dir(
     return d
 
 
-def _make_file(db, dir_id=0, desc="test"):
+def _make_file(db, dir_id=None, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
@@ -366,7 +366,7 @@ class TestUpload:
             db_session.add(item)
             db_session.flush()
             f = ArchiveFile(
-                archive_dir_id=0,
+                archive_dir_id=None,
                 description="unfiled",
                 archive_store_item_id=item.id,
                 created_at=now,
@@ -442,12 +442,12 @@ class TestFileDetail:
         client,
         db_session,
     ):
-        """archive_dir_id == 0 (unsorted upload, no real parent dir to
+        """archive_dir_id IS NULL (unsorted upload, no real parent dir to
         check can_insight() against) is archiveAdmin-only everywhere else
         in this module - the detail endpoint must follow the same rule."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        f = _make_file(db_session, dir_id=None, desc="unsorted")
         resp = client.get(
             f"/api/archive/files/{f.id}",
             headers=headers,
@@ -461,7 +461,7 @@ class TestFileDetail:
     ):
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
-        f = _make_file(db_session, dir_id=0, desc="unsorted")
+        f = _make_file(db_session, dir_id=None, desc="unsorted")
         resp = client.get(
             f"/api/archive/files/{f.id}",
             headers=headers,
@@ -628,7 +628,7 @@ class TestPresignedUrl:
         client,
         db_session,
     ):
-        resp = client.get("/api/archive/files/1/url")
+        resp = client.get(f"/api/archive/files/{uuid.uuid4()}/url")
         assert resp.status_code == 401
 
 
@@ -641,7 +641,7 @@ class TestMoveAndRestore:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         target = _make_dir(db_session, "Target")
-        f = _make_file(db_session, dir_id=0)
+        f = _make_file(db_session, dir_id=None)
         resp = client.post(
             f"/api/archive/dirs/{target.id}/receive",
             json={
@@ -677,7 +677,7 @@ class TestMoveAndRestore:
         assert resp.status_code == 200
         db_session.expire_all()
         updated = db_session.get(ArchiveFile, f.id)
-        assert updated.archive_dir_id == 0
+        assert updated.archive_dir_id is None
 
     def test_restore_deleted_file(
         self,
@@ -752,21 +752,19 @@ class TestMoveAndRestore:
         assert resp.status_code == 403
 
 
-class TestArchiveDirIdUuidDefault:
-    """Guards the UUID-PK migration's Phase A assumption (see
-    03e35e3c34bc_archive_dirs_id_uuid_phase_a.py): every insert goes
-    through the ORM instance, so `default=uuid.uuid7` on the additive
-    `id_uuid` column fires without ever needing a server-side default -
-    same guard as every migrated table's primary key, just on a column
-    that isn't the primary key yet."""
+class TestArchiveDirIdDefault:
+    """Guards ArchiveDir's own UUID primary key: every insert goes
+    through the ORM instance, so `default=uuid.uuid7` fires without
+    ever needing a server-side default - same guard as every other
+    Final-Cutover table's primary key in this series."""
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        d = ArchiveDir(name="Phase A Guard")
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        d = ArchiveDir(name="Final Cutover Guard")
         db_session.add(d)
         db_session.flush()
 
-        assert isinstance(d.id_uuid, uuid.UUID)
-        assert d.id_uuid.version == 7
+        assert isinstance(d.id, uuid.UUID)
+        assert d.id.version == 7
 
 
 class TestArchiveStoreItemIdUuidDefault:

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid
+from sqlalchemy import Computed, DateTime, ForeignKey, Uuid
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -18,15 +18,16 @@ if TYPE_CHECKING:
 
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
-    __table_args__ = (
-        CheckConstraint(
-            "archive_dir_id IS NULL OR archive_dir_id >= 0",
-            name="archive_files_archive_dir_id_check",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    archive_dir_id: Mapped[int | None] = mapped_column(default=0)
+    # NULL means "unfiled upload" (sitting directly at the synthetic
+    # root) - a plain nullable FK, unlike the pre-migration integer column
+    # which used a `0` sentinel because a real FK couldn't point at "no
+    # row" any other way.
+    archive_dir_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("archive_dirs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
     description: Mapped[str | None]
     archive_store_item_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE")

@@ -69,7 +69,7 @@ soft-deleted, or not SOLE) only prints a warning and does not stop the rest.
 share content with the given file (any status — active or soft-deleted);
 `--dir DIR_ID` does the same for every currently soft-deleted file directly
 in that directory. Both are repeatable and combinable in one call, e.g.
-`list-duplicates --file <uuid1> --file <uuid2> --dir 10 --dir 11`. Each
+`list-duplicates --file <uuid1> --file <uuid2> --dir <uuid3> --dir <uuid4>`. Each
 file gets its own two-part block — "DELETED FILE:"/"ACTIVE FILE:"
 (whichever the file's actual current state is) and "DUPLICATES:" (its
 active duplicates, or "(none)"),
@@ -79,34 +79,33 @@ duplicates is a normal result, not an error — an error is only reported for
 a `--file` id that doesn't exist at all, and only skips that one entry.
 
 `urlpath <id>` is a read-only convenience lookup: it looks the given id up
-as BOTH a file id (UUID) and a directory id (integer) and, for whichever
-match(es), prints its archive path and the frontend's relative URL path
-("/archive/files/<id>" or "/archive/dirs/<id>") — just the path, not a full
-URL, since the frontend domain differs per environment and isn't reliably
-known to this script.
+as BOTH a file id and a directory id (both UUIDs, from separate tables) and,
+for whichever match(es), prints its archive path and the frontend's
+relative URL path ("/archive/files/<id>" or "/archive/dirs/<id>") — just
+the path, not a full URL, since the frontend domain differs per
+environment and isn't reliably known to this script.
 Error only if neither a file nor a directory with that id exists.
 
 Runs in every environment, including production — unlike downsync_prod.py,
 this is not dev-only tooling but the actual production maintenance
 mechanism for accumulated soft-deleted files.
 
-Usage (file ids are UUIDs, directory ids are still plain integers):
+Usage (all ids, file and directory alike, are UUIDs):
     python scripts/maintain_deleted_archive_files.py
     python scripts/maintain_deleted_archive_files.py list
     python scripts/maintain_deleted_archive_files.py list --short
-    python scripts/maintain_deleted_archive_files.py list 7
+    python scripts/maintain_deleted_archive_files.py list <dir-uuid>
     python scripts/maintain_deleted_archive_files.py purge <file-uuid>
-    python scripts/maintain_deleted_archive_files.py purge-duplicates 7
+    python scripts/maintain_deleted_archive_files.py purge-duplicates <dir-uuid>
     python scripts/maintain_deleted_archive_files.py restore <file-uuid>
     python scripts/maintain_deleted_archive_files.py restore <file-uuid-1> <file-uuid-2>
     python scripts/maintain_deleted_archive_files.py urlpath <file-uuid>
-    python scripts/maintain_deleted_archive_files.py urlpath 7
+    python scripts/maintain_deleted_archive_files.py urlpath <dir-uuid>
     python scripts/maintain_deleted_archive_files.py list-duplicates \
-        --file <file-uuid> --dir 7
+        --file <file-uuid> --dir <dir-uuid>
 """
 
 import argparse
-import contextlib
 import sys
 import uuid
 from collections import Counter
@@ -148,7 +147,7 @@ _FILENAME_WIDTH = 24
 _FILEEXT_WIDTH = 8
 _DESCRIPTION_WIDTH = 24
 _DUPLICATE_PATH_WIDTH = 40
-_FILE_ID_WIDTH = 36  # exact length of a UUID's string form
+_ID_WIDTH = 36  # exact length of a UUID's string form
 
 
 def _human_size(num_bytes: int) -> str:
@@ -182,13 +181,13 @@ def _print_impact_summary(candidates: list[PurgeCandidate]) -> None:
 
 def _group_by_directory(
     candidates: list[PurgeCandidate],
-) -> list[tuple[str, int | None, list[PurgeCandidate]]]:
+) -> list[tuple[str, uuid.UUID | None, list[PurgeCandidate]]]:
     """Groups candidates by archive_dir_id, preserving each group's existing
     (deleted_at-ascending) relative order, and returns the groups sorted
     alphabetically by path. `path` is derived purely from `archive_dir_id`,
     so every candidate in a group shares the same path.
     """
-    groups: dict[int | None, list[PurgeCandidate]] = {}
+    groups: dict[uuid.UUID | None, list[PurgeCandidate]] = {}
     for c in candidates:
         groups.setdefault(c.archive_dir_id, []).append(c)
     return sorted(
@@ -213,7 +212,7 @@ def _print_candidates(candidates: list[PurgeCandidate], *, short: bool = False) 
 
         print(f"\n{path} (dir_id: {dir_label})")
         print(
-            f"   {'ID':<{_FILE_ID_WIDTH}} {'HASH':<16}  {'IMPACT':<10} "
+            f"   {'ID':<{_ID_WIDTH}} {'HASH':<16}  {'IMPACT':<10} "
             f"{'FILENAME':<{_FILENAME_WIDTH}} {'FILEEXT':<{_FILEEXT_WIDTH}} "
             f"{'SIZE':>9}  {'DESCRIPTION':<{_DESCRIPTION_WIDTH}} DELETED_AT"
         )
@@ -224,7 +223,7 @@ def _print_candidates(candidates: list[PurgeCandidate], *, short: bool = False) 
             extension = _truncate(c.extension, _FILEEXT_WIDTH)
             description = _truncate(c.description or "", _DESCRIPTION_WIDTH)
             print(
-                f"   {c.file_id!s:<{_FILE_ID_WIDTH}} {hash_short:<16}  "
+                f"   {c.file_id!s:<{_ID_WIDTH}} {hash_short:<16}  "
                 f"{_IMPACT_LABELS[c.impact]:<10} "
                 f"{name:<{_FILENAME_WIDTH}} {extension:<{_FILEEXT_WIDTH}} "
                 f"{_human_size(c.size):>9}  {description:<{_DESCRIPTION_WIDTH}} "
@@ -362,7 +361,7 @@ def _purge_duplicates_batch(
     return purged, skipped, had_error
 
 
-def _run_purge_duplicates(db: Session, dir_id: int) -> NoReturn:
+def _run_purge_duplicates(db: Session, dir_id: uuid.UUID) -> NoReturn:
     candidates = list_deleted_files_in_dir(db, dir_id)
     if not candidates:
         print("No soft-deleted files in this directory.")
@@ -418,14 +417,12 @@ def _run_restore(db: Session, file_ids: list[uuid.UUID]) -> NoReturn:
 
 
 def _print_file_table_header() -> None:
-    print(f"   {'ID':<{_FILE_ID_WIDTH}} {'PATH':<{_DUPLICATE_PATH_WIDTH}} FILENAME")
+    print(f"   {'ID':<{_ID_WIDTH}} {'PATH':<{_DUPLICATE_PATH_WIDTH}} FILENAME")
 
 
 def _print_file_row(file_id: uuid.UUID, path: str, filename: str) -> None:
     path = _truncate(path, _DUPLICATE_PATH_WIDTH)
-    print(
-        f"   {file_id!s:<{_FILE_ID_WIDTH}} {path:<{_DUPLICATE_PATH_WIDTH}} {filename}"
-    )
+    print(f"   {file_id!s:<{_ID_WIDTH}} {path:<{_DUPLICATE_PATH_WIDTH}} {filename}")
 
 
 def _print_duplicates_block(
@@ -458,7 +455,7 @@ def _print_block_separator(block_index: int) -> None:
 
 
 def _run_list_duplicates(
-    db: Session, file_ids: list[uuid.UUID], dir_ids: list[int]
+    db: Session, file_ids: list[uuid.UUID], dir_ids: list[uuid.UUID]
 ) -> NoReturn:
     if not file_ids and not dir_ids:
         print("ERROR: provide at least one --file or --dir.", file=sys.stderr)
@@ -507,18 +504,19 @@ def _run_list_duplicates(
 
 
 def _run_urlpath(db: Session, id_: str) -> NoReturn:
-    """Looks `id_` up as both a file id (UUID) and a directory id (plain
-    integer) - the two id spaces don't overlap in shape any more since
-    archive_files' own Final-Cutover, so at most one of the two parses
-    below ever succeeds, but both are tried independently rather than
-    guessing which one the caller meant."""
-    file_location = None
-    with contextlib.suppress(ValueError):
-        file_location = find_file_location(db, uuid.UUID(id_))
+    """Looks `id_` up as both a file id and a directory id - the two id
+    spaces are both UUIDs (from separate tables, each independently
+    generated) since archive_dirs' own Final-Cutover, so a single parse
+    is tried against both, rather than guessing which one the caller
+    meant."""
+    try:
+        parsed_id = uuid.UUID(id_)
+    except ValueError:
+        print(f"ERROR: no file or directory with id {id_}.", file=sys.stderr)
+        sys.exit(1)
 
-    dir_location = None
-    with contextlib.suppress(ValueError):
-        dir_location = find_dir_location(db, int(id_))
+    file_location = find_file_location(db, parsed_id)
+    dir_location = find_dir_location(db, parsed_id)
 
     if file_location is None and dir_location is None:
         print(f"ERROR: no file or directory with id {id_}.", file=sys.stderr)
@@ -539,8 +537,8 @@ def _run_urlpath(db: Session, id_: str) -> NoReturn:
     if dir_location is not None:
         _print_block_separator(block_index)
         print("DELETED DIRECTORY:" if dir_location.deleted else "ACTIVE DIRECTORY:")
-        print(f"   {'ID':<6} PATH")
-        print(f"   {dir_location.dir_id:<6} {dir_location.path}")
+        print(f"   {'ID':<{_ID_WIDTH}} PATH")
+        print(f"   {dir_location.dir_id!s:<{_ID_WIDTH}} {dir_location.path}")
         print(f"\nURL PATH: /archive/dirs/{id_}")
         block_index += 1
 
@@ -562,7 +560,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     list_parser.add_argument(
         "dir_id",
-        type=int,
+        type=uuid.UUID,
         nargs="?",
         default=None,
         help="Only list files directly in this directory (optional; omit for all)",
@@ -598,7 +596,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     purge_duplicates_parser.add_argument(
         "dir_id",
-        type=int,
+        type=uuid.UUID,
         help="archive_dir_id to clean up (direct children only, not recursive)",
     )
 
@@ -646,15 +644,16 @@ def _build_parser() -> argparse.ArgumentParser:
     list_duplicates_parser.add_argument(
         "--dir",
         dest="dir_ids",
-        type=int,
+        type=uuid.UUID,
         action="append",
         default=[],
         metavar="DIR_ID",
         help=(
             "Show active duplicates for every currently soft-deleted file "
-            "directly in this directory id. Repeatable: --dir 1 --dir 2 ... "
-            "Combinable with --file in the same call, e.g.: "
-            "list-duplicates --file <uuid1> --file <uuid2> --dir 10 --dir 11"
+            "directly in this directory id. Repeatable: --dir <uuid1> "
+            "--dir <uuid2> ... Combinable with --file in the same call, "
+            "e.g.: list-duplicates --file <uuid1> --file <uuid2> "
+            "--dir <uuid3> --dir <uuid4>"
         ),
     )
 
@@ -668,13 +667,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     urlpath_parser.add_argument(
         "id",
-        help="Looked up as both a file id (UUID) and a directory id (integer)",
+        help="Looked up as both a file id and a directory id (both UUIDs)",
     )
 
     return parser
 
 
-def _run_list(db: Session, dir_id: int | None, *, short: bool) -> NoReturn:
+def _run_list(db: Session, dir_id: uuid.UUID | None, *, short: bool) -> NoReturn:
     candidates = (
         list_deleted_files_in_dir(db, dir_id)
         if dir_id is not None

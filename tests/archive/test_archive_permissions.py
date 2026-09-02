@@ -102,7 +102,7 @@ def _login_user(db, _client, org="vbw", state="fu"):
 def _make_dir(
     db,
     name,
-    parent_id=0,
+    parent_id=None,
     perms=None,
     recursive=False,
 ):
@@ -120,7 +120,7 @@ def _make_dir(
         parts = p.split("_")
         db.add(
             ArchivePermission(
-                archive_dir_id=d.id_uuid,
+                archive_dir_id=d.id,
                 org_id=parts[0],
                 state_id=parts[1],
             )
@@ -129,7 +129,7 @@ def _make_dir(
     return d
 
 
-def _make_file(db, dir_id=0, desc="test"):
+def _make_file(db, dir_id=None, desc="test"):
     now = _now()
     item = ArchiveStoreItem(
         name="testfile",
@@ -416,7 +416,7 @@ class TestArchivePermissionIdUuidDefault:
         db_session.add(d)
         db_session.flush()
 
-        perm = ArchivePermission(archive_dir_id=d.id_uuid, org_id="vbw", state_id="fu")
+        perm = ArchivePermission(archive_dir_id=d.id, org_id="vbw", state_id="fu")
         db_session.add(perm)
         db_session.flush()
 

@@ -35,7 +35,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _make_dir(db, name="Fotos", parent_id=0):
+def _make_dir(db, name="Fotos", parent_id=None):
     now = _now()
     d = ArchiveDir(name=name, archive_dir_id=parent_id, created_at=now, updated_at=now)
     db.add(d)
@@ -63,7 +63,7 @@ def _make_store_item(db, hash_suffix="", size=5000):
 def _make_file(
     db,
     *,
-    dir_id=0,
+    dir_id=None,
     desc="test",
     item=None,
     deleted=True,
@@ -220,7 +220,7 @@ class TestListDeletedFilesInDir:
         assert [c.file_id for c in candidates] == [deleted.id]
 
     def test_empty_dir_returns_empty_list(self, db_session):
-        assert list_deleted_files_in_dir(db_session, 999999) == []
+        assert list_deleted_files_in_dir(db_session, uuid.uuid4()) == []
 
 
 class TestIsStillDuplicate:
@@ -476,7 +476,7 @@ class TestActiveDuplicatesOfFile:
 
 class TestActiveDuplicatesInDir:
     def test_empty_dir_returns_empty_list(self, db_session):
-        assert active_duplicates_in_dir(db_session, 999999) == []
+        assert active_duplicates_in_dir(db_session, uuid.uuid4()) == []
 
     def test_pairs_each_deleted_file_with_its_duplicates(self, db_session):
         d = _make_dir(db_session, "Fotos")
@@ -556,4 +556,4 @@ class TestFindDirLocation:
         assert location.deleted is True
 
     def test_returns_none_when_not_found(self, db_session):
-        assert find_dir_location(db_session, 999999) is None
+        assert find_dir_location(db_session, uuid.uuid4()) is None

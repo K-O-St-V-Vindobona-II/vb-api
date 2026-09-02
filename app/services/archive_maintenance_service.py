@@ -66,7 +66,7 @@ class PurgeCandidate:
     size: int
     sha256_hash: str
     archive_store_item_id: uuid.UUID
-    archive_dir_id: int | None = None
+    archive_dir_id: uuid.UUID | None = None
     active_sibling_count: int = 0
     other_deleted_sibling_count: int = 0
 
@@ -123,7 +123,7 @@ class ActiveDuplicate:
 
 @dataclass(frozen=True)
 class DirLocation:
-    dir_id: int
+    dir_id: uuid.UUID
     path: str
     deleted: bool
 
@@ -206,7 +206,7 @@ def list_deleted_files(db: Session) -> list[PurgeCandidate]:
     return _candidates_for(db, files)
 
 
-def list_deleted_files_in_dir(db: Session, dir_id: int) -> list[PurgeCandidate]:
+def list_deleted_files_in_dir(db: Session, dir_id: uuid.UUID) -> list[PurgeCandidate]:
     """All currently soft-deleted archive files directly in the given
     directory (non-recursive — subdirectories are not included), oldest
     deletion first.
@@ -456,7 +456,7 @@ def active_duplicates_of_file(
 
 
 def active_duplicates_in_dir(
-    db: Session, dir_id: int
+    db: Session, dir_id: uuid.UUID
 ) -> list[tuple[PurgeCandidate, list[ActiveDuplicate]]]:
     """Pairs every currently soft-deleted file directly in `dir_id` with its
     list of active duplicates. Empty list if the directory has no
@@ -490,7 +490,7 @@ def find_file_location(db: Session, file_id: uuid.UUID) -> FileLocation | None:
     )
 
 
-def find_dir_location(db: Session, dir_id: int) -> DirLocation | None:
+def find_dir_location(db: Session, dir_id: uuid.UUID) -> DirLocation | None:
     """Returns the directory's own resolved path/status if a dir with this
     id exists, else None. Used by the `urlpath` convenience lookup, where
     "not a directory" just means the id might be a file instead — not an

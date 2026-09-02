@@ -16,11 +16,8 @@ class ArchivePermission(Base):
     __tablename__ = "archive_permissions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    # References archive_dirs.id_uuid, not archive_dirs.id - archive_dirs
-    # itself won't have a UUID primary key until its own Final-Cutover, see
-    # 673aa46dc3b3's docstring.
     archive_dir_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("archive_dirs.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE")
     )
     org_id: Mapped[str]
     state_id: Mapped[str]
