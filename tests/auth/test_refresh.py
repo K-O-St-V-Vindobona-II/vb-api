@@ -134,7 +134,7 @@ class TestRefreshReuseDetection:
         client.post("/api/auth/refresh")
         sessions = (
             db_session.query(AuthSession)
-            .filter(AuthSession.member_id == member.id_uuid)
+            .filter(AuthSession.member_id == member.id)
             .count()
         )
         assert sessions == 0
@@ -154,7 +154,7 @@ class TestRefreshFailures:
     def test_expired_session_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         session = AuthSession(
-            member_id=member.id_uuid,
+            member_id=member.id,
             jti="expired-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime.now(UTC),
@@ -171,7 +171,7 @@ class TestRefreshFailures:
     def test_idle_timeout_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
         session = AuthSession(
-            member_id=member.id_uuid,
+            member_id=member.id,
             jti="idle-session",
             refresh_token_hash=hash_refresh_secret(secret),
             last_used_at=datetime(2020, 1, 1, tzinfo=UTC),
@@ -218,7 +218,7 @@ class TestAuthSessionUuidDefault:
     model fires without ever needing a server-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session, member):
-        session = AuthSession(member_id=member.id_uuid, jti="uuid-default-guard")
+        session = AuthSession(member_id=member.id, jti="uuid-default-guard")
         db_session.add(session)
         db_session.flush()
 

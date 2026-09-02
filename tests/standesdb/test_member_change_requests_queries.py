@@ -42,7 +42,7 @@ def _create_admin(db) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=admin.id_uuid,
+            member_id=admin.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -67,7 +67,7 @@ def _create_pending_request(db, index: int) -> None:
     db.commit()
     db.add(
         MemberChangeRequest(
-            member_id=member.id_uuid,
+            member_id=member.id,
             proposed_data={"nachname": {"old": "Test", "new": f"Test{index}"}},
         )
     )

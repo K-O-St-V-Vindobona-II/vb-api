@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import uuid
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -57,7 +58,7 @@ def _admin_user(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2020, 1, 1),
         )
@@ -110,7 +111,6 @@ class TestPermissionRulesConsistency:
         not mixed into any rule's cns (see TestDevSuperuserCn)."""
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
-            id=997,
             email="dev-superuser@test.at",
             auth_password=hashed,
             auth_locked=False,
@@ -122,7 +122,7 @@ class TestPermissionRulesConsistency:
         db_session.add(member)
         db_session.commit()
 
-        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 997):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", member.id):
             assert sorted(calculate_permissions(member)) == sorted(ALL_PERMISSIONS)
             display = get_permission_rules_display(db_session)
 
@@ -132,14 +132,13 @@ class TestPermissionRulesConsistency:
 
 class TestDevSuperuserCn:
     def test_returns_none_when_unset(self, db_session):
-        """DEV_SUPERUSER_ID is 0 in the test environment by default (see
+        """DEV_SUPERUSER_ID is None in the test environment by default (see
         conftest.py)."""
         assert get_dev_superuser_cn(db_session) is None
 
     def test_returns_cn_when_active(self, db_session):
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
-            id=996,
             email="dev-superuser2@test.at",
             auth_password=hashed,
             auth_locked=False,
@@ -151,13 +150,13 @@ class TestDevSuperuserCn:
         db_session.add(member)
         db_session.commit()
 
-        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 996):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", member.id):
             assert get_dev_superuser_cn(db_session) == "Dev Superuser"
 
     def test_returns_none_when_member_missing(self, db_session):
         """DEV_SUPERUSER_ID pointing at a non-existent member (e.g. stale
         config) must not blow up — just omit the notice."""
-        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 424242):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", uuid.uuid4()):
             assert get_dev_superuser_cn(db_session) is None
 
 
@@ -270,7 +269,6 @@ class TestDevSuperuserGuard:
         see TestDevSuperuserEnvironmentGating for the env-based derivation)."""
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
-            id=999,
             email="dev@test.at",
             auth_password=hashed,
             auth_locked=False,
@@ -282,17 +280,16 @@ class TestDevSuperuserGuard:
         db_session.add(member)
         db_session.commit()
 
-        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 999):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", member.id):
             perms = calculate_permissions(member)
 
         assert sorted(perms) == sorted(ALL_PERMISSIONS)
 
     def test_dev_superuser_disabled_when_inactive(self, db_session):
-        """DEV_SUPERUSER_ID forced to 0 (any non-development stage) — regular
-        rules apply."""
+        """DEV_SUPERUSER_ID forced to None (any non-development stage) —
+        regular rules apply."""
         hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
         member = Member(
-            id=888,
             email="prod@test.at",
             auth_password=hashed,
             auth_locked=False,
@@ -304,7 +301,7 @@ class TestDevSuperuserGuard:
         db_session.add(member)
         db_session.commit()
 
-        with patch("app.services.permission_service.DEV_SUPERUSER_ID", 0):
+        with patch("app.services.permission_service.DEV_SUPERUSER_ID", None):
             perms = calculate_permissions(member)
 
         # No roles → no permissions
@@ -343,13 +340,17 @@ class TestDevSuperuserEnvironmentGating:
         return result.stdout.strip()
 
     def test_active_in_development(self) -> None:
-        assert self._derived_value("development", "42") == "42"
+        raw_id = "7ce737a6-f918-4632-acb6-d8c4a131d28f"
+        assert self._derived_value("development", raw_id) == raw_id
 
     def test_disabled_in_test(self) -> None:
-        assert self._derived_value("test", "42") == "0"
+        raw_id = "7ce737a6-f918-4632-acb6-d8c4a131d28f"
+        assert self._derived_value("test", raw_id) == "None"
 
     def test_disabled_in_qa(self) -> None:
-        assert self._derived_value("qa", "42") == "0"
+        raw_id = "7ce737a6-f918-4632-acb6-d8c4a131d28f"
+        assert self._derived_value("qa", raw_id) == "None"
 
     def test_disabled_in_production(self) -> None:
-        assert self._derived_value("production", "42") == "0"
+        raw_id = "7ce737a6-f918-4632-acb6-d8c4a131d28f"
+        assert self._derived_value("production", raw_id) == "None"

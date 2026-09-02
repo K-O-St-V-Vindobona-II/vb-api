@@ -290,7 +290,7 @@ def get_roles_list(
 
 @standesdb_router.get("/members/{member_id}")
 def get_member(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberDetailResponse | MemberDismissedResponse:
@@ -302,7 +302,7 @@ def get_member(
 
 @standesdb_router.get("/members/{member_id}/auth-activity")
 def get_member_auth_activity(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberAuthActivityResponse:
@@ -352,7 +352,7 @@ async def create_member(
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[int]:
+) -> StatusIdResponse[uuid.UUID]:
     """Create a new member record. Requires the standesdb admin permission for the
     target org (data.org_id) - checked at runtime, not via a route dependency."""
     member, notification = await run_in_threadpool(
@@ -360,11 +360,11 @@ async def create_member(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[int](status="ok", id=member.id)
+    return StatusIdResponse[uuid.UUID](status="ok", id=member.id)
 
 
 def _update_member_sync(
-    db: Session, member_id: int, data: MemberSaveRequest, current_user: Member
+    db: Session, member_id: uuid.UUID, data: MemberSaveRequest, current_user: Member
 ) -> tuple[Member, _EntryChangedNotification | None]:
     member = db.get(Member, member_id)
     if not member:
@@ -396,12 +396,12 @@ def _update_member_sync(
 
 @standesdb_router.put("/members/{member_id}")
 async def update_member(
-    member_id: int,
+    member_id: uuid.UUID,
     data: MemberSaveRequest,
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[int]:
+) -> StatusIdResponse[uuid.UUID]:
     """Update an existing member's data and notify the org's standesdb admins by email
     if anything actually changed. Requires the standesdb admin permission for the
     member's own org - checked at runtime, not via a route dependency."""
@@ -410,12 +410,12 @@ async def update_member(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[int](status="ok", id=member.id)
+    return StatusIdResponse[uuid.UUID](status="ok", id=member.id)
 
 
 @standesdb_router.get("/members/{member_id}/searchparent")
 def search_parent(
-    member_id: int,
+    member_id: uuid.UUID,
     q: Annotated[str, Query(min_length=3)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
@@ -743,7 +743,7 @@ async def upload_own_member_image(
         current_user.id,
         file,
         description=description,
-        created_by=current_user.id_uuid,
+        created_by=current_user.id,
         storage=storage,
     )
     await _notify_own_image_changed(db, arq_pool, current_user, "upload")
@@ -799,7 +799,7 @@ async def delete_own_member_image(
 
 @standesdb_router.get("/members/{member_id}/images")
 def list_member_images(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
 ) -> ImageListResponse:
@@ -839,7 +839,7 @@ def list_member_images(
 
 @standesdb_router.get("/members/{member_id}/images/{image_id}/download")
 def download_member_image(
-    member_id: int,
+    member_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
@@ -853,7 +853,7 @@ def download_member_image(
 
 @standesdb_router.get("/members/{member_id}/images/{image_id}/url")
 def member_image_url(
-    member_id: int,
+    member_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _current_user: Annotated[Member, Depends(get_current_user)],
@@ -875,7 +875,7 @@ def member_image_url(
     "/members/{member_id}/images", status_code=status.HTTP_201_CREATED
 )
 def upload_member_image(
-    member_id: int,
+    member_id: uuid.UUID,
     *,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
@@ -898,7 +898,7 @@ def upload_member_image(
         member_id,
         file,
         description=description,
-        created_by=current_user.id_uuid,
+        created_by=current_user.id,
         storage=storage,
     )
     return StatusIdResponse[uuid.UUID](status="ok", id=img.id)
@@ -906,7 +906,7 @@ def upload_member_image(
 
 @standesdb_router.put("/members/{member_id}/images/{image_id}")
 def update_member_image(
-    member_id: int,
+    member_id: uuid.UUID,
     image_id: uuid.UUID,
     data: ImageUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -930,7 +930,7 @@ def update_member_image(
     "/members/{member_id}/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_member_image(
-    member_id: int,
+    member_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
@@ -1052,7 +1052,7 @@ def upload_contact_image(
         contact_id,
         file,
         description=description,
-        created_by=current_user.id_uuid,
+        created_by=current_user.id,
         storage=storage,
     )
     return StatusIdResponse[uuid.UUID](status="ok", id=img.id)
@@ -1097,7 +1097,7 @@ def delete_contact_image(
 
 @standesdb_router.get("/members/{member_id}/changelog")
 def list_member_changelog(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
     page: Annotated[int, Query(ge=1)] = 1,

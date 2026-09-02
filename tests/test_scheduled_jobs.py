@@ -232,7 +232,7 @@ def _make_admin_member(db, email: str, role_id: str, role_group: str) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id=role_id,
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -367,7 +367,7 @@ class TestStandesdbHealthCheck:
         )
         db_session.add(
             StandesdbImage(
-                owner_member_id=admin.id_uuid,
+                owner_member_id=admin.id,
                 sha256_hash="missing_img_hash",
             )
         )
@@ -944,7 +944,7 @@ class TestDebtorReminder:
         db_session.commit()
         db_session.add(
             MemberRole(
-                member_id=treasurer.id_uuid,
+                member_id=treasurer.id,
                 role_id="phil-xxxx",
                 startdate=date(2000, 1, 1),
                 enddate=None,

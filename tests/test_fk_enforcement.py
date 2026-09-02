@@ -85,7 +85,7 @@ def _seed_member_with_role(db) -> tuple[Member, Role, MemberRole]:
     db.commit()
 
     member_role = MemberRole(
-        member_id=member.id_uuid,
+        member_id=member.id,
         role_id=role.id,
         startdate=datetime.date(2020, 1, 1),
     )
@@ -131,7 +131,7 @@ class TestFkInsertEnforcement:
 
         db_session.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id="does-not-exist",
                 startdate=datetime.date(2020, 1, 1),
             )
@@ -143,7 +143,7 @@ class TestFkInsertEnforcement:
     def test_inserting_an_archive_store_item_with_unknown_created_by_is_rejected(
         self, db_session
     ):
-        """archive_store_items.created_by -> members.id_uuid (Alembic
+        """archive_store_items.created_by -> members.id (Alembic
         revision 31b5c04b297d) - the migration series' first real
         Phase B Referrer-Cutover, so worth its own explicit guard."""
         db_session.add(
@@ -227,7 +227,7 @@ class TestFkInsertEnforcement:
     def test_inserting_an_oauth2binding_with_unknown_member_id_is_rejected(
         self, db_session
     ):
-        """members_oauth2bindings.member_id -> members.id_uuid (Alembic
+        """members_oauth2bindings.member_id -> members.id (Alembic
         revision bc095b5fb813)."""
         db_session.add(
             MembersOauth2Binding(
@@ -244,7 +244,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_summary_order_with_unknown_ordered_by_is_rejected(
         self, db_session
     ):
-        """p4x_summary_orders.ordered_by -> members.id_uuid (Alembic
+        """p4x_summary_orders.ordered_by -> members.id (Alembic
         revision bc095b5fb813)."""
         db_session.add(
             P4xSummaryOrder(
@@ -261,7 +261,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_gallery_image_with_unknown_created_by_is_rejected(
         self, db_session
     ):
-        """public_gallery_images.created_by -> members.id_uuid (Alembic
+        """public_gallery_images.created_by -> members.id (Alembic
         revision bc095b5fb813)."""
         db_session.add(
             PublicGalleryImage(
@@ -282,7 +282,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_change_request_with_unknown_member_id_is_rejected(
         self, db_session
     ):
-        """member_change_requests.member_id -> members.id_uuid (Alembic
+        """member_change_requests.member_id -> members.id (Alembic
         revision ec1af5390d0c)."""
         db_session.add(
             MemberChangeRequest(
@@ -297,7 +297,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_change_request_with_unknown_resolved_by_is_rejected(
         self, db_session
     ):
-        """member_change_requests.resolved_by -> members.id_uuid (Alembic
+        """member_change_requests.resolved_by -> members.id (Alembic
         revision ec1af5390d0c)."""
         member = Member(vorname="Test", nachname="User")
         db_session.add(member)
@@ -305,7 +305,7 @@ class TestFkInsertEnforcement:
 
         db_session.add(
             MemberChangeRequest(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 proposed_data={"nachname": {"old": "A", "new": "B"}},
                 resolved_by=uuid.uuid4(),
             )
@@ -317,7 +317,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_members_role_with_unknown_member_id_is_rejected(
         self, db_session
     ):
-        """members_roles.member_id -> members.id_uuid (Alembic revision
+        """members_roles.member_id -> members.id (Alembic revision
         191cba0a57bd) - the composite-PK cutover for the three junction
         tables without a surrogate id."""
         role = Role(id="fk-test-role-2", label="FK Test Role 2")
@@ -338,7 +338,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_badges_member_with_unknown_member_id_is_rejected(
         self, db_session
     ):
-        """badges_members.member_id -> members.id_uuid (Alembic revision
+        """badges_members.member_id -> members.id (Alembic revision
         191cba0a57bd)."""
         badge = Badge(name="FK Test Badge")
         db_session.add(badge)
@@ -359,7 +359,7 @@ class TestFkInsertEnforcement:
         db_session.add(member)
         db_session.commit()
 
-        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=uuid.uuid4()))
+        db_session.add(MemberBadge(member_id=member.id, badge_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -367,7 +367,7 @@ class TestFkInsertEnforcement:
     def test_inserting_a_keys_member_with_unknown_member_id_is_rejected(
         self, db_session
     ):
-        """keys_members.member_id -> members.id_uuid (Alembic revision
+        """keys_members.member_id -> members.id (Alembic revision
         191cba0a57bd)."""
         key = Key(name="FK Test Key")
         db_session.add(key)
@@ -386,7 +386,7 @@ class TestFkInsertEnforcement:
         db_session.add(member)
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=member.id_uuid, key_id=uuid.uuid4()))
+        db_session.add(MemberKey(member_id=member.id, key_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -409,7 +409,7 @@ class TestSessionFk:
         db_session.add(member)
         db_session.commit()
 
-        session = AuthSession(member_id=member.id_uuid, jti="jti-2")
+        session = AuthSession(member_id=member.id, jti="jti-2")
         db_session.add(session)
         db_session.commit()
         session_id = session.id
@@ -433,7 +433,7 @@ class TestStandesdbImageExclusiveArc:
 
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id_uuid,
+                owner_member_id=member.id,
                 owner_contact_id=contact.id,
                 sha256_hash="a" * 64,
             )
@@ -469,7 +469,7 @@ class TestStandesdbImageExclusiveArc:
         db_session.add(member)
         db_session.commit()
 
-        img = StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="e" * 64)
+        img = StandesdbImage(owner_member_id=member.id, sha256_hash="e" * 64)
         db_session.add(img)
         db_session.commit()
         img_id = img.id
@@ -496,7 +496,7 @@ class TestStandesdbImageExclusiveArc:
 
 
 class TestStandesdbImageCreatedByFk:
-    """standesdb_images.created_by -> members.id_uuid - a genuinely
+    """standesdb_images.created_by -> members.id - a genuinely
     missing FK added directly (not a Referrer-Cutover of an existing
     one), same class of fix as slice 20's contacts_logs/members_logs
     .modified_by and slice 22's request_logs FKs."""
@@ -508,7 +508,7 @@ class TestStandesdbImageCreatedByFk:
 
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id_uuid,
+                owner_member_id=member.id,
                 created_by=uuid.uuid4(),
                 sha256_hash="g" * 64,
             )
@@ -524,8 +524,8 @@ class TestStandesdbImageCreatedByFk:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
-            created_by=creator.id_uuid,
+            owner_member_id=member.id,
+            created_by=creator.id,
             sha256_hash="h" * 64,
         )
         db_session.add(img)
@@ -559,7 +559,7 @@ class TestP4xPartnerExclusiveArc:
         db_session.commit()
 
         db_session.add(
-            P4xPartner(iban="AT001", member_id=member.id_uuid, contact_id=contact.id)
+            P4xPartner(iban="AT001", member_id=member.id, contact_id=contact.id)
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -599,7 +599,7 @@ class TestP4xPartnerExclusiveArc:
         member = Member(vorname="Test", nachname="User")
         db_session.add(member)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT007", member_id=member.id_uuid))
+        db_session.add(P4xPartner(iban="AT007", member_id=member.id))
         db_session.commit()
 
         db_session.delete(member)
@@ -663,7 +663,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "two_cols")
-        tx.delegating_member_id = member.id_uuid
+        tx.delegating_member_id = member.id
         tx.delegating_contact_id = contact.id
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -720,7 +720,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_member")
-        tx.delegating_member_id = member.id_uuid
+        tx.delegating_member_id = member.id
         db_session.commit()
         tx_id = tx.id
 
@@ -753,7 +753,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
 
 
 class TestContactsLogModifiedByFk:
-    """contacts_logs.modified_by -> members.id_uuid - a genuinely missing
+    """contacts_logs.modified_by -> members.id - a genuinely missing
     FK added directly (not a Referrer-Cutover of an existing one)."""
 
     def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
@@ -773,7 +773,7 @@ class TestContactsLogModifiedByFk:
         db_session.add(member)
         db_session.commit()
 
-        log = ContactsLog(modified_by=member.id_uuid, action="update", key="name")
+        log = ContactsLog(modified_by=member.id, action="update", key="name")
         db_session.add(log)
         db_session.commit()
         log_id = log.id
@@ -787,7 +787,7 @@ class TestContactsLogModifiedByFk:
 
 
 class TestMembersLogModifiedByFk:
-    """members_logs.modified_by -> members.id_uuid - same as
+    """members_logs.modified_by -> members.id - same as
     TestContactsLogModifiedByFk, a genuinely missing FK added directly."""
 
     def test_inserting_with_unknown_modified_by_is_rejected(self, db_session):
@@ -808,7 +808,7 @@ class TestMembersLogModifiedByFk:
         db_session.add_all([member, modifier])
         db_session.commit()
 
-        log = MembersLog(modified_by=modifier.id_uuid, action="update", key="name")
+        log = MembersLog(modified_by=modifier.id, action="update", key="name")
         db_session.add(log)
         db_session.commit()
         log_id = log.id
@@ -822,7 +822,7 @@ class TestMembersLogModifiedByFk:
 
 
 class TestRequestLogFks:
-    """request_logs.member_id -> members.id_uuid and
+    """request_logs.member_id -> members.id and
     request_logs.client_user_agent_id -> client_user_agents.id - both
     genuinely missing FKs added directly (not Referrer-Cutovers of
     existing ones)."""
@@ -862,7 +862,7 @@ class TestRequestLogFks:
 
         log = RequestLog(
             client_ip="127.0.0.1",
-            member_id=member.id_uuid,
+            member_id=member.id,
             request_method="GET",
             request_path="/",
             response_status=200,
@@ -933,7 +933,7 @@ class TestArchiveFileCommentArchiveFileFk:
 
 
 class TestArchiveFileCommentCreatedByFk:
-    """archive_file_comments.created_by -> members.id_uuid (Alembic
+    """archive_file_comments.created_by -> members.id (Alembic
     revision dd8661641df7) - a Referrer-Cutover of a pre-existing FK,
     ondelete strategy (SET NULL) unchanged from before the cutover."""
 
@@ -960,7 +960,7 @@ class TestArchiveFileCommentCreatedByFk:
         comment = ArchiveFileComment(
             archive_file_id=archive_file.id,
             content="Attributed comment",
-            created_by=author.id_uuid,
+            created_by=author.id,
         )
         db_session.add(comment)
         db_session.commit()

@@ -45,7 +45,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         org_label = m.org_id.upper() if m.org_id else "?"
         results.append(
             PartnerSearchResult(
-                type="member", id=m.id_uuid, label=f"Mitglied ({org_label}): {m.cn}"
+                type="member", id=m.id, label=f"Mitglied ({org_label}): {m.cn}"
             )
         )
 
@@ -102,13 +102,10 @@ def find_partner_entity(
 ) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
     """Looks up the entity a search result/set-partner request refers to -
     the identifier p4x_partners' own FK columns store, and the one
-    search_partners()/PartnerSearchResult hand out. members keeps its own
-    Final-Cutover for a later slice, so this deliberately queries its
-    additive id_uuid column, not id; contacts, p4x_accounts and
-    p4x_special_contacts already have their own UUID primary key, queried
-    directly."""
+    search_partners()/PartnerSearchResult hand out. Each target's own
+    UUID primary key, queried directly."""
     if partner_type == "member":
-        return db.query(Member).filter(Member.id_uuid == partner_id).first()
+        return db.query(Member).filter(Member.id == partner_id).first()
     if partner_type == "contact":
         return db.query(Contact).filter(Contact.id == partner_id).first()
     if partner_type == "account":
@@ -144,13 +141,11 @@ def set_transaction_partner(  # noqa: C901, PLR0912
     them apart would be the artificial helper-spaghetti this review is
     meant to remove, not genuine complexity reduction.
 
-    Both partner_data["id"] and delegating_data["id"] are the identifier
-    search_partners()/find_partner_entity() use for the target entity's
-    type - id_uuid for member/contact, id for account/special contact
-    (see find_partner_entity's docstring) - the same identifier the
-    frontend's one shared partner-search widget hands out for both
-    fields. Both halves store that identifier on their respective
-    exclusive-arc columns (p4x_partners.* and
+    Both partner_data["id"] and delegating_data["id"] are the target
+    entity's own UUID primary key (see find_partner_entity's docstring) -
+    the same identifier the frontend's one shared partner-search widget
+    hands out for both fields. Both halves store that identifier on their
+    respective exclusive-arc columns (p4x_partners.* and
     p4x_transactions.delegating_*)."""
     now = datetime.now(UTC)
 
@@ -181,7 +176,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         partner.p4x_account_id = None
         partner.p4x_specialcontact_id = None
         if isinstance(remote, Member):
-            partner.member_id = remote.id_uuid
+            partner.member_id = remote.id
         elif isinstance(remote, Contact):
             partner.contact_id = remote.id
         elif isinstance(remote, P4xAccount):
@@ -207,7 +202,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
             )
         _clear_delegating(transaction)
         if isinstance(remote, Member):
-            transaction.delegating_member_id = remote.id_uuid
+            transaction.delegating_member_id = remote.id
         elif isinstance(remote, Contact):
             transaction.delegating_contact_id = remote.id
         elif isinstance(remote, P4xAccount):

@@ -1,4 +1,5 @@
 import sys
+import uuid  # noqa: TC003 -- pydantic-settings resolves field types eagerly
 from functools import lru_cache
 from typing import NoReturn
 
@@ -139,7 +140,9 @@ class Settings(BaseSettings):
     tracking_retention_months: int = Field(
         default=6, validation_alias="TRACKING_RETENTION_MONTHS"
     )
-    dev_superuser_id: int = Field(default=0, validation_alias="DEV_SUPERUSER_ID")
+    dev_superuser_id: uuid.UUID | None = Field(
+        default=None, validation_alias="DEV_SUPERUSER_ID"
+    )
 
     # Tier 3 (timezone) — optional with default, no boot-time validation.
     # Wall-clock timezone for human-facing output (cron schedule, email

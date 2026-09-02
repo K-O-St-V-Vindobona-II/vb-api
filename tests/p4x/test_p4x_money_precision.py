@@ -286,7 +286,7 @@ class TestGetFeeBalancesPrecision:
         db_session.add(
             P4xPartner(
                 iban="AT001",
-                member_id=member.id_uuid,
+                member_id=member.id,
                 created_at=_now(),
                 updated_at=_now(),
             )

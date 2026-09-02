@@ -90,7 +90,7 @@ def _login_admin(db, _client) -> tuple[dict[str, str], Member]:
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -528,7 +528,7 @@ class TestNotFoundErrors:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Attached to real file",
-            created_by=admin.id_uuid,
+            created_by=admin.id,
             created_at=_now(),
         )
         db_session.add(c)

@@ -53,13 +53,10 @@ class P4xTransaction(Base):
         ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    # delegating_member_id references members.id_uuid, not its own
-    # (still-integer) id - members keeps its own Final-Cutover for a
-    # later slice. delegating_contact_id/delegating_p4x_account_id/
-    # delegating_p4x_specialcontact_id each reference their target's own
+    # Each of the four delegating_* columns references its target's own
     # UUID primary key directly.
     delegating_member_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     delegating_contact_id: Mapped[uuid.UUID | None] = mapped_column(

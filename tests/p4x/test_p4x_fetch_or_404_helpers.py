@@ -53,7 +53,7 @@ def _create_admin(db) -> Member:
     db.refresh(member)
     db.add(
         MemberRole(
-            member_id=member.id_uuid,
+            member_id=member.id,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,
@@ -135,7 +135,7 @@ class TestGetMemberOr404:
         admin = _create_admin(db_session)
         headers = _login(db_session, admin)
 
-        resp = client.get("/api/p4x/fee-members/99999", headers=headers)
+        resp = client.get(f"/api/p4x/fee-members/{uuid.uuid4()}", headers=headers)
 
         assert resp.status_code == 404
 
@@ -145,7 +145,7 @@ class TestGetMemberOr404:
         headers = _login(db_session, admin)
 
         resp = client.post(
-            "/api/p4x/admin/fee-members/99999",
+            f"/api/p4x/admin/fee-members/{uuid.uuid4()}",
             json={
                 "p4x_init_date": "2020-01-01",
                 "p4x_init_balance": "0.00",

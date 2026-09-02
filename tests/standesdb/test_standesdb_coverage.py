@@ -56,7 +56,7 @@ def _admin(db, org="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -64,7 +64,7 @@ def _admin(db, org="vbw"):
     )
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -92,7 +92,7 @@ def _system_admin_only(db, org="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -123,14 +123,16 @@ class TestMemberNotFound:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/auth-activity", headers=h)
+        resp = client.get(
+            f"/api/standesdb/members/{uuid.uuid4()}/auth-activity", headers=h
+        )
         assert resp.status_code == 404
 
     def test_list_images_404(self, client, db_session):
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/images", headers=h)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}/images", headers=h)
         assert resp.status_code == 404
 
     def test_upload_image_404(self, client, db_session):
@@ -139,7 +141,7 @@ class TestMemberNotFound:
         h = _headers(db_session, admin)
         buf = io.BytesIO(b"fake")
         resp = client.post(
-            "/api/standesdb/members/99999/images",
+            f"/api/standesdb/members/{uuid.uuid4()}/images",
             headers=h,
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
@@ -150,7 +152,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.put(
-            f"/api/standesdb/members/99999/images/{uuid.uuid4()}",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}",
             json={"description": "x"},
             headers=h,
         )
@@ -161,7 +163,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.delete(
-            f"/api/standesdb/members/99999/images/{uuid.uuid4()}",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}",
             headers=h,
         )
         assert resp.status_code == 404
@@ -171,7 +173,7 @@ class TestMemberNotFound:
         admin = _admin(db_session)
         h = _headers(db_session, admin)
         resp = client.get(
-            "/api/standesdb/members/99999/searchparent?q=test",
+            f"/api/standesdb/members/{uuid.uuid4()}/searchparent?q=test",
             headers=h,
         )
         assert resp.status_code == 404
@@ -267,7 +269,7 @@ class TestChangelog:
         db_session.add(
             MembersLog(
                 member_id=target.id,
-                modified_by=admin.id_uuid,
+                modified_by=admin.id,
                 modified_at=datetime.now(UTC),
                 action="update",
                 key="nachname",
@@ -294,7 +296,7 @@ class TestChangelog:
         db_session.add(
             ContactsLog(
                 contact_id=contact.id,
-                modified_by=admin.id_uuid,
+                modified_by=admin.id,
                 modified_at=datetime.now(UTC),
                 action="update",
                 key="email",
@@ -329,7 +331,7 @@ class TestChangelog:
             db_session.add(
                 MembersLog(
                     member_id=target.id,
-                    modified_by=admin.id_uuid,
+                    modified_by=admin.id,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=f"field{i}",
@@ -377,7 +379,7 @@ class TestChangelog:
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)
-        resp = client.get("/api/standesdb/members/99999/changelog", headers=h)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}/changelog", headers=h)
         assert resp.status_code == 404
 
     def test_member_changelog_rejects_system_admin_without_standesdb_role(
@@ -461,7 +463,7 @@ class TestChangelog:
             db_session.add(
                 MembersLog(
                     member_id=target.id,
-                    modified_by=admin.id_uuid,
+                    modified_by=admin.id,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=key,
@@ -489,7 +491,7 @@ class TestChangelog:
             db_session.add(
                 ContactsLog(
                     contact_id=contact.id,
-                    modified_by=admin.id_uuid,
+                    modified_by=admin.id,
                     modified_at=datetime.now(UTC),
                     action="update",
                     key=key,
@@ -518,7 +520,7 @@ class TestChangelog:
         db_session.add(
             ContactsLog(
                 contact_id=contact.id,
-                modified_by=admin.id_uuid,
+                modified_by=admin.id,
                 modified_at=datetime.now(UTC),
                 action="delete",
                 key="deleted_at",

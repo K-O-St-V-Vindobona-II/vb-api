@@ -1,14 +1,13 @@
 import hashlib
 import io
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 from PIL import Image as PILImage
-from sqlalchemy import false as sa_false
 
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
@@ -17,7 +16,6 @@ from app.core.storage import (
     StorageClient,
     generate_thumbnail,
 )
-from app.models.member import Member
 from app.models.standesdb_image import StandesdbImage
 
 if TYPE_CHECKING:
@@ -32,25 +30,12 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 STANDESDB_THUMB_SIZE = 400
 
 
-def _owner_filter(
-    db: Session, owner_type: str, owner_id: int | uuid.UUID
-) -> ColumnElement[bool]:
+def _owner_filter(owner_type: str, owner_id: uuid.UUID) -> ColumnElement[bool]:
     """Translates the owner_type/owner_id pair callers still use into the
-    matching exclusive-arc FK column (see StandesdbImage). owner_id is
-    still the member's legacy integer id - members keep their own
-    Final-Cutover for a later slice - but is already the contact's own
-    UUID primary key directly.
-
-    Falls back to sa_false() when a member owner_id doesn't resolve to a
-    real member, rather than comparing the FK column to None - a plain
-    `column == None` would compile to `IS NULL` in SQLAlchemy, which would
-    wrongly match every image owned by the *other* owner_type instead of
-    matching nothing."""
+    matching exclusive-arc FK column (see StandesdbImage) - owner_id is
+    already the member's or contact's own UUID primary key directly."""
     if owner_type == "member":
-        member_uuid = db.query(Member.id_uuid).filter(Member.id == owner_id).scalar()
-        if member_uuid is None:
-            return sa_false()
-        return StandesdbImage.owner_member_id == member_uuid
+        return StandesdbImage.owner_member_id == owner_id
     if owner_type == "contact":
         return StandesdbImage.owner_contact_id == owner_id
     msg = f"Unbekannter owner_type: {owner_type!r}"
@@ -60,14 +45,14 @@ def _owner_filter(
 def get_image_record(
     db: Session,
     owner_type: str,
-    owner_id: int | uuid.UUID,
+    owner_id: uuid.UUID,
     image_id: uuid.UUID,
 ) -> StandesdbImage:
     img = (
         db.query(StandesdbImage)
         .filter(
             StandesdbImage.id == image_id,
-            _owner_filter(db, owner_type, owner_id),
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .first()
@@ -83,7 +68,7 @@ def get_image_record(
 def get_image_for_serving(
     db: Session,
     owner_type: str,
-    owner_id: int | uuid.UUID,
+    owner_id: uuid.UUID,
     image_id: uuid.UUID,
 ) -> StandesdbImage:
     """Like get_image_record(), but also releases the DB session right after
@@ -145,12 +130,12 @@ def get_presigned_url(
 def get_images_for_owner(
     db: Session,
     owner_type: str,
-    owner_id: int | uuid.UUID,
+    owner_id: uuid.UUID,
 ) -> list[StandesdbImage]:
     return (
         db.query(StandesdbImage)
         .filter(
-            _owner_filter(db, owner_type, owner_id),
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .order_by(StandesdbImage.id)
@@ -190,7 +175,7 @@ def _ensure_cache(
 def upload_image(
     db: Session,
     owner_type: str,
-    owner_id: int | uuid.UUID,
+    owner_id: uuid.UUID,
     file: UploadFile,
     *,
     description: str | None,
@@ -235,25 +220,20 @@ def upload_image(
     existing_count = (
         db.query(StandesdbImage)
         .filter(
-            _owner_filter(db, owner_type, owner_id),
+            _owner_filter(owner_type, owner_id),
             StandesdbImage.deleted_at.is_(None),
         )
         .count()
     )
 
     # Translates the owner_type/owner_id pair callers still use into the
-    # matching exclusive-arc FK columns (see StandesdbImage). owner_id is
-    # still the member's legacy integer id, so it's resolved to the
-    # matching id_uuid here too, same as _owner_filter() above - but is
-    # already the contact's own UUID primary key directly.
+    # matching exclusive-arc FK columns (see StandesdbImage).
     if owner_type == "member":
-        owner_member_id = (
-            db.query(Member.id_uuid).filter(Member.id == owner_id).scalar()
-        )
+        owner_member_id = owner_id
         owner_contact_id = None
     elif owner_type == "contact":
         owner_member_id = None
-        owner_contact_id = cast("uuid.UUID", owner_id)
+        owner_contact_id = owner_id
     else:
         msg = f"Unbekannter owner_type: {owner_type!r}"
         raise ValueError(msg)

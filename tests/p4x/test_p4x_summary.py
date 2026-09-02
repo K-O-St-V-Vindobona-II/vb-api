@@ -111,7 +111,7 @@ def _seed(db) -> P4xAccount:
     db.add(
         P4xPartner(
             iban="DE001",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )

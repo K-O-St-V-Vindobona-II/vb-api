@@ -54,7 +54,7 @@ class FeeBalanceResult(TypedDict):
 class FeeMemberSearchResult(TypedDict):
     """Typed result of search_fee_members."""
 
-    id: int
+    id: uuid.UUID
     label: str
 
 
@@ -304,16 +304,12 @@ def _get_fee_payments_sum(
 
     Fee payments = byPartner('member', id)
     AND byCategory(membership fee category) AND amount > 0
-
-    Both P4xPartner.member_id and P4xTransaction.delegating_member_id
-    reference members.id_uuid, not members.id - members' own
-    Final-Cutover is a later slice.
     """
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            P4xPartner.member_id == member.id_uuid,
+            P4xPartner.member_id == member.id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -377,7 +373,7 @@ def _get_fee_payments_sum(
             P4xTransaction.iban.in_(partner_ibans)
             & p4x_account_service.no_delegation_filter()
         )
-        | (P4xTransaction.delegating_member_id == member.id_uuid),
+        | (P4xTransaction.delegating_member_id == member.id),
     )
 
     if inclusive_end:
@@ -395,15 +391,12 @@ def _get_fee_payments_list(
     from_date: date,
     to_date: date,
 ) -> list[dict[str, str | Decimal]]:
-    """Get individual fee payments as list for the progress view.
-
-    Same id_uuid reasoning as _get_fee_payments_sum() above.
-    """
+    """Get individual fee payments as list for the progress view."""
     partner_ibans = [
         r[0]
         for r in db.query(P4xPartner.iban)
         .filter(
-            P4xPartner.member_id == member.id_uuid,
+            P4xPartner.member_id == member.id,
             P4xPartner.deleted_at.is_(None),
         )
         .all()
@@ -470,7 +463,7 @@ def _get_fee_payments_list(
                 P4xTransaction.iban.in_(partner_ibans)
                 & p4x_account_service.no_delegation_filter()
             )
-            | (P4xTransaction.delegating_member_id == member.id_uuid),
+            | (P4xTransaction.delegating_member_id == member.id),
         )
         .all()
     )
@@ -641,7 +634,7 @@ class FeeBalanceListEntry(TypedDict):
     ["end_balance"] for the same member with default (no-override) dates
     - see TestGetFeeBalancesMatchesCalculateFeeBalance."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_freed: bool
     end_balance: Decimal
@@ -699,11 +692,11 @@ def _build_member_states(
     month_starts: list[date],
     month_fees: list[Decimal],
     default_end_date: date,
-) -> dict[int, _MemberFeeState]:
+) -> dict[uuid.UUID, _MemberFeeState]:
     """One entry per fee-eligible member with a usable init_date. Members
     without p4x_init_date/philistrierungsdatum are silently skipped
     (mirrors calculate_fee_balance's `return None` for them)."""
-    states: dict[int, _MemberFeeState] = {}
+    states: dict[uuid.UUID, _MemberFeeState] = {}
     for member in fee_members:
         init_date_raw = member.p4x_init_date or member.philistrierungsdatum
         if init_date_raw is None:
@@ -769,25 +762,21 @@ def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
 
 
 def _iban_to_member_id_map(
-    db: Session, id_by_uuid: dict[uuid.UUID, int]
-) -> dict[str, int]:
+    db: Session, member_ids: set[uuid.UUID]
+) -> dict[str, uuid.UUID]:
     """One query for every fee member's own IBANs, instead of one query
-    per member. P4xPartner.member_id references members.id_uuid (not
-    members.id - members' own Final-Cutover is a later slice), so the
-    lookup goes via id_uuid and translates back to each member's
-    still-integer id via id_by_uuid, for the caller's
-    dict[int, _MemberFeeState] keys."""
-    if not id_by_uuid:
+    per member."""
+    if not member_ids:
         return {}
     rows = (
         db.query(P4xPartner.iban, P4xPartner.member_id)
         .filter(
-            P4xPartner.member_id.in_(id_by_uuid.keys()),
+            P4xPartner.member_id.in_(member_ids),
             P4xPartner.deleted_at.is_(None),
         )
         .all()
     )
-    return {r[0]: id_by_uuid[r[1]] for r in rows if r[0] is not None}
+    return {r[0]: r[1] for r in rows if r[0] is not None}
 
 
 def _fetch_fee_category_transactions(
@@ -833,10 +822,9 @@ def _fetch_fee_category_transactions(
 
 
 def _attribute_payment(
-    states: dict[int, _MemberFeeState],
-    iban_map: dict[str, int],
-    members_with_own_iban: set[int],
-    id_by_uuid: dict[uuid.UUID, int],
+    states: dict[uuid.UUID, _MemberFeeState],
+    iban_map: dict[str, uuid.UUID],
+    members_with_own_iban: set[uuid.UUID],
     row: _FeeCategoryTxRow,
 ) -> None:
     """Same attribution rule as p4x_account_service.no_delegation_filter()
@@ -851,16 +839,8 @@ def _attribute_payment(
     a single registered iban of their own never receives credit for a
     payment, not even one explicitly delegated to them. See
     TestGetFeeBalancesMatchesCalculateFeeBalance's "T" (delegated_target)
-    case, which caught this.
-
-    row.delegating_member_id is the target member's id_uuid; id_by_uuid
-    translates it back to the member's legacy integer id, the flavor
-    states/members_with_own_iban are keyed by."""
-    target_id = (
-        id_by_uuid.get(row.delegating_member_id)
-        if row.delegating_member_id is not None
-        else None
-    )
+    case, which caught this."""
+    target_id = row.delegating_member_id
     if target_id is not None and target_id not in members_with_own_iban:
         target_id = None
     if target_id is None and row.no_delegation and row.iban is not None:
@@ -892,8 +872,8 @@ def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
     if not states:
         return []
 
-    id_by_uuid = {m.id_uuid: m.id for m in fee_members if m.id in states}
-    iban_map = _iban_to_member_id_map(db, id_by_uuid)
+    member_ids = {m.id for m in fee_members if m.id in states}
+    iban_map = _iban_to_member_id_map(db, member_ids)
     members_with_own_iban = set(iban_map.values())
     booking_from = min(s.init_date for s in states.values())
     booking_to = max(s.end_date for s in states.values())
@@ -901,7 +881,7 @@ def get_fee_balances(db: Session) -> list[FeeBalanceListEntry]:
         db, _fee_category_tx_ids(db), booking_from, booking_to
     )
     for row in tx_rows:
-        _attribute_payment(states, iban_map, members_with_own_iban, id_by_uuid, row)
+        _attribute_payment(states, iban_map, members_with_own_iban, row)
 
     entries: list[FeeBalanceListEntry] = [
         {

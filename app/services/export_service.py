@@ -194,7 +194,7 @@ def generate_excel_full(  # noqa: C901
     contacts: list[Contact],
 ) -> bytes:
     state_cache: dict[str, str] = {}
-    member_cache: dict[int, str] = {}
+    member_cache: dict[uuid.UUID, str] = {}
 
     def get_state_label(state_id: str | None) -> str:
         if not state_id:
@@ -204,7 +204,7 @@ def generate_excel_full(  # noqa: C901
             state_cache[state_id] = (s.label or state_id) if s else state_id
         return state_cache[state_id]
 
-    def get_parent_cn(parent_id: int | None) -> str:
+    def get_parent_cn(parent_id: uuid.UUID | None) -> str:
         if not parent_id:
             return ""
         if parent_id not in member_cache:
@@ -498,7 +498,7 @@ def _prepare_member_data(
             parent_cn = parent.cn_full
 
     org_dates = _build_org_dates(member)
-    jubelbaender, ehrenzeichen = _classify_badges(db, member.id_uuid)
+    jubelbaender, ehrenzeichen = _classify_badges(db, member.id)
     addr_anschrift, addr_plz_ort, addr_land = _resolve_delivery_address(member)
 
     return {

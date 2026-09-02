@@ -106,8 +106,8 @@ def _extract_email(request: Request) -> str | None:
 def _resolve_member_id(db: Session, email: str | None) -> uuid.UUID | None:
     if not email:
         return None
-    member = db.query(Member.id_uuid).filter(Member.email == email).first()
-    return member.id_uuid if member else None
+    member = db.query(Member.id).filter(Member.email == email).first()
+    return member.id if member else None
 
 
 def _get_or_create_user_agent(

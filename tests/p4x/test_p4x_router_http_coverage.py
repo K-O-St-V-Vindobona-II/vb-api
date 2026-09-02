@@ -64,7 +64,7 @@ def _create_admin(db, email: str = "p4x-http-admin@test.at") -> Member:
     db.refresh(member)
     db.add(
         MemberRole(
-            member_id=member.id_uuid,
+            member_id=member.id,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,
@@ -445,13 +445,13 @@ class TestSetTransactionPartnerWithDataHttp:
             json={
                 "partner": {
                     "type": "member",
-                    "id": str(admin.id_uuid),
+                    "id": str(admin.id),
                     "cn": "Admin",
                 },
                 "hasDelegatingPartner": True,
                 "delegatingPartner": {
                     "type": "member",
-                    "id": str(delegate.id_uuid),
+                    "id": str(delegate.id),
                     "cn": "Delegate",
                 },
             },
@@ -459,8 +459,8 @@ class TestSetTransactionPartnerWithDataHttp:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["partner"]["id"] == str(admin.id_uuid)
-        assert data["delegating_partner"]["id"] == str(delegate.id_uuid)
+        assert data["partner"]["id"] == str(admin.id)
+        assert data["delegating_partner"]["id"] == str(delegate.id)
 
 
 class TestUpdateTransactionValidationHttp:
@@ -698,7 +698,7 @@ class TestFeeMemberEndpointsHttp:
 
         resp = client.get(f"/api/p4x/fee-members/{target.id}", headers=headers)
         assert resp.status_code == 200
-        assert resp.json()["id"] == target.id
+        assert resp.json()["id"] == str(target.id)
 
     def test_get_fee_member_404_when_not_fee_liable(self, db_session, client):
         _seed(db_session)

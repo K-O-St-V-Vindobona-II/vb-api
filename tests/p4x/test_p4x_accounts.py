@@ -45,7 +45,7 @@ def _create_admin(db) -> Member:
     db.refresh(member)
     db.add(
         MemberRole(
-            member_id=member.id_uuid,
+            member_id=member.id,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,

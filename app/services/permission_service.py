@@ -7,6 +7,7 @@ from app.core.datetime_utils import local_today
 from app.models.member import Member
 
 if TYPE_CHECKING:
+    import uuid
     from collections.abc import Callable
 
     from sqlalchemy.orm import Session
@@ -15,16 +16,16 @@ logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 _app_environment = _settings.app_environment
-_raw_dev_superuser_id: int = _settings.dev_superuser_id
+_raw_dev_superuser_id: uuid.UUID | None = _settings.dev_superuser_id
 if _raw_dev_superuser_id and _app_environment != "development":
     logger.warning(
         "DEV_SUPERUSER_ID is set but will be IGNORED outside development "
         "(current APP_ENVIRONMENT=%s). Remove it from this stage's env file.",
         _app_environment,
     )
-# Only active in development — existing check already short-circuits for 0.
-DEV_SUPERUSER_ID: int = (
-    _raw_dev_superuser_id if _app_environment == "development" else 0
+# Only active in development — existing check already short-circuits for None.
+DEV_SUPERUSER_ID: uuid.UUID | None = (
+    _raw_dev_superuser_id if _app_environment == "development" else None
 )
 
 

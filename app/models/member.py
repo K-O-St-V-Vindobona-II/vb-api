@@ -52,13 +52,7 @@ class Member(Base):
         for col in _ACCURACY_COLUMNS
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # a908d5613d52_members_and_client_user_agents_id_uuid_.py) - not yet
-    # the primary key. Every referrer table cuts over onto this once
-    # populated; `id` itself becomes UUID only in the Final-Cutover slice,
-    # after all 17 referrers (plus the self-reference below) have moved.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
 
     # --- Name ---
     vortitel: Mapped[str | None]
@@ -78,7 +72,7 @@ class Member(Base):
     gruender: Mapped[bool | None] = mapped_column(default=False)
     entlassen: Mapped[bool | None] = mapped_column(default=False)
     verstorben: Mapped[bool | None] = mapped_column(default=False)
-    parent_id: Mapped[int | None] = mapped_column(
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         default=None,
     )
@@ -172,7 +166,9 @@ class Member(Base):
 
     # --- Audit ---
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    modified_by: Mapped[int | None]
+    modified_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

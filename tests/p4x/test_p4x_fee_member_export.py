@@ -4,6 +4,7 @@
 """
 
 import io
+import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
@@ -102,7 +103,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     db.add(
         P4xPartner(
             iban="DE001",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -127,7 +128,7 @@ def _create_admin(db) -> Member:
     db.refresh(member)
     db.add(
         MemberRole(
-            member_id=member.id_uuid,
+            member_id=member.id,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,
@@ -265,7 +266,9 @@ class TestExportFeeMemberEndpoint:
         admin = _create_admin(db_session)
         headers = _login(db_session, admin)
 
-        resp = client.get("/api/p4x/fee-members/99999/export", headers=headers)
+        resp = client.get(
+            f"/api/p4x/fee-members/{uuid.uuid4()}/export", headers=headers
+        )
 
         assert resp.status_code == 404
 

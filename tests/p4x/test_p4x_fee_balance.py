@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -132,15 +133,16 @@ def _add_fee_payment(
     if not partner:
         partner = P4xPartner(
             iban=iban,
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
         db.add(partner)
         db.flush()
 
+    identity = f"fee_pay_{member.id}_{booking}_{amount}_{delegating_member_id}"
     tx = P4xTransaction(
-        sha256_hash=f"fee_pay_{member.id}_{booking}_{amount}_{delegating_member_id}",
+        sha256_hash=hashlib.sha256(identity.encode()).hexdigest(),
         booking=booking,
         valuation=booking,
         iban=iban,
@@ -558,7 +560,7 @@ class TestGetFeeBalancesPaymentAttribution:
         db_session.add(
             P4xPartner(
                 iban="DE-TARGET-OWN",
-                member_id=target.id_uuid,
+                member_id=target.id,
                 created_at=_now(),
                 updated_at=_now(),
             )
@@ -569,7 +571,7 @@ class TestGetFeeBalancesPaymentAttribution:
             payer,
             date(2017, 1, 15),
             50.0,
-            delegating_member_id=target.id_uuid,
+            delegating_member_id=target.id,
         )
 
         balances = {b["id"]: b["end_balance"] for b in get_fee_balances(db_session)}
@@ -764,7 +766,7 @@ class TestGetFeeBalancesMatchesCalculateFeeBalance:
             payer,
             date(2017, 1, 15),
             40.0,
-            delegating_member_id=delegated_target.id_uuid,
+            delegating_member_id=delegated_target.id,
         )
         rate_change = _create_fee_member(
             db_session,
@@ -853,7 +855,7 @@ def _create_admin(db) -> Member:
     db.refresh(member)
     db.add(
         MemberRole(
-            member_id=member.id_uuid,
+            member_id=member.id,
             role_id="phil-xxxx",
             startdate=date(2020, 1, 1),
             enddate=None,
@@ -883,8 +885,8 @@ class TestGetFeeBalancesViaHttpEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         ids = {row["id"] for row in data}
-        assert member.id in ids
-        row = next(r for r in data if r["id"] == member.id)
+        assert str(member.id) in ids
+        row = next(r for r in data if r["id"] == str(member.id))
         assert set(row.keys()) == {"id", "cn", "p4x_freed", "balance"}
 
     def test_endpoint_requires_auth(self, db_session, client):

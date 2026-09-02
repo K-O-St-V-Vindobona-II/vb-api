@@ -101,7 +101,7 @@ def get_contact_stats(db: Session) -> dict[str, int]:
 
 def _member_search_result(
     member: Member, rank: float
-) -> tuple[float, dict[str, str | int | uuid.UUID]]:
+) -> tuple[float, dict[str, str | uuid.UUID]]:
     org_label = member.org_id.upper() if member.org_id else "?"
     label = f"Mitglied ({org_label}): {member.cn}"
     return (rank, {"type": "member", "id": member.id, "label": label})
@@ -109,7 +109,7 @@ def _member_search_result(
 
 def _contact_search_result(
     contact: Contact, rank: float
-) -> tuple[float, dict[str, str | int | uuid.UUID]]:
+) -> tuple[float, dict[str, str | uuid.UUID]]:
     label = f"Kontakt: {contact.cn}"
     return (rank, {"type": "contact", "id": contact.id, "label": label})
 
@@ -186,7 +186,7 @@ def _search_contacts_fuzzy(db: Session, term: str) -> list[tuple[Contact, float]
 
 def search_members_and_contacts(
     db: Session, term: str
-) -> list[dict[str, str | int | uuid.UUID]]:
+) -> list[dict[str, str | uuid.UUID]]:
     """Search members and contacts by name, minimum 3 characters (enforced
     at the router - no extra length gate needed here for the fuzzy stage,
     unlike archive_service.search_archive(), since 3 chars is already the
@@ -202,7 +202,7 @@ def search_members_and_contacts(
     nothing at all, name fields only - see _search_members_fuzzy().
     """
     tsquery_text = build_prefix_tsquery_text(db, term)
-    ranked: list[tuple[float, dict[str, str | int | uuid.UUID]]] = []
+    ranked: list[tuple[float, dict[str, str | uuid.UUID]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked = [
@@ -281,7 +281,7 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
 
 
 def get_member_detail(
-    db: Session, member_id: int
+    db: Session, member_id: uuid.UUID
 ) -> MemberDetailResponse | MemberDismissedResponse:
     # Intentionally not org-scoped: any authenticated member (vbw or vbn)
     # can read any other member's directory entry - the two orgs
@@ -302,7 +302,7 @@ def get_member_detail(
         )
 
     parent_cn = ""
-    if member.parent_id and member.parent_id != 0:
+    if member.parent_id is not None:
         parent = db.get(Member, member.parent_id)
         if parent:
             parent_cn = parent.cn
@@ -321,7 +321,7 @@ def get_member_detail(
                 verstorben=current.verstorben or False,
             ).model_dump()
         )
-        if current.parent_id and current.parent_id != 0:
+        if current.parent_id is not None:
             current = current.parent
         else:
             break
@@ -348,7 +348,7 @@ def get_member_detail(
         entlassen=member.entlassen or False,
         verstorben=member.verstorben or False,
         grabadresse=member.grabadresse,
-        parent_id=member.parent_id or 0,
+        parent_id=member.parent_id,
         parent_cn=parent_cn,
         default_image=member.default_image,
         chroniclemail=member.chroniclemail or False,
@@ -494,15 +494,6 @@ def apply_member_input(  # noqa: C901
         exclude={"roles_history", "badges", "keys"}
     )
 
-    # The API contract uses 0 as the "no parent" sentinel (matches how
-    # MemberDetailResponse serializes it back out via `parent_id or 0`),
-    # but parent_id is a nullable self-referencing FK — 0 is never a
-    # valid member id and would violate the FK constraint if not normalized
-    # to None here (the same issue applied to the original SQLite legacy
-    # data, cleaned up once during the historical Postgres migration).
-    if input_dict.get("parent_id") == 0:
-        input_dict["parent_id"] = None
-
     if input_dict["entlassen"] or input_dict["verstorben"]:
         input_dict["auth_locked"] = True
         input_dict["zustellungen"] = "deaktiviert"
@@ -541,7 +532,7 @@ def apply_member_input(  # noqa: C901
     _sync_badges(db, member, badges_entries, diff)
     _sync_keys(db, member, keys_entries, diff)
 
-    validate_roles_history(db, roles_entries, member.org_id or "", member.id_uuid)
+    validate_roles_history(db, roles_entries, member.org_id or "", member.id)
     _sync_roles(db, member, roles_entries, diff)
 
     if diff:
@@ -552,7 +543,7 @@ def apply_member_input(  # noqa: C901
             member.id,
             diff=diff,
             action="create" if is_new else "update",
-            modified_by=current_user.id_uuid,
+            modified_by=current_user.id,
             modified_at=now,
         )
 
@@ -603,13 +594,13 @@ def _sync_badges(
     if old != new:
         diff["badges"] = {"old": old, "new": new}
 
-    db.query(MemberBadge).filter(MemberBadge.member_id == member.id_uuid).delete()
+    db.query(MemberBadge).filter(MemberBadge.member_id == member.id).delete()
     db.flush()
 
     for b in badges_input:
         db.add(
             MemberBadge(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 badge_id=b.id,
                 presentationdate=b.presentationdate,
                 presentationdate_accuracy=b.presentationdate_accuracy,
@@ -658,13 +649,13 @@ def _sync_keys(
     if old != new:
         diff["keys"] = {"old": old, "new": new}
 
-    db.query(MemberKey).filter(MemberKey.member_id == member.id_uuid).delete()
+    db.query(MemberKey).filter(MemberKey.member_id == member.id).delete()
     db.flush()
 
     for k in keys_input:
         db.add(
             MemberKey(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 key_id=k.id,
                 presentationdate=k.presentationdate,
                 presentationdate_accuracy=k.presentationdate_accuracy,
@@ -707,13 +698,13 @@ def _sync_roles(
             "new": new,
         }
 
-    db.query(MemberRole).filter(MemberRole.member_id == member.id_uuid).delete()
+    db.query(MemberRole).filter(MemberRole.member_id == member.id).delete()
     db.flush()
 
     for r in roles_input:
         db.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id=r.id,
                 startdate=r.startdate,
                 enddate=r.enddate,
@@ -735,7 +726,7 @@ def validate_member_org(data: MemberSaveRequest, current_user: Member) -> None:
 def validate_member_uniqueness(
     db: Session,
     data: MemberSaveRequest,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> None:
     q = db.query(Member).filter(
         func.lower(func.coalesce(Member.vorname, "")) == func.lower(data.vorname or ""),
@@ -755,11 +746,11 @@ def validate_member_uniqueness(
 
 def validate_parent_id(
     db: Session,
-    parent_id: int,
+    parent_id: uuid.UUID | None,
     org_id: str,
-    member_id: int | None = None,
+    member_id: uuid.UUID | None = None,
 ) -> None:
-    if parent_id == 0:
+    if parent_id is None:
         return
 
     parent = db.get(Member, parent_id)
@@ -920,7 +911,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
         # Check if role is already held by another member in overlapping period
         query = (
             db.query(MemberRole)
-            .join(Member, Member.id_uuid == MemberRole.member_id)
+            .join(Member, Member.id == MemberRole.member_id)
             .filter(
                 MemberRole.role_id == entry.id,
                 Member.org_id == org_id,
@@ -943,7 +934,7 @@ def validate_roles_history(  # noqa: C901, PLR0912
             )
 
         for overlap in query.all():
-            owner = db.query(Member).filter(Member.id_uuid == overlap.member_id).first()
+            owner = db.query(Member).filter(Member.id == overlap.member_id).first()
             if not owner:
                 continue
             label = entry_labels[idx]
@@ -1022,9 +1013,9 @@ def _search_parent_fuzzy(
 
 def search_parent(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
     term: str,
-) -> list[dict[str, int | str]]:
+) -> list[dict[str, uuid.UUID | str]]:
     """Search for potential parent members within the same org, minimum 3
     characters (enforced at the router). Same two-stage exact/prefix +
     pg_trgm-fuzzy shape as search_members_and_contacts(), see its
@@ -1039,7 +1030,7 @@ def search_parent(
         )
 
     tsquery_text = build_prefix_tsquery_text(db, term)
-    ranked: list[tuple[float, dict[str, int | str]]] = []
+    ranked: list[tuple[float, dict[str, uuid.UUID | str]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked = [
@@ -1118,7 +1109,7 @@ def apply_contact_input(
             setattr(contact, field, new_val)
 
     contact.modified_at = now
-    contact.modified_by = current_user.id_uuid
+    contact.modified_by = current_user.id
 
     db.add(contact)
     db.flush()
@@ -1131,7 +1122,7 @@ def apply_contact_input(
             contact.id,
             diff=diff,
             action="create" if is_new else "update",
-            modified_by=current_user.id_uuid,
+            modified_by=current_user.id,
             modified_at=now,
         )
 
@@ -1149,7 +1140,7 @@ def soft_delete_contact(
     now = datetime.now(UTC)
     contact.deleted_at = now
     contact.modified_at = now
-    contact.modified_by = current_user.id_uuid
+    contact.modified_by = current_user.id
     db.add(
         ContactsLog(
             contact_id=contact.id,
@@ -1157,7 +1148,7 @@ def soft_delete_contact(
             key="deleted_at",
             old=None,
             new=str(now),
-            modified_by=current_user.id_uuid,
+            modified_by=current_user.id,
             modified_at=now,
         )
     )
@@ -1348,16 +1339,16 @@ def _changelog_name_map(
     if not ids:
         return {}
     rows = (
-        db.query(Member.id_uuid, Member.vorname, Member.nachname)
-        .filter(Member.id_uuid.in_(ids))
+        db.query(Member.id, Member.vorname, Member.nachname)
+        .filter(Member.id.in_(ids))
         .all()
     )
-    return {r.id_uuid: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
+    return {r.id: f"{r.vorname or ''} {r.nachname or ''}".strip() for r in rows}
 
 
 def get_member_changelog(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
     page: int,
     page_size: int,
 ) -> dict[str, list[ChangeLogEntry] | int]:

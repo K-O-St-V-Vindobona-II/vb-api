@@ -268,11 +268,11 @@ def _member_name_map(db: Session, member_ids: set[uuid.UUID]) -> dict[uuid.UUID,
     if not member_ids:
         return {}
     members = (
-        db.query(Member.id_uuid, Member.vorname, Member.nachname)
-        .filter(Member.id_uuid.in_(member_ids))
+        db.query(Member.id, Member.vorname, Member.nachname)
+        .filter(Member.id.in_(member_ids))
         .all()
     )
-    return {m.id_uuid: f"{m.vorname or ''} {m.nachname or ''}".strip() for m in members}
+    return {m.id: f"{m.vorname or ''} {m.nachname or ''}".strip() for m in members}
 
 
 def get_activity_stats(db: Session) -> ActivityStats:

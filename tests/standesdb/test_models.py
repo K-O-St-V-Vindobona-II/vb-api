@@ -224,7 +224,7 @@ def test_member_role_relationship(db_session):
     db_session.commit()
 
     mr = MemberRole(
-        member_id=member.id_uuid,
+        member_id=member.id,
         role_id="testrole",
         startdate=date(2020, 1, 1),
         enddate=None,
@@ -253,7 +253,7 @@ def test_member_badge_relationship(db_session):
     db_session.commit()
 
     mb = MemberBadge(
-        member_id=member.id_uuid,
+        member_id=member.id,
         badge_id=badge.id,
         presentationdate=date(2023, 6, 15),
         presentationdate_accuracy=3,
@@ -282,7 +282,7 @@ def test_member_key_relationship(db_session):
     db_session.commit()
 
     mk = MemberKey(
-        member_id=member.id_uuid,
+        member_id=member.id,
         key_id=key.id,
         presentationdate=date(2023, 1, 1),
         presentationdate_accuracy=1,
@@ -331,7 +331,7 @@ def test_standesdb_image_model(db_session):
     db_session.commit()
 
     img = StandesdbImage(
-        owner_member_id=member.id_uuid,
+        owner_member_id=member.id,
         sha256_hash="abc123",
         type="image/jpeg",
         extension="jpeg",
@@ -362,7 +362,7 @@ class TestStandesdbImageIdDefault:
         db_session.add(member)
         db_session.commit()
 
-        img = StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="uuid7test")
+        img = StandesdbImage(owner_member_id=member.id, sha256_hash="uuid7test")
         db_session.add(img)
         db_session.flush()
 
@@ -384,12 +384,12 @@ def test_member_default_image(db_session):
     assert member.default_image is None
 
     img1 = StandesdbImage(
-        owner_member_id=member.id_uuid,
+        owner_member_id=member.id,
         sha256_hash="hash1",
         default=False,
     )
     img2 = StandesdbImage(
-        owner_member_id=member.id_uuid,
+        owner_member_id=member.id,
         sha256_hash="hash2",
         default=True,
     )

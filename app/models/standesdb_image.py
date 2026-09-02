@@ -11,11 +11,8 @@ class StandesdbImage(Base):
     """owner_member_id/owner_contact_id is an exclusive-arc polymorphic
     association: exactly one is set, enforced by the CHECK below. Real FKs
     per target table since Postgres can't point a single FK at "whichever
-    table a discriminator column names". owner_member_id references
-    members.id_uuid, not its own (still-integer) id - members keeps its
-    own Final-Cutover for a later slice. owner_contact_id references
-    contacts' own UUID primary key directly. created_by likewise
-    references members.id_uuid.
+    table a discriminator column names" - each references its target's
+    own UUID primary key directly, as does created_by.
 
     sha256_hash is deliberately NOT globally unique (unlike ArchiveStoreItem/
     PublicGalleryImage/P4xTransaction): S3 storage is already content-
@@ -52,7 +49,7 @@ class StandesdbImage(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     owner_member_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
     )
     owner_contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="CASCADE", onupdate="CASCADE")
@@ -66,7 +63,7 @@ class StandesdbImage(Base):
     description: Mapped[str | None]
     default: Mapped[bool] = mapped_column(default=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

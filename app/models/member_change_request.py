@@ -64,10 +64,8 @@ class MemberChangeRequest(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover (slice 32).
     member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
     status: Mapped[MemberChangeRequestStatus] = mapped_column(
@@ -81,9 +79,8 @@ class MemberChangeRequest(Base):
     )
     proposed_data: Mapped[dict[str, object]] = mapped_column(JSONB)
     field_decisions: Mapped[dict[str, str] | None] = mapped_column(JSONB)
-    # References members.id_uuid, not members.id - see member_id above.
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

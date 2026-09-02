@@ -59,7 +59,7 @@ def _login(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="x",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -120,12 +120,8 @@ class TestKeysListEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
-        )
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "ChC"))
-        )
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "ChC")))
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
@@ -163,10 +159,10 @@ class TestKeysListEndpoint:
         db_session.commit()
 
         db_session.add(
-            MemberKey(member_id=m_zeta.id_uuid, key_id=_key_id(db_session, "Bude"))
+            MemberKey(member_id=m_zeta.id, key_id=_key_id(db_session, "Bude"))
         )
         db_session.add(
-            MemberKey(member_id=m_alpha.id_uuid, key_id=_key_id(db_session, "ChC"))
+            MemberKey(member_id=m_alpha.id, key_id=_key_id(db_session, "ChC"))
         )
         db_session.commit()
 
@@ -192,15 +188,13 @@ class TestKeysListEndpoint:
         db_session.add(no_keys)
         db_session.commit()
 
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
-        )
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
         db_session.commit()
 
         resp = client.get("/api/standesdb/keys", headers=headers)
         members = resp.json()["members"]
         assert len(members) == 1
-        assert members[0]["id"] == user.id
+        assert members[0]["id"] == str(user.id)
 
     def test_query_count_does_not_scale_with_member_count(
         self, client, db_session, count_queries
@@ -209,9 +203,7 @@ class TestKeysListEndpoint:
         m.member_keys per member must not issue one query per member."""
         _seed(db_session)
         headers, user = _login(db_session, client)
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
-        )
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
         db_session.commit()
 
         with count_queries() as small:
@@ -230,7 +222,7 @@ class TestKeysListEndpoint:
             db_session.add(m)
             db_session.commit()
             db_session.add(
-                MemberKey(member_id=m.id_uuid, key_id=_key_id(db_session, "Bude"))
+                MemberKey(member_id=m.id, key_id=_key_id(db_session, "Bude"))
             )
             db_session.commit()
 
@@ -261,12 +253,8 @@ class TestKeysDownloadEndpoint:
         _seed(db_session)
         headers, user = _login(db_session, client)
 
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Bude"))
-        )
-        db_session.add(
-            MemberKey(member_id=user.id_uuid, key_id=_key_id(db_session, "Post"))
-        )
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Bude")))
+        db_session.add(MemberKey(member_id=user.id, key_id=_key_id(db_session, "Post")))
         db_session.commit()
 
         resp = client.get(

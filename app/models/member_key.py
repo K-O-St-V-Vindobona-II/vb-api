@@ -24,10 +24,8 @@ class MemberKey(Base):
     )
 
     # No surrogate id - the primary key is the column combination itself.
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover.
     member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,
     )
     key_id: Mapped[uuid.UUID] = mapped_column(

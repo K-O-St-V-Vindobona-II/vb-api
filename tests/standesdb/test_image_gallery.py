@@ -41,7 +41,7 @@ def _admin(db):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -132,7 +132,7 @@ class TestUpload:
 
         img = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=target.id_uuid)
+            .filter_by(owner_member_id=target.id)
             .first()
         )
         assert img is not None
@@ -408,7 +408,7 @@ class TestPresignedUrl:
         headers = _headers(client, db_session, admin)
 
         url_resp = client.get(
-            f"/api/standesdb/members/999/images/{uuid.uuid4()}/url",
+            f"/api/standesdb/members/{uuid.uuid4()}/images/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert url_resp.status_code == 404
@@ -502,7 +502,7 @@ class TestSelfService:
         resp = client.get("/api/standesdb/members/me/images", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["owner"]["id"] == member.id
+        assert data["owner"]["id"] == str(member.id)
         assert len(data["images"]) == 1
 
     def test_self_list_own_images_unauthenticated_rejected(self, client, db_session):
@@ -526,7 +526,7 @@ class TestSelfService:
         assert resp.status_code == 201
         img = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=member.id_uuid)
+            .filter_by(owner_member_id=member.id)
             .first()
         )
         assert img is not None
@@ -627,7 +627,7 @@ class TestSelfService:
 
         count = (
             db_session.query(StandesdbImage)
-            .filter_by(owner_member_id=member.id_uuid, deleted_at=None)
+            .filter_by(owner_member_id=member.id, deleted_at=None)
             .count()
         )
         assert count == 6

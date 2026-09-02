@@ -203,7 +203,7 @@ def unlink_google_account(
     current_user: Annotated[Member, Depends(get_current_user)],
 ) -> StatusMessageResponse:
     """Remove the Google OAuth link from the current user's account."""
-    auth_service.unlink_google_account(db, current_user.id_uuid)
+    auth_service.unlink_google_account(db, current_user.id)
     return StatusMessageResponse(
         status="ok", message="Google-Verknüpfung wurde erfolgreich gelöst."
     )

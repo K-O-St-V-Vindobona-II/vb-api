@@ -916,10 +916,10 @@ def search_fee_members(
 
 
 # NOTE: these two "me" routes must stay registered before
-# "/fee-members/{member_id}" below. member_id has no explicit int path
+# "/fee-members/{member_id}" below. member_id has no explicit path
 # converter, so Starlette compiles a generic single-segment pattern for it;
 # if {member_id} were registered first, "/fee-members/me" would match THAT
-# route and fail int-conversion with a 422 instead of falling through to
+# route and fail uuid-conversion with a 422 instead of falling through to
 # these routes. Same technique already used by /fee-members/search above.
 @p4x_router.get("/fee-members/me")
 def get_own_fee_member(
@@ -963,7 +963,7 @@ def export_own_fee_member(
 
 @p4x_router.get("/fee-members/{member_id}")
 def get_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> FeeMemberResponse:
@@ -977,7 +977,7 @@ def get_fee_member(
 
 @p4x_router.get("/fee-members/{member_id}/export")
 def export_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
 ) -> Response:
@@ -1000,7 +1000,7 @@ def export_fee_member(
 
 @p4x_router.post("/admin/fee-members/{member_id}")
 def update_fee_member(
-    member_id: int,
+    member_id: uuid.UUID,
     data: FeeMemberUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],

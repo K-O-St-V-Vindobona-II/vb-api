@@ -82,7 +82,7 @@ class TestCheckStandesdbIntegrity:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="missing_img")
+            StandesdbImage(owner_member_id=member.id, sha256_hash="missing_img")
         )
         db_session.commit()
 
@@ -97,7 +97,7 @@ class TestCheckStandesdbIntegrity:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(owner_member_id=member.id_uuid, sha256_hash="present_img")
+            StandesdbImage(owner_member_id=member.id, sha256_hash="present_img")
         )
         db_session.commit()
         mock_s3.upload("standesdb/images/present_img", b"data")

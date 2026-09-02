@@ -157,7 +157,7 @@ class TestSearchPartners:
 class TestFindPartnerEntity:
     def test_find_member(self, db_session):
         _, member, _, _ = _seed(db_session)
-        entity = find_partner_entity(db_session, "member", member.id_uuid)
+        entity = find_partner_entity(db_session, "member", member.id)
         assert entity is not None
         assert entity.id == member.id
 
@@ -192,7 +192,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -207,7 +207,7 @@ class TestSetTransactionPartner:
         )
         assert partner is not None
         assert partner.partner_type == "member"
-        assert partner.partner_id == member.id_uuid
+        assert partner.partner_id == member.id
 
     def test_unset_partner(self, db_session):
         account, member, _, _ = _seed(db_session)
@@ -216,7 +216,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -245,7 +245,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -275,7 +275,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -289,7 +289,7 @@ class TestSetTransactionPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -328,7 +328,7 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=True,
             delegating_data={"type": "contact", "id": contact.id},
         )
@@ -344,14 +344,14 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=True,
             delegating_data={"type": "contact", "id": contact.id},
         )
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=False,
             delegating_data=None,
         )
@@ -368,7 +368,7 @@ class TestDelegatingPartner:
             set_transaction_partner(
                 db_session,
                 tx,
-                partner_data={"type": "member", "id": member.id_uuid},
+                partner_data={"type": "member", "id": member.id},
                 has_delegating=True,
                 delegating_data={"type": "member", "id": uuid.uuid4()},
             )
@@ -381,7 +381,7 @@ class TestDelegatingPartner:
         set_transaction_partner(
             db_session,
             tx,
-            partner_data={"type": "member", "id": member.id_uuid},
+            partner_data={"type": "member", "id": member.id},
             has_delegating=True,
             delegating_data={"type": "contact", "id": contact.id},
         )

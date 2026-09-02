@@ -59,7 +59,7 @@ class TestMemberDetailCrossOrgRead:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["id"] == vbw_target.id
+        assert resp.json()["id"] == str(vbw_target.id)
 
 
 class TestContactDetailCrossOrgRead:
@@ -92,7 +92,7 @@ class TestImageListCrossOrgRead:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["owner"]["id"] == vbw_target.id
+        assert resp.json()["owner"]["id"] == str(vbw_target.id)
 
     def test_vbn_user_lists_vbw_contacts_images(self, client, db_session):
         _seed_orgs(db_session)

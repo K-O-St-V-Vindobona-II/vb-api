@@ -79,7 +79,7 @@ def _login_admin(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -702,7 +702,7 @@ class TestComments:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Test comment here",
-            created_by=user.id_uuid,
+            created_by=user.id,
             created_at=_now(),
         )
         db_session.add(c)
@@ -728,7 +728,7 @@ class TestComments:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Test comment here",
-            created_by=author.id_uuid,
+            created_by=author.id,
             created_at=_now(),
         )
         db_session.add(c)
@@ -751,7 +751,7 @@ class TestComments:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Test comment here",
-            created_by=admin.id_uuid,
+            created_by=admin.id,
             created_at=_now(),
         )
         db_session.add(c)

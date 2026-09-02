@@ -262,7 +262,7 @@ def get_transaction_or_404(
 
 def get_member_or_404(
     db: Session,
-    member_id: int,
+    member_id: uuid.UUID,
 ) -> Member:
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:

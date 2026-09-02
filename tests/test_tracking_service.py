@@ -133,7 +133,7 @@ class TestGetActivitySessionsPagination:
             db_session.add(
                 RequestLog(
                     client_ip="127.0.0.1",
-                    member_id=member.id_uuid,
+                    member_id=member.id,
                     request_method="GET",
                     request_path="/api/test",
                     response_status=200,
@@ -181,7 +181,7 @@ class TestGetActivitySessionsTimezone:
         db_session.add(
             RequestLog(
                 client_ip="127.0.0.1",
-                member_id=member.id_uuid,
+                member_id=member.id,
                 request_method="GET",
                 request_path="/api/test",
                 response_status=200,
@@ -211,9 +211,9 @@ class TestMemberNameMap:
         db_session.add(member)
         db_session.commit()
 
-        names = _member_name_map(db_session, {member.id_uuid})
+        names = _member_name_map(db_session, {member.id})
 
-        assert names == {member.id_uuid: "Vorname Nachname"}
+        assert names == {member.id: "Vorname Nachname"}
 
 
 class TestListActivityQueryCount:
@@ -232,7 +232,7 @@ class TestListActivityQueryCount:
             db_session.add(
                 RequestLog(
                     client_ip="127.0.0.1",
-                    member_id=member.id_uuid,
+                    member_id=member.id,
                     request_method="GET",
                     request_path="/api/test",
                     response_status=200,
@@ -253,7 +253,7 @@ class TestListActivityQueryCount:
             db_session.add(
                 RequestLog(
                     client_ip="127.0.0.1",
-                    member_id=member.id_uuid,
+                    member_id=member.id,
                     request_method="GET",
                     request_path="/api/test",
                     response_status=200,

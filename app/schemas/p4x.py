@@ -384,7 +384,7 @@ class FeeMemberSelfResponse(BaseModel):
     p4x_comment, which is an admin-internal note not meant for the member
     to see."""
 
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_init_date: str | None = Field(
         ...,
@@ -425,14 +425,14 @@ class FeeMemberUpdateRequest(StrictInputModel):
 
 
 class FeeBalanceListItem(BaseModel):
-    id: int
+    id: uuid.UUID
     cn: str
     p4x_freed: bool
     balance: MoneyOut
 
 
 class FeeMemberSearchResultItem(BaseModel):
-    id: int
+    id: uuid.UUID
     label: str
 
 

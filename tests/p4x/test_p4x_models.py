@@ -322,7 +322,7 @@ class TestP4xPartner:
 
         partner = P4xPartner(
             iban="AT761200023423416700",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -340,7 +340,7 @@ class TestP4xPartner:
         db_session.add(member)
         db_session.commit()
 
-        partner = P4xPartner(iban="AT00UUIDGUARD", member_id=member.id_uuid)
+        partner = P4xPartner(iban="AT00UUIDGUARD", member_id=member.id)
         db_session.add(partner)
         db_session.flush()
 
@@ -416,7 +416,7 @@ class TestP4xSummaryOrder:
         db_session.commit()
 
         order = P4xSummaryOrder(
-            ordered_by=member.id_uuid,
+            ordered_by=member.id,
             email="test@example.com",
             summary_start=date(2025, 1, 1),
             summary_end=date(2025, 12, 1),
@@ -439,7 +439,7 @@ class TestP4xSummaryOrder:
         db_session.commit()
 
         order = P4xSummaryOrder(
-            ordered_by=member.id_uuid,
+            ordered_by=member.id,
             email="test@example.com",
             summary_start=date(2025, 1, 1),
             summary_end=date(2025, 12, 1),
@@ -460,7 +460,7 @@ class TestPartnerTransactionRelationship:
 
         partner = P4xPartner(
             iban="DE49100110012624770917",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -482,4 +482,4 @@ class TestPartnerTransactionRelationship:
         db_session.refresh(tx)
         assert tx.partner is not None
         assert tx.partner.partner_type == "member"
-        assert tx.partner.partner_id == member.id_uuid
+        assert tx.partner.partner_id == member.id

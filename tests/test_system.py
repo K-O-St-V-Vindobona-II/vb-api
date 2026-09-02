@@ -45,7 +45,7 @@ def _login_admin(db):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,

@@ -1136,7 +1136,7 @@ def create_comment(
     comment = ArchiveFileComment(
         archive_file_id=file_obj.id,
         content=content,
-        created_by=user.id_uuid,
+        created_by=user.id,
         created_at=now,
         updated_at=now,
     )
@@ -1158,7 +1158,7 @@ def delete_comment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kommentar nicht gefunden.",
         )
-    if comment.created_by != user.id_uuid and not is_archive_admin(user):
+    if comment.created_by != user.id and not is_archive_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Fehlende Berechtigung: eigener Kommentar oder archiveAdmin",

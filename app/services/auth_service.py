@@ -196,7 +196,7 @@ def execute_password_reset(
     member.email_verified_at = datetime.now(UTC)
 
     db.query(AuthSession).filter(
-        AuthSession.member_id == member.id_uuid,
+        AuthSession.member_id == member.id,
     ).delete()
 
     db.delete(reset_entry)
@@ -212,7 +212,7 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     now = datetime.now(UTC)
 
     db_token = AuthSession(
-        member_id=member.id_uuid,
+        member_id=member.id,
         jti=session_id,
         refresh_token_hash=hash_refresh_secret(refresh_secret),
         last_used_at=now,
@@ -282,7 +282,7 @@ def refresh_session(
     now = datetime.now(UTC)
     _validate_session_expiry(db, session, now)
 
-    member = db.query(Member).filter(Member.id_uuid == session.member_id).first()
+    member = db.query(Member).filter(Member.id == session.member_id).first()
     if not member or member.auth_locked:
         _invalidate_session(db, session, "Account locked or deleted")
 
@@ -341,7 +341,7 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
         # atomic "log the user in" operation instead of two commits.
         binding.lastuse_at = datetime.now(UTC)
         db.flush()
-        member = db.query(Member).filter(Member.id_uuid == binding.member_id).first()
+        member = db.query(Member).filter(Member.id == binding.member_id).first()
 
         if not member or member.auth_locked:
             msg = "Dein Account ist gesperrt oder wurde gelöscht."
@@ -391,14 +391,14 @@ def link_google_account(
         .filter(
             MembersOauth2Binding.provider == "google",
             (MembersOauth2Binding.remote_id == google_id)
-            | (MembersOauth2Binding.member_id == member.id_uuid),
+            | (MembersOauth2Binding.member_id == member.id),
         )
         .first()
     )
 
     if existing_binding:
         if (
-            existing_binding.member_id == member.id_uuid
+            existing_binding.member_id == member.id
             and existing_binding.remote_id == google_id
         ):
             # Not committed here: the caller always follows up with
@@ -412,7 +412,7 @@ def link_google_account(
     # 4. Create the binding in the database. Not committed here either -
     # same reasoning, create_user_session()'s commit covers this too.
     new_binding = MembersOauth2Binding(
-        member_id=member.id_uuid,
+        member_id=member.id,
         provider="google",
         remote_id=google_id,
         remote_name=google_name,
@@ -441,7 +441,7 @@ def logout_user(db: Session, token: str) -> None:
         if not session:
             return
 
-        member = db.query(Member).filter(Member.id_uuid == session.member_id).first()
+        member = db.query(Member).filter(Member.id == session.member_id).first()
         if member:
             member.auth_lastlogout = datetime.now(UTC)
 

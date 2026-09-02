@@ -29,10 +29,8 @@ class ArchiveFileComment(Base):
         ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
     )
     content: Mapped[str | None]
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

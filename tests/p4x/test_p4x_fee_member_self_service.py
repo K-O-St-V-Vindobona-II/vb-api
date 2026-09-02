@@ -5,6 +5,7 @@ scoped exclusively to the authenticated member (no id parameter at all) and
 without the admin-internal p4x_comment field.
 """
 
+import hashlib
 import io
 from datetime import UTC, date, datetime
 
@@ -133,8 +134,9 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
         db.query(P4xCategory).filter(P4xCategory.name == FEE_CATEGORY_NAME).first()
     )
 
+    identity = f"self_service_test_{member.id}_{booking.isoformat()}_{amount}"
     tx = P4xTransaction(
-        sha256_hash=f"self_service_test_{member.id}_{booking.isoformat()}_{amount}",
+        sha256_hash=hashlib.sha256(identity.encode()).hexdigest(),
         booking=booking,
         valuation=booking,
         iban=f"DE00{member.id}",
@@ -149,7 +151,7 @@ def _add_payment(db, member: Member, booking: date, amount: float) -> None:
     db.add(
         P4xPartner(
             iban=f"DE00{member.id}",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -179,7 +181,7 @@ class TestGetOwnFeeMember:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["id"] == member.id
+        assert body["id"] == str(member.id)
         assert body["cn"] == member.cn
         assert body["balance"] is not None
 
@@ -243,8 +245,8 @@ class TestGetOwnFeeMember:
         assert resp_b.status_code == 200
         body_a = resp_a.json()
         body_b = resp_b.json()
-        assert body_a["id"] == member_a.id
-        assert body_b["id"] == member_b.id
+        assert body_a["id"] == str(member_a.id)
+        assert body_b["id"] == str(member_b.id)
         assert body_a["id"] != body_b["id"]
         assert (
             body_a["balance"]["sum"]["payments"] != body_b["balance"]["sum"]["payments"]

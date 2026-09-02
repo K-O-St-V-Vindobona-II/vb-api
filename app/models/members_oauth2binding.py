@@ -17,10 +17,8 @@ class MembersOauth2Binding(Base):
     __tablename__ = "members_oauth2bindings"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover (slice 32).
     member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
 

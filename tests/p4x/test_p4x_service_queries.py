@@ -124,7 +124,7 @@ class TestGetTransactionsByPartner:
 
         partner = P4xPartner(
             iban="DE001",
-            member_id=member.id_uuid,
+            member_id=member.id,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -135,7 +135,7 @@ class TestGetTransactionsByPartner:
         _add_tx(db_session, account, date(2026, 3, 11), 25.0, iban="AT999")
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", member.id_uuid, 1
+            db_session, account, "member", member.id, 1
         )
         assert total == 1
         assert items[0].iban == "DE001"
@@ -152,14 +152,14 @@ class TestGetTransactionsByPartner:
             date(2026, 3, 10),
             15.0,
             iban="AT999",
-            delegating_member_id=member.id_uuid,
+            delegating_member_id=member.id,
         )
 
         items, total = get_transactions_by_partner(
-            db_session, account, "member", member.id_uuid, 1
+            db_session, account, "member", member.id, 1
         )
         assert total == 1
-        assert items[0].delegating_partner_id == member.id_uuid
+        assert items[0].delegating_partner_id == member.id
 
     def test_empty_when_no_partner_match(self, db_session):
         account = _create_account(db_session)

@@ -63,7 +63,7 @@ def _create_admin(db, org_id="vbw"):
     db.commit()
 
     mr = MemberRole(
-        member_id=admin.id_uuid,
+        member_id=admin.id,
         role_id="standesfuehrer",
         startdate=date(2000, 1, 1),
         enddate=None,
@@ -230,7 +230,7 @@ def test_get_member_not_found(client, db_session):
     headers = _auth_headers(client, db_session, admin)
 
     resp = client.get(
-        "/api/standesdb/members/99999",
+        f"/api/standesdb/members/{uuid.uuid4()}",
         headers=headers,
     )
     assert resp.status_code == 404
@@ -684,7 +684,7 @@ def test_create_member_writes_log(client, db_session):
     )
     assert len(logs) > 0
     assert all(l.action == "create" for l in logs)
-    assert all(l.modified_by == admin.id_uuid for l in logs)
+    assert all(l.modified_by == admin.id for l in logs)
     keys = {l.key for l in logs}
     assert "vorname" in keys
     assert "nachname" in keys
@@ -829,7 +829,7 @@ def test_delete_contact_writes_log(client, db_session):
     assert len(logs) == 1
     assert logs[0].action == "delete"
     assert logs[0].key == "deleted_at"
-    assert logs[0].modified_by == admin.id_uuid
+    assert logs[0].modified_by == admin.id
 
 
 def test_no_log_on_unchanged_save(client, db_session):

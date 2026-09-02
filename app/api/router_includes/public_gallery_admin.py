@@ -64,7 +64,7 @@ def upload_image(
 ) -> GalleryImageAdminResponse:
     """Upload a new gallery image."""
     img = public_gallery_service.upload_image(
-        db, file, caption, current_user.id_uuid, storage
+        db, file, caption, current_user.id, storage
     )
     return _to_admin_response(img, storage)
 

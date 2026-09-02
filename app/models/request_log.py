@@ -23,11 +23,9 @@ class RequestLog(Base):
         ForeignKey("client_user_agents.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover. Also a
-    # genuinely missing FK, not a Referrer-Cutover of an existing one.
+    # A genuinely missing FK, not a Referrer-Cutover of an existing one.
     member_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     request_method: Mapped[str]

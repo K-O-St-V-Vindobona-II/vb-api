@@ -73,7 +73,7 @@ def submit_change_request(
         return existing
 
     request = MemberChangeRequest(
-        member_id=member.id_uuid,
+        member_id=member.id,
         status=MemberChangeRequestStatus.PENDING,
         proposed_data=cast("dict[str, object]", diff),
     )
@@ -87,7 +87,7 @@ def get_own_pending_request(db: Session, member: Member) -> MemberChangeRequest 
     return (
         db.query(MemberChangeRequest)
         .filter(
-            MemberChangeRequest.member_id == member.id_uuid,
+            MemberChangeRequest.member_id == member.id,
             MemberChangeRequest.status == MemberChangeRequestStatus.PENDING,
         )
         .first()
@@ -111,7 +111,7 @@ def get_pending_requests_for_admin(
 
     return (
         db.query(MemberChangeRequest)
-        .join(Member, MemberChangeRequest.member_id == Member.id_uuid)
+        .join(Member, MemberChangeRequest.member_id == Member.id)
         .filter(
             MemberChangeRequest.status == MemberChangeRequestStatus.PENDING,
             Member.org_id.in_(admin_org_ids),
@@ -159,7 +159,7 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "gruender": member.gruender or False,
         "entlassen": member.entlassen or False,
         "verstorben": member.verstorben or False,
-        "parent_id": member.parent_id or 0,
+        "parent_id": member.parent_id,
         "grabadresse": member.grabadresse,
         "geburtsdatum": member.geburtsdatum,
         "geburtsdatum_accuracy": member.geburtsdatum_accuracy or 0,
@@ -280,7 +280,7 @@ def resolve_change_request(
 
     request.status = MemberChangeRequestStatus.RESOLVED
     request.field_decisions = field_decisions
-    request.resolved_by = resolving_admin.id_uuid
+    request.resolved_by = resolving_admin.id
     request.resolved_at = datetime.now(UTC)
     db.add(request)
     db.commit()

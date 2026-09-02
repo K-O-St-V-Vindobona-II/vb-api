@@ -56,7 +56,7 @@ def _login_admin(db):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -322,7 +322,7 @@ class TestActivityList:
         _seed(db_session)
         headers, admin = _login_admin(db_session)
         for _ in range(30):
-            _insert_request_log(db_session, admin.id_uuid)
+            _insert_request_log(db_session, admin.id)
         resp = client.get("/api/tracking/activity?page=1&page_size=10", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -337,15 +337,15 @@ class TestActivityList:
         )
         db_session.add(other)
         db_session.commit()
-        _insert_request_log(db_session, admin.id_uuid)
-        _insert_request_log(db_session, other.id_uuid)
+        _insert_request_log(db_session, admin.id)
+        _insert_request_log(db_session, other.id)
         resp = client.get(
-            f"/api/tracking/activity?member_id={admin.id_uuid}",
+            f"/api/tracking/activity?member_id={admin.id}",
             headers=headers,
         )
         data = resp.json()
         for item in data["items"]:
-            assert item["member_id"] == str(admin.id_uuid)
+            assert item["member_id"] == str(admin.id)
 
 
 # --- Activity Detail ---
@@ -355,7 +355,7 @@ class TestActivityDetail:
     def test_returns_detail(self, client, db_session):
         _seed(db_session)
         headers, admin = _login_admin(db_session)
-        log = _insert_request_log(db_session, admin.id_uuid, "POST", "/api/auth/login")
+        log = _insert_request_log(db_session, admin.id, "POST", "/api/auth/login")
         resp = client.get(f"/api/tracking/activity/{log.id}", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -381,7 +381,7 @@ class TestActivitySessions:
         for i in range(3):
             log = RequestLog(
                 client_ip="127.0.0.1",
-                member_id=admin.id_uuid,
+                member_id=admin.id,
                 request_method="POST",
                 request_path=f"/api/test/{i}",
                 response_status=200,
@@ -416,7 +416,7 @@ class TestActivityStats:
     def test_returns_stats(self, client, db_session):
         _seed(db_session)
         headers, admin = _login_admin(db_session)
-        _insert_request_log(db_session, admin.id_uuid, "POST", "/api/auth/login")
+        _insert_request_log(db_session, admin.id, "POST", "/api/auth/login")
         resp = client.get("/api/tracking/activity/stats", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -716,7 +716,7 @@ class TestActivitySessionsCoverage:
         db_session.add(
             RequestLog(
                 client_ip="10.0.0.1",
-                member_id=admin.id_uuid,
+                member_id=admin.id,
                 request_method="GET",
                 request_path="/api/test",
                 response_status=200,
@@ -745,7 +745,7 @@ class TestActivitySessionsCoverage:
         db_session.add(
             RequestLog(
                 client_ip="10.0.0.1",
-                member_id=admin.id_uuid,
+                member_id=admin.id,
                 request_method="GET",
                 request_path="/api/test",
                 response_status=200,
@@ -758,13 +758,13 @@ class TestActivitySessionsCoverage:
         # local_today(), not UTC — see test_groups_by_member_and_gap above.
         date_str = local_today().isoformat()
         resp = client.get(
-            f"/api/tracking/activity/sessions?date_str={date_str}&member_id={admin.id_uuid}",
+            f"/api/tracking/activity/sessions?date_str={date_str}&member_id={admin.id}",
             headers=headers,
         )
         assert resp.status_code == 200
         data = resp.json()["items"]
         for session in data:
-            assert session["member_id"] == str(admin.id_uuid)
+            assert session["member_id"] == str(admin.id)
 
     def test_empty_result(self, client, db_session):
         _seed(db_session)
@@ -790,7 +790,7 @@ class TestActivityDetailUserAgent:
         now = datetime.now(UTC)
         log = RequestLog(
             client_ip="127.0.0.1",
-            member_id=admin.id_uuid,
+            member_id=admin.id,
             request_method="GET",
             request_path="/api/test",
             response_status=200,
@@ -832,7 +832,7 @@ class TestActivityListDateFilters:
     def test_valid_date_range(self, client, db_session):
         _seed(db_session)
         headers, admin = _login_admin(db_session)
-        _insert_request_log(db_session, admin.id_uuid)
+        _insert_request_log(db_session, admin.id)
         resp = client.get(
             "/api/tracking/activity?date_from=2020-01-01&date_to=2030-12-31",
             headers=headers,

@@ -54,7 +54,7 @@ def _admin(db):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -607,7 +607,7 @@ class TestExcelExport:
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id_uuid,
+                member_id=m.id,
                 badge_id=fuxenband.id,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
@@ -615,7 +615,7 @@ class TestExcelExport:
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id_uuid,
+                member_id=m.id,
                 badge_id=ehrenzeichen_gold.id,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,

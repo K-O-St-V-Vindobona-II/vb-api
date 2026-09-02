@@ -27,11 +27,8 @@ class ArchiveStoreItem(Base):
     mime_type: Mapped[str]
     size: Mapped[int]
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    # References members.id_uuid, not members.id - members itself won't
-    # have a UUID primary key until its own Final-Cutover (slice 32), see
-    # 31b5c04b297d's docstring.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="SET NULL", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

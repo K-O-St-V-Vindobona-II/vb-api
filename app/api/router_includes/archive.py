@@ -312,7 +312,7 @@ def get_unfiled(
     directory - not everyone's, just the current user's (see
     get_unsorted_upload_count() in archive_service.py for the org-wide total)."""
     return UnfiledUploadsResponse.model_validate(
-        {"files": archive_service.get_unfiled_uploads(db, user.id_uuid)}
+        {"files": archive_service.get_unfiled_uploads(db, user.id)}
     )
 
 
@@ -331,7 +331,7 @@ def upload(
         db,
         file,
         description,
-        user.id_uuid,
+        user.id,
         storage,
     )
     return UploadResponse.model_validate({"status": "ok", "file": result})

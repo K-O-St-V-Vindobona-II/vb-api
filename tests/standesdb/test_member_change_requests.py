@@ -77,7 +77,7 @@ def _create_admin(db, *, org_id: str = "vbw", email: str = "admin@test.at") -> M
     db.commit()
     db.add(
         MemberRole(
-            member_id=admin.id_uuid,
+            member_id=admin.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -125,7 +125,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "submitted"}
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .first()
         )
         assert request is not None
@@ -151,7 +151,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "no_changes"}
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .count()
             == 0
         )
@@ -172,7 +172,7 @@ class TestSubmitOwnChangeRequest:
         )
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .count()
             == 1
         )
@@ -186,7 +186,7 @@ class TestSubmitOwnChangeRequest:
         assert resp.json() == {"status": "no_changes"}
         assert (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .count()
             == 0
         )
@@ -203,7 +203,7 @@ class TestSubmitOwnChangeRequest:
         )
         first = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .first()
         )
         assert first is not None
@@ -217,7 +217,7 @@ class TestSubmitOwnChangeRequest:
 
         rows = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .all()
         )
         assert len(rows) == 1
@@ -349,7 +349,7 @@ class TestListMemberChangeRequests:
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1
-        assert body["items"][0]["member_id"] == str(vbw_member.id_uuid)
+        assert body["items"][0]["member_id"] == str(vbw_member.id)
 
     def test_non_admin_gets_403(self, db_session, client):
         _seed_base(db_session)
@@ -373,7 +373,7 @@ class TestGetMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == vbw_member.id_uuid)
+            .filter(MemberChangeRequest.member_id == vbw_member.id)
             .first()
         )
 
@@ -395,7 +395,7 @@ class TestGetMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .first()
         )
 
@@ -423,7 +423,7 @@ class TestDecideMemberChangeRequest:
         )
         request = (
             db_session.query(MemberChangeRequest)
-            .filter(MemberChangeRequest.member_id == member.id_uuid)
+            .filter(MemberChangeRequest.member_id == member.id)
             .first()
         )
         assert request is not None
@@ -481,7 +481,7 @@ class TestDecideMemberChangeRequest:
         db_session.refresh(request)
         assert request.status.value == "resolved"
         assert request.field_decisions == {"nachname": "approved"}
-        assert request.resolved_by == admin.id_uuid
+        assert request.resolved_by == admin.id
         assert request.resolved_at is not None
 
     def test_reject_does_not_apply_change(self, db_session, client):
@@ -563,14 +563,14 @@ class TestDecideMemberChangeRequest:
         member = _create_member(db_session, email="member17@test.at")
         db_session.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id="senior",  # NOT standesfuehrer - see _seed_base()
                 startdate=date(2010, 1, 1),
                 enddate=None,
             )
         )
-        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=badge.id))
-        db_session.add(MemberKey(member_id=member.id_uuid, key_id=key.id))
+        db_session.add(MemberBadge(member_id=member.id, badge_id=badge.id))
+        db_session.add(MemberKey(member_id=member.id, key_id=key.id))
         db_session.commit()
         admin = _create_admin(db_session, email="admin17@test.at")
         request = self._submit_and_get_request(
@@ -589,19 +589,15 @@ class TestDecideMemberChangeRequest:
         # actually persisted.
         db_session.expire_all()
         roles = (
-            db_session.query(MemberRole)
-            .filter(MemberRole.member_id == member.id_uuid)
-            .all()
+            db_session.query(MemberRole).filter(MemberRole.member_id == member.id).all()
         )
         badges = (
             db_session.query(MemberBadge)
-            .filter(MemberBadge.member_id == member.id_uuid)
+            .filter(MemberBadge.member_id == member.id)
             .all()
         )
         keys = (
-            db_session.query(MemberKey)
-            .filter(MemberKey.member_id == member.id_uuid)
-            .all()
+            db_session.query(MemberKey).filter(MemberKey.member_id == member.id).all()
         )
         assert [r.role_id for r in roles] == ["senior"]
         assert [b.badge_id for b in badges] == [badge.id]
@@ -627,7 +623,7 @@ class TestDecideMemberChangeRequest:
             .first()
         )
         assert log is not None
-        assert log.modified_by == admin.id_uuid
+        assert log.modified_by == admin.id
         assert log.old == "Mustermann"
         assert log.new == "Geaendert"
 
@@ -716,7 +712,7 @@ class TestMemberChangeRequestIdUuidDefault:
         member = _create_member(db_session, email="uuid-guard@test.at")
 
         request = MemberChangeRequest(
-            member_id=member.id_uuid,
+            member_id=member.id,
             proposed_data={"nachname": {"old": "Mustermann", "new": "Geaendert"}},
         )
         db_session.add(request)

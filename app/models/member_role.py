@@ -24,11 +24,10 @@ class MemberRole(Base):
     )
 
     # No surrogate id - the primary key is the column combination itself.
-    # References members.id_uuid, not members.id - members' own
-    # Final-Cutover is slice 32. role_id stays untouched: roles.id is a
-    # string primary key, entirely outside this migration series' scope.
+    # role_id stays untouched: roles.id is a string primary key, entirely
+    # outside this migration series' scope.
     member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id_uuid", ondelete="CASCADE", onupdate="CASCADE"),
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,
     )
     role_id: Mapped[str] = mapped_column(

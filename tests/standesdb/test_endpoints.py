@@ -46,7 +46,7 @@ def _admin(db, org_id="vbw"):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -281,7 +281,7 @@ class TestMemberDetail:
         _seed(db_session)
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
-        resp = client.get("/api/standesdb/members/99999", headers=headers)
+        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 404
 
 
@@ -358,7 +358,7 @@ class TestMemberCRUD:
         admin = _admin(db_session)
         headers = _headers(client, db_session, admin)
         resp = client.put(
-            "/api/standesdb/members/99999",
+            f"/api/standesdb/members/{uuid.uuid4()}",
             json=_member_payload(),
             headers=headers,
         )
@@ -498,7 +498,7 @@ class TestSearchParent:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert any(r["id"] == parent.id for r in resp.json()["data"])
+        assert any(r["id"] == str(parent.id) for r in resp.json()["data"])
 
     def test_search_parent_excludes_other_org(self, client, db_session):
         """Regression: org scoping must survive the tsvector/pg_trgm

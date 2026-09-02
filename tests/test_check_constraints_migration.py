@@ -73,7 +73,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 15),
                 enddate=datetime.date(2020, 6, 15),
@@ -87,7 +87,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 14),
                 enddate=datetime.date(2020, 6, 15),
@@ -99,7 +99,7 @@ class TestMemberRoleDateOrdering:
         member, role = self._seed_member_and_role(db_session)
         db_session.add(
             MemberRole(
-                member_id=member.id_uuid,
+                member_id=member.id,
                 role_id=role.id,
                 startdate=datetime.date(2020, 6, 14),
             )
@@ -115,7 +115,7 @@ class TestSummaryOrderDateOrdering:
 
         db_session.add(
             P4xSummaryOrder(
-                ordered_by=member.id_uuid,
+                ordered_by=member.id,
                 email="test@example.com",
                 summary_start=datetime.date(2020, 6, 15),
                 summary_end=datetime.date(2020, 6, 14),
@@ -238,9 +238,7 @@ class TestNullablePositiveOnly:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(
-                owner_member_id=member.id_uuid, sha256_hash="c" * 64, width=0
-            )
+            StandesdbImage(owner_member_id=member.id, sha256_hash="c" * 64, width=0)
         )
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -252,9 +250,7 @@ class TestNullablePositiveOnly:
         db_session.commit()
 
         db_session.add(
-            StandesdbImage(
-                owner_member_id=member.id_uuid, sha256_hash="d" * 64, width=None
-            )
+            StandesdbImage(owner_member_id=member.id, sha256_hash="d" * 64, width=None)
         )
         db_session.commit()
 

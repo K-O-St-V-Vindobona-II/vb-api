@@ -79,7 +79,7 @@ def test_google_link_success(
     # Verify the binding was actually written to the database
     binding = (
         db_session.query(MembersOauth2Binding)
-        .filter_by(member_id=test_member_unbound.id_uuid)
+        .filter_by(member_id=test_member_unbound.id)
         .first()
     )
     assert binding is not None
@@ -150,7 +150,7 @@ def test_google_login_locked_existing_binding(
     db_session.commit()
 
     binding = MembersOauth2Binding(
-        member_id=user.id_uuid,
+        member_id=user.id,
         provider="google",
         remote_id="999",
         remote_name="test",
@@ -195,7 +195,7 @@ class TestGoogleLoginAtomicity:
 
         original_lastuse = datetime(2020, 1, 1, tzinfo=UTC)
         binding = MembersOauth2Binding(
-            member_id=user.id_uuid,
+            member_id=user.id,
             provider="google",
             remote_id="atomicity-remote-id",
             remote_name="test",
@@ -246,9 +246,7 @@ class TestGoogleLoginAtomicity:
 
         db_session.rollback()
         assert (
-            db_session.query(MembersOauth2Binding)
-            .filter_by(member_id=user.id_uuid)
-            .count()
+            db_session.query(MembersOauth2Binding).filter_by(member_id=user.id).count()
             == 0
         )
 
@@ -293,7 +291,7 @@ class TestMembersOauth2BindingUuidDefault:
         db_session.commit()
 
         binding = MembersOauth2Binding(
-            member_id=member.id_uuid,
+            member_id=member.id,
             provider="google",
             remote_id="uuid-default-guard",
             remote_name="Guard",

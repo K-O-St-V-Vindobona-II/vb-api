@@ -83,7 +83,7 @@ def _admin(db: object) -> Member:
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="standesfuehrer",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -298,7 +298,7 @@ class TestClassifyBadges:
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id_uuid,
+                member_id=m.id,
                 badge_id=fuxenband.id,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
@@ -306,7 +306,7 @@ class TestClassifyBadges:
         )
         db_session.add(
             MemberBadge(
-                member_id=m.id_uuid,
+                member_id=m.id,
                 badge_id=ehrenzeichen_gold.id,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
@@ -314,7 +314,7 @@ class TestClassifyBadges:
         )
         db_session.commit()
 
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id_uuid)
+        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
         assert len(jubelbaender) == 1
         assert jubelbaender[0]["name"] == "Fuxenband"
         assert len(ehrenzeichen) == 1
@@ -323,7 +323,7 @@ class TestClassifyBadges:
     def test_empty_badges_returns_empty_lists(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="NoBadge", nachname="Test")
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id_uuid)
+        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
         assert jubelbaender == []
         assert ehrenzeichen == []
 
@@ -418,7 +418,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
+            owner_member_id=member.id,
             sha256_hash="del_hash",
             deleted_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
@@ -437,7 +437,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
+            owner_member_id=member.id,
             sha256_hash="cached_hash",
         )
         db_session.add(img)
@@ -459,7 +459,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
+            owner_member_id=member.id,
             sha256_hash="no_orig_hash",
         )
         db_session.add(img)
@@ -478,7 +478,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
+            owner_member_id=member.id,
             sha256_hash="thumb_hash",
         )
         db_session.add(img)
@@ -505,7 +505,7 @@ class TestGetImageBase64:
         db_session.commit()
 
         img = StandesdbImage(
-            owner_member_id=member.id_uuid,
+            owner_member_id=member.id,
             sha256_hash="err_hash",
         )
         db_session.add(img)

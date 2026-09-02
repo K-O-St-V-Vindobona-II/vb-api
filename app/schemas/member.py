@@ -16,7 +16,7 @@ class MemberBase(BaseModel):
 # 2. Response Schema: How the Member leaves the backend
 # towards the Vue frontend!
 class MemberResponse(MemberBase):
-    id: int
+    id: uuid.UUID
 
     cn: str = ""
     default_image: uuid.UUID | None = None

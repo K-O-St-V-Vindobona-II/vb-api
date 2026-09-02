@@ -343,7 +343,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other.id_uuid,
+                member_id=other.id,
                 role_id="senior",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),
@@ -359,7 +359,7 @@ class TestDatabaseOverlap:
             },
         ]
         with pytest.raises(HTTPException) as exc:
-            validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+            validate_roles_history(db_session, roles, "vbw", me.id)
         assert exc.value.status_code == 422
         assert "Max Muster" in exc.value.detail[0]
         assert "belegt" in exc.value.detail[0]
@@ -374,7 +374,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other.id_uuid,
+                member_id=other.id,
                 role_id="senior",
                 startdate=date(2020, 1, 1),
                 enddate=None,
@@ -390,7 +390,7 @@ class TestDatabaseOverlap:
             },
         ]
         with pytest.raises(HTTPException) as exc:
-            validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+            validate_roles_history(db_session, roles, "vbw", me.id)
         assert exc.value.status_code == 422
 
     def test_both_ongoing_rejected(self, db_session):
@@ -403,7 +403,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other.id_uuid,
+                member_id=other.id,
                 role_id="senior",
                 startdate=date(2020, 1, 1),
                 enddate=None,
@@ -415,7 +415,7 @@ class TestDatabaseOverlap:
             {"id": "senior", "startdate": date(2023, 1, 1)},
         ]
         with pytest.raises(HTTPException) as exc:
-            validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+            validate_roles_history(db_session, roles, "vbw", me.id)
         assert exc.value.status_code == 422
 
     def test_other_member_non_overlapping_ok(self, db_session):
@@ -428,7 +428,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other.id_uuid,
+                member_id=other.id,
                 role_id="senior",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),
@@ -443,7 +443,7 @@ class TestDatabaseOverlap:
                 "enddate": date(1998, 1, 31),
             },
         ]
-        validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+        validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_other_member_different_role_ok(self, db_session):
         """Anderes Mitglied hat andere Rolle im gleichen Zeitraum — kein Konflikt."""
@@ -455,7 +455,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other.id_uuid,
+                member_id=other.id,
                 role_id="schriftfuehrer",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),
@@ -470,7 +470,7 @@ class TestDatabaseOverlap:
                 "enddate": date(1997, 7, 31),
             },
         ]
-        validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+        validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_other_member_different_org_ok(self, db_session):
         """Gleiche Rolle, gleicher Zeitraum, andere Org -- kein Konflikt."""
@@ -486,7 +486,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=other_vbn.id_uuid,
+                member_id=other_vbn.id,
                 role_id="senior",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),
@@ -501,7 +501,7 @@ class TestDatabaseOverlap:
                 "enddate": date(1997, 7, 31),
             },
         ]
-        validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+        validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_own_existing_roles_ignored(self, db_session):
         """Eigene bestehende Rollen werden ignoriert (detach-all + re-attach)."""
@@ -510,7 +510,7 @@ class TestDatabaseOverlap:
 
         db_session.add(
             MemberRole(
-                member_id=me.id_uuid,
+                member_id=me.id,
                 role_id="senior",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),
@@ -525,7 +525,7 @@ class TestDatabaseOverlap:
                 "enddate": date(1997, 7, 31),
             },
         ]
-        validate_roles_history(db_session, roles, "vbw", me.id_uuid)
+        validate_roles_history(db_session, roles, "vbw", me.id)
 
 
 # ─── Leere und valide Eingaben ─────────────────────────
@@ -595,7 +595,7 @@ class TestEdgeCases:
         )
         db_session.add(
             MemberRole(
-                member_id=existing.id_uuid,
+                member_id=existing.id,
                 role_id="senior",
                 startdate=date(1997, 2, 1),
                 enddate=date(1997, 7, 31),

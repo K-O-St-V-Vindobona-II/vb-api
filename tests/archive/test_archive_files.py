@@ -76,7 +76,7 @@ def _login_admin(db, _client):
     db.commit()
     db.add(
         MemberRole(
-            member_id=m.id_uuid,
+            member_id=m.id,
             role_id="internetreferent",
             startdate=date(2000, 1, 1),
             enddate=None,
@@ -359,7 +359,7 @@ class TestUpload:
                 mime_type="image/jpeg",
                 size=5000,
                 sha256_hash=f"unfiled_{hash_suffix}",
-                created_by=user_a.id_uuid,
+                created_by=user_a.id,
                 created_at=now,
                 updated_at=now,
             )
@@ -379,17 +379,13 @@ class TestUpload:
         _make_unfiled_upload("small-b")
 
         with count_queries() as small:
-            small_result = archive_service.get_unfiled_uploads(
-                db_session, user_a.id_uuid
-            )
+            small_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
 
         for i in range(5):
             _make_unfiled_upload(f"large-{i}")
 
         with count_queries() as large:
-            large_result = archive_service.get_unfiled_uploads(
-                db_session, user_a.id_uuid
-            )
+            large_result = archive_service.get_unfiled_uploads(db_session, user_a.id)
 
         assert len(small_result) == 2
         assert len(large_result) == 7
@@ -521,7 +517,7 @@ class TestComments:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Test comment here",
-            created_by=user.id_uuid,
+            created_by=user.id,
             created_at=_now(),
         )
         db_session.add(c)
@@ -546,7 +542,7 @@ class TestComments:
         c = ArchiveFileComment(
             archive_file_id=f.id,
             content="Test comment here",
-            created_by=author.id_uuid,
+            created_by=author.id,
             created_at=_now(),
         )
         db_session.add(c)

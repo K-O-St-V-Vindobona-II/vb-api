@@ -106,7 +106,7 @@ class TestPersistChangeLogSkipsTechnicalKeys:
             member.id,
             diff=diff,
             action="update",
-            modified_by=admin.id_uuid,
+            modified_by=admin.id,
             modified_at=datetime.now(UTC),
         )
         db_session.commit()

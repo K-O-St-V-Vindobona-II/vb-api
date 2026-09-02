@@ -53,7 +53,7 @@ class TestUpdatedAtTrigger:
         db_session.commit()
 
         session = AuthSession(
-            member_id=member.id_uuid,
+            member_id=member.id,
             jti="jti-trigger-test",
         )
         db_session.add(session)
