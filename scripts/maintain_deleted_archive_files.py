@@ -31,8 +31,9 @@ also classifies each file's S3 impact:
   - sole (SOLE in the listing): no other reference at all — purging this
     file deletes the underlying S3 object immediately.
 
-`purge <id>` is DESTRUCTIVE and S3-relevant. The given id must currently be
-soft-deleted (i.e. actually purgeable — appear in `list`) — anything else is
+`purge <file_id>` is DESTRUCTIVE and S3-relevant. The given file id (a UUID)
+must currently be soft-deleted (i.e. actually purgeable — appear in `list`) —
+anything else is
 rejected before any prompt is shown, and nothing is deleted. Only after that
 check passes does the script ask for interactive confirmation; there is no
 flag to skip it. The confirmation prompt itself states whether this
@@ -68,17 +69,18 @@ soft-deleted, or not SOLE) only prints a warning and does not stop the rest.
 share content with the given file (any status — active or soft-deleted);
 `--dir DIR_ID` does the same for every currently soft-deleted file directly
 in that directory. Both are repeatable and combinable in one call, e.g.
-`list-duplicates --file 1 --file 2 --dir 10 --dir 11`. Each file gets its own
-two-part block — "DELETED FILE:"/"ACTIVE FILE:" (whichever the file's actual
-current state is) and "DUPLICATES:" (its active duplicates, or "(none)"),
+`list-duplicates --file <uuid1> --file <uuid2> --dir 10 --dir 11`. Each
+file gets its own two-part block — "DELETED FILE:"/"ACTIVE FILE:"
+(whichever the file's actual current state is) and "DUPLICATES:" (its
+active duplicates, or "(none)"),
 both using the same ID/PATH/FILENAME table — separated by a "====="
 delimiter when more than one block is printed. A file with no active
 duplicates is a normal result, not an error — an error is only reported for
 a `--file` id that doesn't exist at all, and only skips that one entry.
 
 `urlpath <id>` is a read-only convenience lookup: it looks the given id up
-as BOTH a file id and a directory id and, for whichever match(es), prints
-its archive path and the frontend's relative URL path
+as BOTH a file id (UUID) and a directory id (integer) and, for whichever
+match(es), prints its archive path and the frontend's relative URL path
 ("/archive/files/<id>" or "/archive/dirs/<id>") — just the path, not a full
 URL, since the frontend domain differs per environment and isn't reliably
 known to this script.
@@ -88,21 +90,25 @@ Runs in every environment, including production — unlike downsync_prod.py,
 this is not dev-only tooling but the actual production maintenance
 mechanism for accumulated soft-deleted files.
 
-Usage:
+Usage (file ids are UUIDs, directory ids are still plain integers):
     python scripts/maintain_deleted_archive_files.py
     python scripts/maintain_deleted_archive_files.py list
     python scripts/maintain_deleted_archive_files.py list --short
     python scripts/maintain_deleted_archive_files.py list 7
-    python scripts/maintain_deleted_archive_files.py purge 42
+    python scripts/maintain_deleted_archive_files.py purge <file-uuid>
     python scripts/maintain_deleted_archive_files.py purge-duplicates 7
-    python scripts/maintain_deleted_archive_files.py restore 42
-    python scripts/maintain_deleted_archive_files.py restore 42 43 44
-    python scripts/maintain_deleted_archive_files.py urlpath 42
-    python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
+    python scripts/maintain_deleted_archive_files.py restore <file-uuid>
+    python scripts/maintain_deleted_archive_files.py restore <file-uuid-1> <file-uuid-2>
+    python scripts/maintain_deleted_archive_files.py urlpath <file-uuid>
+    python scripts/maintain_deleted_archive_files.py urlpath 7
+    python scripts/maintain_deleted_archive_files.py list-duplicates \
+        --file <file-uuid> --dir 7
 """
 
 import argparse
+import contextlib
 import sys
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -142,6 +148,7 @@ _FILENAME_WIDTH = 24
 _FILEEXT_WIDTH = 8
 _DESCRIPTION_WIDTH = 24
 _DUPLICATE_PATH_WIDTH = 40
+_FILE_ID_WIDTH = 36  # exact length of a UUID's string form
 
 
 def _human_size(num_bytes: int) -> str:
@@ -206,7 +213,7 @@ def _print_candidates(candidates: list[PurgeCandidate], *, short: bool = False) 
 
         print(f"\n{path} (dir_id: {dir_label})")
         print(
-            f"   {'ID':<6} {'HASH':<16}  {'IMPACT':<10} "
+            f"   {'ID':<{_FILE_ID_WIDTH}} {'HASH':<16}  {'IMPACT':<10} "
             f"{'FILENAME':<{_FILENAME_WIDTH}} {'FILEEXT':<{_FILEEXT_WIDTH}} "
             f"{'SIZE':>9}  {'DESCRIPTION':<{_DESCRIPTION_WIDTH}} DELETED_AT"
         )
@@ -217,7 +224,7 @@ def _print_candidates(candidates: list[PurgeCandidate], *, short: bool = False) 
             extension = _truncate(c.extension, _FILEEXT_WIDTH)
             description = _truncate(c.description or "", _DESCRIPTION_WIDTH)
             print(
-                f"   {c.file_id:<6} {hash_short:<16}  "
+                f"   {c.file_id!s:<{_FILE_ID_WIDTH}} {hash_short:<16}  "
                 f"{_IMPACT_LABELS[c.impact]:<10} "
                 f"{name:<{_FILENAME_WIDTH}} {extension:<{_FILEEXT_WIDTH}} "
                 f"{_human_size(c.size):>9}  {description:<{_DESCRIPTION_WIDTH}} "
@@ -387,7 +394,7 @@ def _run_purge_duplicates(db: Session, dir_id: int) -> NoReturn:
     sys.exit(1 if had_error else 0)
 
 
-def _run_restore(db: Session, file_ids: list[int]) -> NoReturn:
+def _run_restore(db: Session, file_ids: list[uuid.UUID]) -> NoReturn:
     """Restores every given file id one after another. An id that can't be
     restored (not found, not soft-deleted, or not SOLE) only prints a
     warning and does not stop the remaining ids — see restore_file() for
@@ -411,16 +418,18 @@ def _run_restore(db: Session, file_ids: list[int]) -> NoReturn:
 
 
 def _print_file_table_header() -> None:
-    print(f"   {'ID':<6} {'PATH':<{_DUPLICATE_PATH_WIDTH}} FILENAME")
+    print(f"   {'ID':<{_FILE_ID_WIDTH}} {'PATH':<{_DUPLICATE_PATH_WIDTH}} FILENAME")
 
 
-def _print_file_row(file_id: int, path: str, filename: str) -> None:
+def _print_file_row(file_id: uuid.UUID, path: str, filename: str) -> None:
     path = _truncate(path, _DUPLICATE_PATH_WIDTH)
-    print(f"   {file_id:<6} {path:<{_DUPLICATE_PATH_WIDTH}} {filename}")
+    print(
+        f"   {file_id!s:<{_FILE_ID_WIDTH}} {path:<{_DUPLICATE_PATH_WIDTH}} {filename}"
+    )
 
 
 def _print_duplicates_block(
-    file_id: int,
+    file_id: uuid.UUID,
     path: str,
     filename: str,
     *,
@@ -449,7 +458,7 @@ def _print_block_separator(block_index: int) -> None:
 
 
 def _run_list_duplicates(
-    db: Session, file_ids: list[int], dir_ids: list[int]
+    db: Session, file_ids: list[uuid.UUID], dir_ids: list[int]
 ) -> NoReturn:
     if not file_ids and not dir_ids:
         print("ERROR: provide at least one --file or --dir.", file=sys.stderr)
@@ -497,9 +506,19 @@ def _run_list_duplicates(
     sys.exit(1 if had_error else 0)
 
 
-def _run_urlpath(db: Session, id_: int) -> NoReturn:
-    file_location = find_file_location(db, id_)
-    dir_location = find_dir_location(db, id_)
+def _run_urlpath(db: Session, id_: str) -> NoReturn:
+    """Looks `id_` up as both a file id (UUID) and a directory id (plain
+    integer) - the two id spaces don't overlap in shape any more since
+    archive_files' own Final-Cutover, so at most one of the two parses
+    below ever succeeds, but both are tried independently rather than
+    guessing which one the caller meant."""
+    file_location = None
+    with contextlib.suppress(ValueError):
+        file_location = find_file_location(db, uuid.UUID(id_))
+
+    dir_location = None
+    with contextlib.suppress(ValueError):
+        dir_location = find_dir_location(db, int(id_))
 
     if file_location is None and dir_location is None:
         print(f"ERROR: no file or directory with id {id_}.", file=sys.stderr)
@@ -564,7 +583,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     purge_parser.add_argument(
         "id",
-        type=int,
+        type=uuid.UUID,
         help="ID of the file to purge — must currently be soft-deleted (see 'list')",
     )
 
@@ -594,7 +613,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     restore_parser.add_argument(
         "file_ids",
-        type=int,
+        type=uuid.UUID,
         nargs="+",
         metavar="FILE_ID",
         help=(
@@ -615,13 +634,13 @@ def _build_parser() -> argparse.ArgumentParser:
     list_duplicates_parser.add_argument(
         "--file",
         dest="file_ids",
-        type=int,
+        type=uuid.UUID,
         action="append",
         default=[],
         metavar="FILE_ID",
         help=(
             "Show active duplicates of this file id (any status, active or "
-            "soft-deleted). Repeatable: --file 1 --file 2 ..."
+            "soft-deleted). Repeatable: --file <uuid1> --file <uuid2> ..."
         ),
     )
     list_duplicates_parser.add_argument(
@@ -635,7 +654,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Show active duplicates for every currently soft-deleted file "
             "directly in this directory id. Repeatable: --dir 1 --dir 2 ... "
             "Combinable with --file in the same call, e.g.: "
-            "list-duplicates --file 1 --file 2 --dir 10 --dir 11"
+            "list-duplicates --file <uuid1> --file <uuid2> --dir 10 --dir 11"
         ),
     )
 
@@ -648,7 +667,8 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     urlpath_parser.add_argument(
-        "id", type=int, help="Looked up as both a file id and a directory id"
+        "id",
+        help="Looked up as both a file id (UUID) and a directory id (integer)",
     )
 
     return parser
@@ -664,7 +684,7 @@ def _run_list(db: Session, dir_id: int | None, *, short: bool) -> NoReturn:
     sys.exit(0)
 
 
-def _run_purge(db: Session, file_id: int) -> NoReturn:
+def _run_purge(db: Session, file_id: uuid.UUID) -> NoReturn:
     candidates = list_deleted_files(db)
     target = next((c for c in candidates if c.file_id == file_id), None)
     if target is None:

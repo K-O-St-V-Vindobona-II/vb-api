@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -32,8 +33,6 @@ from app.services.permission_service import (
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
-    import uuid
-
     from sqlalchemy.orm import Session
 
     from app.models.member import Member
@@ -556,7 +555,7 @@ def receive_items(  # noqa: C901
     db: Session,
     target_dir_id: int,
     item_type: str,
-    item_ids: list[int],
+    item_ids: list[int | uuid.UUID],
     user: Member,
 ) -> None:
     _require_admin(user)
@@ -571,6 +570,11 @@ def receive_items(  # noqa: C901
 
     if item_type == "dir":
         for did in item_ids:
+            if not isinstance(did, int):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Verzeichnis-IDs müssen Ganzzahlen sein.",
+                )
             d = db.get(ArchiveDir, did)
             if not d:
                 continue
@@ -590,6 +594,11 @@ def receive_items(  # noqa: C901
             d.archive_dir_id = target_dir_id
     elif item_type == "file":
         for fid in item_ids:
+            if not isinstance(fid, uuid.UUID):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Datei-IDs müssen UUIDs sein.",
+                )
             f = db.get(ArchiveFile, fid)
             if not f:
                 continue
@@ -655,7 +664,7 @@ def _get_sets(db: Session) -> dict[str, object]:
 
 def get_file_detail(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     user: Member,
 ) -> dict[str, object]:
     file_obj = db.get(ArchiveFile, file_id)
@@ -722,7 +731,7 @@ def get_file_detail(
 
 def update_file(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     data: dict[str, object],
     user: Member,
 ) -> None:
@@ -740,7 +749,7 @@ def update_file(
 
 def delete_file(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     user: Member,
 ) -> None:
     _require_admin(user)
@@ -758,7 +767,7 @@ def delete_file(
 
 def restore_file(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     user: Member,
 ) -> None:
     _require_admin(user)
@@ -774,7 +783,7 @@ def restore_file(
 
 def get_presigned_url(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     user: Member,
     storage: StorageClient,
     size: str | None = None,
@@ -873,7 +882,7 @@ def get_unfiled_uploads(
         db.query(ArchiveFile)
         .join(
             ArchiveStoreItem,
-            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id_uuid,
+            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
         )
         .filter(
             ArchiveFile.archive_dir_id == 0,
@@ -929,7 +938,7 @@ def get_archive_stats(db: Session) -> dict[str, object]:
     active_file_exists = (
         db.query(ArchiveFile.id)
         .filter(
-            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id_uuid,
+            ArchiveFile.archive_store_item_id == ArchiveStoreItem.id,
             ArchiveFile.deleted_at.is_(None),
             ArchiveFile.archive_dir_id != 0,
             ~ArchiveFile.archive_dir_id.in_(under_trash),
@@ -1070,7 +1079,7 @@ def upload_file(
     archive_file = ArchiveFile(
         archive_dir_id=0,
         description=description,
-        archive_store_item_id=store_item.id_uuid,
+        archive_store_item_id=store_item.id,
         created_at=now,
         updated_at=now,
     )
@@ -1085,7 +1094,7 @@ def upload_file(
 
 def create_comment(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     content: str,
     user: Member,
 ) -> dict[str, object]:
@@ -1113,7 +1122,7 @@ def create_comment(
 
     now = _now()
     comment = ArchiveFileComment(
-        archive_file_id=file_obj.id_uuid,
+        archive_file_id=file_obj.id,
         content=content,
         created_by=user.id_uuid,
         created_at=now,
@@ -1126,13 +1135,13 @@ def create_comment(
 
 def delete_comment(
     db: Session,
-    file_id: int,
+    file_id: uuid.UUID,
     comment_id: uuid.UUID,
     user: Member,
 ) -> None:
     file_obj = db.get(ArchiveFile, file_id)
     comment = db.get(ArchiveFileComment, comment_id)
-    if not file_obj or not comment or comment.archive_file_id != file_obj.id_uuid:
+    if not file_obj or not comment or comment.archive_file_id != file_obj.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kommentar nicht gefunden.",
@@ -1257,7 +1266,7 @@ def _search_files_exact(
     comment_match_exists = (
         db.query(ArchiveFileComment.id)
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
             ArchiveFileComment.deleted_at.is_(None),
             ArchiveFileComment.search_vector.op("@@")(tsquery),
         )
@@ -1267,7 +1276,7 @@ def _search_files_exact(
     comment_rank = (
         db.query(func.max(func.ts_rank(ArchiveFileComment.search_vector, tsquery)))
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
             ArchiveFileComment.deleted_at.is_(None),
             ArchiveFileComment.search_vector.op("@@")(tsquery),
         )
@@ -1283,7 +1292,7 @@ def _search_files_exact(
         db.query(ArchiveFile, rank)
         .join(
             ArchiveStoreItem,
-            ArchiveStoreItem.id_uuid == ArchiveFile.archive_store_item_id,
+            ArchiveStoreItem.id == ArchiveFile.archive_store_item_id,
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),
@@ -1342,7 +1351,7 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
     comment_match = (
         db.query(ArchiveFileComment.id)
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
             ArchiveFileComment.deleted_at.is_(None),
             q.op("<%")(ArchiveFileComment.content),
         )
@@ -1352,7 +1361,7 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
     comment_rank = (
         db.query(func.max(func.word_similarity(query, ArchiveFileComment.content)))
         .filter(
-            ArchiveFileComment.archive_file_id == ArchiveFile.id_uuid,
+            ArchiveFileComment.archive_file_id == ArchiveFile.id,
             ArchiveFileComment.deleted_at.is_(None),
             q.op("<%")(ArchiveFileComment.content),
         )
@@ -1369,7 +1378,7 @@ def _search_files_fuzzy(db: Session, query: str) -> list[tuple[ArchiveFile, floa
         db.query(ArchiveFile, rank)
         .join(
             ArchiveStoreItem,
-            ArchiveStoreItem.id_uuid == ArchiveFile.archive_store_item_id,
+            ArchiveStoreItem.id == ArchiveFile.archive_store_item_id,
         )
         .filter(
             ArchiveFile.deleted_at.is_(None),

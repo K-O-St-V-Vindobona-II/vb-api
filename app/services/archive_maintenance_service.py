@@ -57,7 +57,7 @@ def _classify_impact(active_count: int, other_deleted_count: int) -> PurgeImpact
 
 @dataclass(frozen=True)
 class PurgeCandidate:
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -83,7 +83,7 @@ class PurgeCandidate:
 
 @dataclass(frozen=True)
 class PurgeResult:
-    file_id: int
+    file_id: uuid.UUID
     store_item_deleted: bool
     s3_keys_deleted: list[str]
     s3_errors: list[str]
@@ -98,7 +98,7 @@ class FileLocation:
     flag rather than assuming it from context.
     """
 
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -111,7 +111,7 @@ class FileLocation:
 
 @dataclass(frozen=True)
 class ActiveDuplicate:
-    file_id: int
+    file_id: uuid.UUID
     path: str
     name: str
     extension: str
@@ -242,7 +242,7 @@ def is_still_duplicate(db: Session, candidate: PurgeCandidate) -> bool:
     return active_count > 0
 
 
-def _get_file(db: Session, file_id: int) -> ArchiveFile:
+def _get_file(db: Session, file_id: uuid.UUID) -> ArchiveFile:
     """Shared existence check — raises regardless of soft-delete state."""
     file_obj = db.get(ArchiveFile, file_id)
     if file_obj is None:
@@ -251,7 +251,7 @@ def _get_file(db: Session, file_id: int) -> ArchiveFile:
     return file_obj
 
 
-def _get_soft_deleted_file(db: Session, file_id: int) -> ArchiveFile:
+def _get_soft_deleted_file(db: Session, file_id: uuid.UUID) -> ArchiveFile:
     """Shared existence/state check for both purge and restore targets."""
     file_obj = _get_file(db, file_id)
     if file_obj.deleted_at is None:
@@ -277,14 +277,7 @@ def _delete_orphaned_store_items(
         )
         if still_referenced:
             continue
-        # db.get() looks up by primary key, which is still the integer
-        # `id` here - archive_store_items keeps its own Final-Cutover for a
-        # later slice, so id_uuid must be queried explicitly instead.
-        item = (
-            db.query(ArchiveStoreItem)
-            .filter(ArchiveStoreItem.id_uuid == store_item_id)
-            .first()
-        )
+        item = db.get(ArchiveStoreItem, store_item_id)
         if item is not None:
             orphaned.append(item)
             db.delete(item)
@@ -329,7 +322,7 @@ def _purge_s3_object(
         _delete_s3_key(storage, key, deleted, errors)
 
 
-def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult:
+def purge_file(db: Session, storage: StorageClient, file_id: uuid.UUID) -> PurgeResult:
     """Permanently deletes a soft-deleted archive file: hard-deletes the DB
     row (cascading its comments), then removes the underlying S3 object(s)
     if no other file still references the same content hash.
@@ -368,7 +361,7 @@ def purge_file(db: Session, storage: StorageClient, file_id: int) -> PurgeResult
     )
 
 
-def restore_file(db: Session, file_id: int) -> FileLocation:
+def restore_file(db: Session, file_id: uuid.UUID) -> FileLocation:
     """CLI-only restore: undoes a soft-delete by clearing deleted_at.
 
     Mirrors archive_service.restore_file()'s core logic (404 check,
@@ -411,7 +404,7 @@ def restore_file(db: Session, file_id: int) -> FileLocation:
 def _active_duplicates_for_store_items(
     db: Session,
     store_item_ids: set[uuid.UUID],
-    exclude_file_ids: set[int] | None = None,
+    exclude_file_ids: set[uuid.UUID] | None = None,
 ) -> dict[uuid.UUID, list[ActiveDuplicate]]:
     """Maps store_item_id -> its active (non-deleted) ArchiveFile
     duplicates. A single query regardless of how many store items are
@@ -438,7 +431,7 @@ def _active_duplicates_for_store_items(
 
 
 def active_duplicates_of_file(
-    db: Session, file_id: int
+    db: Session, file_id: uuid.UUID
 ) -> tuple[FileLocation, list[ActiveDuplicate]]:
     """Returns the given file's own location plus the active files sharing
     its content (any status for the given file itself — active or
@@ -479,7 +472,7 @@ def active_duplicates_in_dir(
     return [(c, by_store_item[c.archive_store_item_id]) for c in candidates]
 
 
-def find_file_location(db: Session, file_id: int) -> FileLocation | None:
+def find_file_location(db: Session, file_id: uuid.UUID) -> FileLocation | None:
     """Returns the file's location (any status) if a file with this id
     exists, else None. Used by the `urlpath` convenience lookup, where "not
     a file" just means the id might be a directory instead — not an error.

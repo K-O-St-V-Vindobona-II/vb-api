@@ -152,7 +152,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id_uuid,
+        archive_store_item_id=item.id,
         created_at=now,
         updated_at=now,
     )
@@ -700,7 +700,7 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Test comment here",
             created_by=user.id_uuid,
             created_at=_now(),
@@ -726,7 +726,7 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu", "vbw_bi"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Test comment here",
             created_by=author.id_uuid,
             created_at=_now(),
@@ -749,7 +749,7 @@ class TestComments:
         d = _make_dir(db_session, "Dir")
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Test comment here",
             created_by=admin.id_uuid,
             created_at=_now(),

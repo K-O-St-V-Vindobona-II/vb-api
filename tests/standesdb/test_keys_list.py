@@ -30,20 +30,19 @@ def _seed(db):
     db.add_all(
         [
             Role(id="x", group="chc", label="Senior", order=0),
-            Key(id=1, name="Bude"),
-            Key(id=2, name="ChC"),
-            Key(id=3, name="Post"),
+            Key(name="Bude"),
+            Key(name="ChC"),
+            Key(name="Post"),
         ]
     )
     db.commit()
 
 
 def _key_id(db, name: str) -> uuid.UUID:
-    """Look up a seeded key's (now UUID) id by its stable name - the
-    migration to a UUID primary key means the seed rows' ids are no
-    longer the predictable 1/2/3 an autoincrement sequence would
-    assign."""
-    return db.query(Key).filter_by(name=name).one().id_uuid
+    """Look up a seeded key's id by its stable name - Final-Cutover means
+    the seed rows' ids are no longer the predictable 1/2/3 an
+    autoincrement sequence would assign."""
+    return db.query(Key).filter_by(name=name).one().id
 
 
 def _login(db, _client):

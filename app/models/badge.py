@@ -13,11 +13,7 @@ class Badge(Base):
         CheckConstraint('"order" IS NULL OR "order" >= 0', name="badges_order_check"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py) - not yet the
-    # primary key. badges_members cuts over onto this in slice 14.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str | None]
     group: Mapped[BadgeGroup | None] = mapped_column(
         Enum(

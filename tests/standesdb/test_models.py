@@ -46,22 +46,22 @@ def test_state_model(db_session):
 
 def test_badge_model(db_session):
     """Badge reference data can be read."""
-    badge = Badge(id=1, name="Fuxenband", group="jubelband", order=1)
+    badge = Badge(name="Fuxenband", group="jubelband", order=1)
     db_session.add(badge)
     db_session.commit()
 
-    loaded = db_session.get(Badge, 1)
+    loaded = db_session.get(Badge, badge.id)
     assert loaded.name == "Fuxenband"
     assert loaded.group == "jubelband"
 
 
 def test_key_model(db_session):
     """Key reference data can be read."""
-    key = Key(id=1, name="Haustorschlüssel")
+    key = Key(name="Haustorschlüssel")
     db_session.add(key)
     db_session.commit()
 
-    loaded = db_session.get(Key, 1)
+    loaded = db_session.get(Key, key.id)
     assert loaded.name == "Haustorschlüssel"
 
 
@@ -240,7 +240,7 @@ def test_member_role_relationship(db_session):
 
 def test_member_badge_relationship(db_session):
     """Member badges with presentation date."""
-    badge = Badge(id=99, name="Testband", group="jubelband")
+    badge = Badge(name="Testband", group="jubelband")
     db_session.add(badge)
 
     member = Member(
@@ -254,7 +254,7 @@ def test_member_badge_relationship(db_session):
 
     mb = MemberBadge(
         member_id=member.id_uuid,
-        badge_id=badge.id_uuid,
+        badge_id=badge.id,
         presentationdate=date(2023, 6, 15),
         presentationdate_accuracy=3,
     )
@@ -269,7 +269,7 @@ def test_member_badge_relationship(db_session):
 
 def test_member_key_relationship(db_session):
     """Member keys with presentation date."""
-    key = Key(id=99, name="Testschlüssel")
+    key = Key(name="Testschlüssel")
     db_session.add(key)
 
     member = Member(
@@ -283,7 +283,7 @@ def test_member_key_relationship(db_session):
 
     mk = MemberKey(
         member_id=member.id_uuid,
-        key_id=key.id_uuid,
+        key_id=key.id,
         presentationdate=date(2023, 1, 1),
         presentationdate_accuracy=1,
     )
@@ -418,26 +418,27 @@ class TestContactIdUuidDefault:
 
 
 class TestBadgeIdUuidDefault:
-    """Same guard as TestContactIdUuidDefault, for badges' additive
-    `id_uuid` column (see e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py)."""
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        badge = Badge(name="Phase A Guard")
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        badge = Badge(name="Final-Cutover Guard")
         db_session.add(badge)
         db_session.flush()
 
-        assert isinstance(badge.id_uuid, uuid.UUID)
-        assert badge.id_uuid.version == 7
+        assert isinstance(badge.id, uuid.UUID)
+        assert badge.id.version == 7
 
 
 class TestKeyIdUuidDefault:
-    """Same guard as TestContactIdUuidDefault, for keys' additive
-    `id_uuid` column (see e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py)."""
+    """Same guard as TestBadgeIdUuidDefault, for keys."""
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
-        key = Key(name="Phase A Guard")
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        key = Key(name="Final-Cutover Guard")
         db_session.add(key)
         db_session.flush()
 
-        assert isinstance(key.id_uuid, uuid.UUID)
-        assert key.id_uuid.version == 7
+        assert isinstance(key.id, uuid.UUID)
+        assert key.id.version == 7

@@ -7,6 +7,7 @@ Targets uncovered lines: 160-162, 256-258, 270-275, 296, 330-331, 344,
 """
 
 import os
+import uuid
 from datetime import UTC, date, datetime
 from io import BytesIO
 
@@ -175,7 +176,7 @@ def _make_file(
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id_uuid,
+        archive_store_item_id=item.id,
         created_at=now,
         updated_at=now,
     )
@@ -248,7 +249,7 @@ class TestRootContentClassification:
         assert resp.status_code == 200
         admin_files = resp.json()["content"]["files"]["admin"]
         admin_ids = [x["id"] for x in admin_files]
-        assert f.id in admin_ids
+        assert str(f.id) in admin_ids
 
     def test_admin_sees_trashed_root_file(
         self,
@@ -265,7 +266,7 @@ class TestRootContentClassification:
         assert resp.status_code == 200
         trashed = resp.json()["content"]["files"]["trashed"]
         trashed_ids = [x["id"] for x in trashed]
-        assert f.id in trashed_ids
+        assert str(f.id) in trashed_ids
 
     def test_normal_user_does_not_see_root_files(
         self,
@@ -310,8 +311,8 @@ class TestDirDetailClassification:
         content = body["content"]
         admin_ids = [x["id"] for x in content["files"]["admin"]]
         insight_ids = [x["id"] for x in content["files"]["insight"]]
-        assert f.id in admin_ids
-        assert f.id not in insight_ids
+        assert str(f.id) in admin_ids
+        assert str(f.id) not in insight_ids
         # A real subdirectory never carries the root-only archive stats -
         # keeps the "stats" field's shape symmetric between the two
         # response variants for the frontend.
@@ -431,11 +432,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """GET /files/99999 returns 404."""
+        """GET /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -445,11 +446,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PUT /files/99999 returns 404."""
+        """PUT /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.put(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             json={"description": "nope"},
             headers=headers,
         )
@@ -460,11 +461,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """DELETE /files/99999 returns 404."""
+        """DELETE /files/<random-uuid> returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.delete(
-            "/api/archive/files/99999",
+            f"/api/archive/files/{uuid.uuid4()}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -474,11 +475,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """PATCH /files/99999/restore returns 404."""
+        """PATCH /files/<random-uuid>/restore returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.patch(
-            "/api/archive/files/99999/restore",
+            f"/api/archive/files/{uuid.uuid4()}/restore",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -488,11 +489,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """GET /files/99999/url returns 404."""
+        """GET /files/<random-uuid>/url returns 404."""
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999/url",
+            f"/api/archive/files/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -502,11 +503,11 @@ class TestNotFoundErrors:
         client,
         db_session,
     ):
-        """POST /files/99999/comments returns 404."""
+        """POST /files/<random-uuid>/comments returns 404."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
         resp = client.post(
-            "/api/archive/files/99999/comments",
+            f"/api/archive/files/{uuid.uuid4()}/comments",
             json={"content": "Comment on ghost file"},
             headers=headers,
         )
@@ -522,7 +523,7 @@ class TestNotFoundErrors:
         headers, admin = _login_admin(db_session, client)
         f = _make_file(db_session, desc="real-file")
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Attached to real file",
             created_by=admin.id_uuid,
             created_at=_now(),
@@ -531,7 +532,7 @@ class TestNotFoundErrors:
         db_session.commit()
         # Delete comment using a different file ID
         resp = client.delete(
-            f"/api/archive/files/99999/comments/{c.id}",
+            f"/api/archive/files/{uuid.uuid4()}/comments/{c.id}",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -609,7 +610,7 @@ class TestMoveReceiveEdgeCases:
             "/api/archive/dirs/99999/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -657,7 +658,7 @@ class TestMoveReceiveEdgeCases:
         _seed(db_session)
         _, admin = _login_admin(db_session, client)
         # Should not raise
-        receive_items(db_session, 0, "file", [99999, 88888], admin)
+        receive_items(db_session, 0, "file", [uuid.uuid4(), uuid.uuid4()], admin)
 
     def test_is_descendant_broken_chain(
         self,
@@ -1025,13 +1026,13 @@ class TestSearch:
         db_session.add_all(
             [
                 ArchiveFileComment(
-                    archive_file_id=f.id_uuid,
+                    archive_file_id=f.id,
                     content="Festumzug erwähnt hier",
                     created_at=now,
                     updated_at=now,
                 ),
                 ArchiveFileComment(
-                    archive_file_id=f.id_uuid,
+                    archive_file_id=f.id,
                     content="Festumzug auch nochmal hier",
                     created_at=now,
                     updated_at=now,
@@ -1048,7 +1049,7 @@ class TestSearch:
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
         assert len(file_results) == 1
-        assert file_results[0]["id"] == f.id
+        assert file_results[0]["id"] == str(f.id)
 
     def test_search_ignores_soft_deleted_comment_content(
         self,
@@ -1067,7 +1068,7 @@ class TestSearch:
         now = _now()
         db_session.add(
             ArchiveFileComment(
-                archive_file_id=f.id_uuid,
+                archive_file_id=f.id,
                 content="Sonderwort löschprobe",
                 created_at=now,
                 updated_at=now,
@@ -1083,7 +1084,7 @@ class TestSearch:
 
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
-        assert f.id not in [r["id"] for r in file_results]
+        assert str(f.id) not in [r["id"] for r in file_results]
 
     def test_search_file_permission_filtering(
         self,
@@ -1264,7 +1265,7 @@ class TestSearch:
         now = _now()
         db_session.add(
             ArchiveFileComment(
-                archive_file_id=comment_only_hit.id_uuid,
+                archive_file_id=comment_only_hit.id,
                 content="Vindstoff wird hier nur beiläufig im Kommentar erwähnt",
                 created_at=now,
                 updated_at=now,
@@ -1286,7 +1287,7 @@ class TestSearch:
         name_hit = ArchiveFile(
             archive_dir_id=d.id,
             description="unrelated too",
-            archive_store_item_id=name_hit_item.id_uuid,
+            archive_store_item_id=name_hit_item.id,
             created_at=now,
             updated_at=now,
         )
@@ -1298,7 +1299,9 @@ class TestSearch:
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
         ids_in_order = [r["id"] for r in file_results]
-        assert ids_in_order.index(name_hit.id) < ids_in_order.index(comment_only_hit.id)
+        assert ids_in_order.index(str(name_hit.id)) < ids_in_order.index(
+            str(comment_only_hit.id)
+        )
 
     def test_search_stopword_only_query_returns_empty(
         self,

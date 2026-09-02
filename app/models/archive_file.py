@@ -25,20 +25,11 @@ class ArchiveFile(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # 673aa46dc3b3_archive_files_phase_a_and_archive_.py) - not yet the
-    # primary key. Final-Cutover follows in a later slice.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     archive_dir_id: Mapped[int | None] = mapped_column(default=0)
     description: Mapped[str | None]
-    # References archive_store_items.id_uuid, not archive_store_items.id -
-    # archive_store_items itself won't have a UUID primary key until its
-    # own Final-Cutover, see 673aa46dc3b3's docstring.
     archive_store_item_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(
-            "archive_store_items.id_uuid", ondelete="RESTRICT", onupdate="CASCADE"
-        )
+        ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE")
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

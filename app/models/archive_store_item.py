@@ -20,11 +20,7 @@ class ArchiveStoreItem(Base):
         CheckConstraint("size >= 0", name="archive_store_items_size_check"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Additive prep column for the schema-wide UUID-PK migration (see
-    # 31b5c04b297d_archive_store_items_id_uuid_phase_a_and_.py) - not yet
-    # the primary key. archive_files cuts over onto this in its own slice.
-    id_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str]
     description: Mapped[str | None]
     extension: Mapped[str]

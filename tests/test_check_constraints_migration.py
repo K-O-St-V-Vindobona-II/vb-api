@@ -202,13 +202,11 @@ class TestStringLengthRange:
         )
         db_session.add(item)
         db_session.flush()
-        archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
+        archive_file = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(archive_file)
         db_session.commit()
 
-        db_session.add(
-            ArchiveFileComment(archive_file_id=archive_file.id_uuid, content="")
-        )
+        db_session.add(ArchiveFileComment(archive_file_id=archive_file.id, content=""))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -223,12 +221,12 @@ class TestStringLengthRange:
         )
         db_session.add(item)
         db_session.flush()
-        archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
+        archive_file = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(archive_file)
         db_session.commit()
 
         db_session.add(
-            ArchiveFileComment(archive_file_id=archive_file.id_uuid, content=None)
+            ArchiveFileComment(archive_file_id=archive_file.id, content=None)
         )
         db_session.commit()
 

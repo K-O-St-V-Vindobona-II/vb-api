@@ -58,8 +58,8 @@ def _seed(db: object) -> None:
                 label="Standesführer",
                 order=1,
             ),
-            Badge(id=1, name="Fuxenband", group="jubelband", order=1),
-            Badge(id=2, name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Badge(name="Fuxenband", group="jubelband", order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
         ]
     )
     db.commit()
@@ -292,12 +292,14 @@ class TestClassifyBadges:
     def test_classifies_jubelband_and_ehrenzeichen(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="Badge", nachname="Test")
-        fuxenband = db_session.query(Badge).filter_by(id=1).one()
-        ehrenzeichen_gold = db_session.query(Badge).filter_by(id=2).one()
+        fuxenband = db_session.query(Badge).filter_by(name="Fuxenband").one()
+        ehrenzeichen_gold = (
+            db_session.query(Badge).filter_by(name="Ehrenzeichen Gold").one()
+        )
         db_session.add(
             MemberBadge(
                 member_id=m.id_uuid,
-                badge_id=fuxenband.id_uuid,
+                badge_id=fuxenband.id,
                 presentationdate=date(2020, 1, 1),
                 presentationdate_accuracy=3,
             )
@@ -305,7 +307,7 @@ class TestClassifyBadges:
         db_session.add(
             MemberBadge(
                 member_id=m.id_uuid,
-                badge_id=ehrenzeichen_gold.id_uuid,
+                badge_id=ehrenzeichen_gold.id,
                 presentationdate=date(2021, 6, 15),
                 presentationdate_accuracy=3,
             )

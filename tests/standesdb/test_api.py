@@ -37,12 +37,11 @@ def _setup_reference_data(db):
                 order=2,
             ),
             Badge(
-                id=1,
                 name="Fuxenband",
                 group="jubelband",
                 order=1,
             ),
-            Key(id=1, name="Haustorschlüssel"),
+            Key(name="Haustorschlüssel"),
         ]
     )
     db.commit()

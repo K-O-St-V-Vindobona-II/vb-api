@@ -145,7 +145,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id_uuid,
+        archive_store_item_id=item.id,
         created_at=now,
         updated_at=now,
     )

@@ -556,8 +556,8 @@ class TestDecideMemberChangeRequest:
         resolve_change_request() would do, since apply_member_input() fully
         replaces these from whatever lists it's given."""
         _seed_base(db_session)
-        badge = Badge(id=1, name="Testabzeichen", group="ehrenzeichen", order=1)
-        key = Key(id=1, name="Testschluessel")
+        badge = Badge(name="Testabzeichen", group="ehrenzeichen", order=1)
+        key = Key(name="Testschluessel")
         db_session.add_all([badge, key])
         db_session.commit()
         member = _create_member(db_session, email="member17@test.at")
@@ -569,8 +569,8 @@ class TestDecideMemberChangeRequest:
                 enddate=None,
             )
         )
-        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=badge.id_uuid))
-        db_session.add(MemberKey(member_id=member.id_uuid, key_id=key.id_uuid))
+        db_session.add(MemberBadge(member_id=member.id_uuid, badge_id=badge.id))
+        db_session.add(MemberKey(member_id=member.id_uuid, key_id=key.id))
         db_session.commit()
         admin = _create_admin(db_session, email="admin17@test.at")
         request = self._submit_and_get_request(
@@ -604,8 +604,8 @@ class TestDecideMemberChangeRequest:
             .all()
         )
         assert [r.role_id for r in roles] == ["senior"]
-        assert [b.badge_id for b in badges] == [badge.id_uuid]
-        assert [k.key_id for k in keys] == [key.id_uuid]
+        assert [b.badge_id for b in badges] == [badge.id]
+        assert [k.key_id for k in keys] == [key.id]
 
     def test_resolution_produces_members_log_entry(self, db_session, client):
         _seed_base(db_session)

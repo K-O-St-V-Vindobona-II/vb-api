@@ -71,7 +71,7 @@ def _seed_archive_file(db, hash_suffix: str) -> ArchiveFile:
     db.add(item)
     db.commit()
 
-    archive_file = ArchiveFile(archive_store_item_id=item.id_uuid)
+    archive_file = ArchiveFile(archive_store_item_id=item.id)
     db.add(archive_file)
     db.commit()
     return archive_file
@@ -162,8 +162,10 @@ class TestFkInsertEnforcement:
     def test_inserting_an_archive_file_with_unknown_archive_store_item_id_is_rejected(
         self, db_session
     ):
-        """archive_files.archive_store_item_id -> archive_store_items.id_uuid
-        (Alembic revision 673aa46dc3b3)."""
+        """archive_files.archive_store_item_id -> archive_store_items.id
+        (Alembic revision 673aa46dc3b3, archive_store_items' own
+        Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
         db_session.add(ArchiveFile(archive_store_item_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -301,11 +303,11 @@ class TestFkInsertEnforcement:
     ):
         """badges_members.member_id -> members.id_uuid (Alembic revision
         191cba0a57bd)."""
-        badge = Badge(id=1001, name="FK Test Badge")
+        badge = Badge(name="FK Test Badge")
         db_session.add(badge)
         db_session.commit()
 
-        db_session.add(MemberBadge(member_id=uuid.uuid4(), badge_id=badge.id_uuid))
+        db_session.add(MemberBadge(member_id=uuid.uuid4(), badge_id=badge.id))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -313,9 +315,9 @@ class TestFkInsertEnforcement:
     def test_inserting_a_badges_member_with_unknown_badge_id_is_rejected(
         self, db_session
     ):
-        """badges_members.badge_id -> badges.id_uuid (Alembic revision
-        191cba0a57bd) - badges itself keeps its integer primary key until
-        its own Final-Cutover (slice 25)."""
+        """badges_members.badge_id -> badges.id (Alembic revision
+        191cba0a57bd, badges' own Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
         member = Member(vorname="Test", nachname="User")
         db_session.add(member)
         db_session.commit()
@@ -330,19 +332,19 @@ class TestFkInsertEnforcement:
     ):
         """keys_members.member_id -> members.id_uuid (Alembic revision
         191cba0a57bd)."""
-        key = Key(id=1001, name="FK Test Key")
+        key = Key(name="FK Test Key")
         db_session.add(key)
         db_session.commit()
 
-        db_session.add(MemberKey(member_id=uuid.uuid4(), key_id=key.id_uuid))
+        db_session.add(MemberKey(member_id=uuid.uuid4(), key_id=key.id))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
     def test_inserting_a_keys_member_with_unknown_key_id_is_rejected(self, db_session):
-        """keys_members.key_id -> keys.id_uuid (Alembic revision
-        191cba0a57bd) - keys itself keeps its integer primary key until
-        its own Final-Cutover (slice 25)."""
+        """keys_members.key_id -> keys.id (Alembic revision 191cba0a57bd,
+        keys' own Final-Cutover in
+        03c2395ca34e_archive_store_items_badges_keys_final_.py)."""
         member = Member(vorname="Test", nachname="User")
         db_session.add(member)
         db_session.commit()
@@ -865,9 +867,10 @@ class TestRequestLogFks:
 
 
 class TestArchiveFileCommentArchiveFileFk:
-    """archive_file_comments.archive_file_id -> archive_files.id_uuid
-    (Alembic revision dd8661641df7) - a Referrer-Cutover of a pre-existing
-    FK, ondelete strategy (CASCADE) unchanged from before the cutover."""
+    """archive_file_comments.archive_file_id -> archive_files.id (Alembic
+    revision dd8661641df7, archive_files' own Final-Cutover in
+    115c679b7348_archive_files_final_cutover.py) - ondelete strategy
+    (CASCADE) unchanged throughout."""
 
     def test_inserting_with_unknown_archive_file_id_is_rejected(self, db_session):
         db_session.add(
@@ -881,7 +884,7 @@ class TestArchiveFileCommentArchiveFileFk:
         archive_file = _seed_archive_file(db_session, "comment-cascade")
 
         comment = ArchiveFileComment(
-            archive_file_id=archive_file.id_uuid, content="Soon to be gone"
+            archive_file_id=archive_file.id, content="Soon to be gone"
         )
         db_session.add(comment)
         db_session.commit()
@@ -903,7 +906,7 @@ class TestArchiveFileCommentCreatedByFk:
 
         db_session.add(
             ArchiveFileComment(
-                archive_file_id=archive_file.id_uuid,
+                archive_file_id=archive_file.id,
                 content="Orphan author",
                 created_by=uuid.uuid4(),
             )
@@ -919,7 +922,7 @@ class TestArchiveFileCommentCreatedByFk:
         db_session.commit()
 
         comment = ArchiveFileComment(
-            archive_file_id=archive_file.id_uuid,
+            archive_file_id=archive_file.id,
             content="Attributed comment",
             created_by=author.id_uuid,
         )

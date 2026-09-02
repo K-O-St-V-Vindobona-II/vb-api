@@ -25,10 +25,8 @@ class ArchiveFileComment(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    # References archive_files.id_uuid, not archive_files.id - archive_files
-    # itself won't have a UUID primary key until its own Final-Cutover.
     archive_file_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("archive_files.id_uuid", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
     )
     content: Mapped[str | None]
     # References members.id_uuid, not members.id - members itself won't

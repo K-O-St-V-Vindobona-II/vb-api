@@ -133,7 +133,7 @@ class TestArchiveEndpointReturnsOffsetTimestamp:
         file_ = ArchiveFile(
             archive_dir_id=0,
             description="tz-endpoint-test",
-            archive_store_item_id=item.id_uuid,
+            archive_store_item_id=item.id,
             created_at=now,
             updated_at=now,
         )

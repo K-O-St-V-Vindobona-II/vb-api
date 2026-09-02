@@ -1,6 +1,6 @@
 import re
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -34,7 +34,7 @@ class ArchiveFileShort(BaseModel):
     archive_service.py."""
 
     type: Literal["file"] = "file"
-    id: int
+    id: uuid.UUID
     name: str
     extension: str
     description: str | None
@@ -145,7 +145,7 @@ class ArchiveStoreItemResponse(BaseModel):
     """The currently-active version of a file's content-addressed store
     item - see _store_item_response() in archive_service.py."""
 
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     extension: str
@@ -169,7 +169,7 @@ class ArchiveFileDetailResponse(BaseModel):
     non-admin caller."""
 
     type: Literal["file"] = "file"
-    id: int
+    id: uuid.UUID
     archive_dir_id: int
     name: str
     extension: str
@@ -195,7 +195,7 @@ class ArchiveSearchDirResult(BaseModel):
 
 class ArchiveSearchFileResult(BaseModel):
     type: Literal["file"] = "file"
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None
     extension: str
@@ -274,7 +274,15 @@ class DirSaveRequest(StrictInputModel):
 
 class DirReceiveRequest(StrictInputModel):
     type: str
-    ids: list[int]
+    # A dir id (int) or file id (UUID), depending on `type` - the service
+    # layer branches on `type` and only ever looks each id up against the
+    # matching table. strict=False since JSON carries neither a native
+    # UUID type nor a way to hint which union member a given id is - a
+    # numeric string coerces to int first, a hex string falls through to
+    # UUID.
+    ids: list[
+        Annotated[int, Field(strict=False)] | Annotated[uuid.UUID, Field(strict=False)]
+    ]
     action: str = "move"
 
     @field_validator("type")

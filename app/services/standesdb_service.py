@@ -1294,9 +1294,7 @@ def _build_keys_data(
         .all()
     )
 
-    # Keyed by id_uuid, not the still-integer id: keys_members.key_id
-    # references keys.id_uuid from slice 14 onward.
-    key_id_to_name = {k.id_uuid: k.name for k in all_keys}
+    key_id_to_name = {k.id: k.name for k in all_keys}
     result: list[dict[str, object]] = []
     for m in members:
         held = {

@@ -150,7 +150,7 @@ def _make_file(db, dir_id=0, desc="test"):
     f = ArchiveFile(
         archive_dir_id=dir_id,
         description=desc,
-        archive_store_item_id=item.id_uuid,
+        archive_store_item_id=item.id,
         created_at=now,
         updated_at=now,
     )
@@ -368,7 +368,7 @@ class TestUpload:
             f = ArchiveFile(
                 archive_dir_id=0,
                 description="unfiled",
-                archive_store_item_id=item.id_uuid,
+                archive_store_item_id=item.id,
                 created_at=now,
                 updated_at=now,
             )
@@ -519,7 +519,7 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Test comment here",
             created_by=user.id_uuid,
             created_at=_now(),
@@ -544,7 +544,7 @@ class TestComments:
         d = _make_dir(db_session, "Dir", perms=["vbw_fu", "vbw_bi"])
         f = _make_file(db_session, dir_id=d.id)
         c = ArchiveFileComment(
-            archive_file_id=f.id_uuid,
+            archive_file_id=f.id,
             content="Test comment here",
             created_by=author.id_uuid,
             created_at=_now(),
@@ -618,7 +618,7 @@ class TestPresignedUrl:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         resp = client.get(
-            "/api/archive/files/99999/url",
+            f"/api/archive/files/{uuid.uuid4()}/url",
             headers=headers,
         )
         assert resp.status_code == 404
@@ -646,7 +646,7 @@ class TestMoveAndRestore:
             f"/api/archive/dirs/{target.id}/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -669,7 +669,7 @@ class TestMoveAndRestore:
             "/api/archive/dirs/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -728,8 +728,8 @@ class TestMoveAndRestore:
         content = resp.json()["content"]
         insight_ids = [f["id"] for f in content["files"]["insight"]]
         trashed_ids = [f["id"] for f in content["files"]["trashed"]]
-        assert f_active.id in insight_ids
-        assert f_deleted.id in trashed_ids
+        assert str(f_active.id) in insight_ids
+        assert str(f_deleted.id) in trashed_ids
 
     def test_move_requires_admin(
         self,
@@ -744,7 +744,7 @@ class TestMoveAndRestore:
             f"/api/archive/dirs/{d.id}/receive",
             json={
                 "type": "file",
-                "ids": [f.id],
+                "ids": [str(f.id)],
                 "action": "move",
             },
             headers=headers,
@@ -770,47 +770,49 @@ class TestArchiveDirIdUuidDefault:
 
 
 class TestArchiveStoreItemIdUuidDefault:
-    """Same guard as TestArchiveDirIdUuidDefault, for archive_store_items'
-    additive `id_uuid` column (see
-    31b5c04b297d_archive_store_items_id_uuid_phase_a_and_.py)."""
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
+    goes through the ORM instance, so `default=uuid.uuid7` on the model
+    fires without ever needing a server-side default."""
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(
-            name="phase-a-guard",
+            name="final-cutover-guard",
             extension="jpg",
             mime_type="image/jpeg",
             size=1,
-            sha256_hash="phase-a-guard-hash",
+            sha256_hash="final-cutover-guard-hash",
         )
         db_session.add(item)
         db_session.flush()
 
-        assert isinstance(item.id_uuid, uuid.UUID)
-        assert item.id_uuid.version == 7
+        assert isinstance(item.id, uuid.UUID)
+        assert item.id.version == 7
 
 
 class TestArchiveFileIdUuidDefault:
-    """Same guard as TestArchiveDirIdUuidDefault, for archive_files'
-    additive `id_uuid` column (see
-    673aa46dc3b3_archive_files_phase_a_and_archive_.py)."""
+    """Guards the UUID-PK migration's Final-Cutover assumption (see
+    115c679b7348_archive_files_final_cutover.py): every insert goes
+    through the ORM instance, so `default=uuid.uuid7` on the model fires
+    without ever needing a server-side default."""
 
-    def test_id_uuid_defaults_to_a_valid_uuid7(self, db_session):
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(
-            name="phase-a-guard",
+            name="final-cutover-guard",
             extension="jpg",
             mime_type="image/jpeg",
             size=1,
-            sha256_hash="phase-a-guard-hash-file",
+            sha256_hash="final-cutover-guard-hash-file",
         )
         db_session.add(item)
         db_session.flush()
 
-        f = ArchiveFile(archive_store_item_id=item.id_uuid)
+        f = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(f)
         db_session.flush()
 
-        assert isinstance(f.id_uuid, uuid.UUID)
-        assert f.id_uuid.version == 7
+        assert isinstance(f.id, uuid.UUID)
+        assert f.id.version == 7
 
 
 class TestArchiveFileCommentIdUuidDefault:
@@ -821,19 +823,19 @@ class TestArchiveFileCommentIdUuidDefault:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(
-            name="phase-c-guard",
+            name="final-cutover-guard",
             extension="jpg",
             mime_type="image/jpeg",
             size=1,
-            sha256_hash="phase-c-guard-hash-comment",
+            sha256_hash="final-cutover-guard-hash-comment",
         )
         db_session.add(item)
         db_session.flush()
-        f = ArchiveFile(archive_store_item_id=item.id_uuid)
+        f = ArchiveFile(archive_store_item_id=item.id)
         db_session.add(f)
         db_session.flush()
 
-        comment = ArchiveFileComment(archive_file_id=f.id_uuid, content="Guard comment")
+        comment = ArchiveFileComment(archive_file_id=f.id, content="Guard comment")
         db_session.add(comment)
         db_session.flush()
 

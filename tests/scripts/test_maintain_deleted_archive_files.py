@@ -4,6 +4,12 @@ purge_file()/restore_file()/list_deleted_files()/active_duplicates_*()
 themselves are already covered by tests/test_archive_maintenance_service.py
 — these tests only exercise the CLI wrapper's own logic (subcommand
 parsing, confirmation prompts, exit codes, output formatting).
+
+File ids are UUIDs since archive_files' own Final-Cutover; directory ids
+stay plain integers (archive_dirs' own Final-Cutover is a later slice).
+`_uid(n)`/`_fake_uuid(n)` below build a deterministic, readable UUID for
+a given small integer `n`, so assertions can still say "file 1"/"file 2"
+in spirit without a fresh random id every run.
 """
 
 import uuid
@@ -31,6 +37,18 @@ def _run_main(argv: list[str]) -> None:
         maintain_script.main()
 
 
+def _uid(n: int) -> uuid.UUID:
+    """Deterministic per-testcase file id, e.g. `_uid(1)`."""
+    return uuid.UUID(int=n)
+
+
+def _fake_uuid(n: int) -> str:
+    """String form of `_uid(n)`, for CLI argv - argparse now parses file
+    ids as uuid.UUID, so a bare digit string like "1" or "42" no longer
+    parses."""
+    return str(_uid(n))
+
+
 def _candidate(
     file_id: int = 1,
     path: str = "Fotos",
@@ -42,7 +60,7 @@ def _candidate(
 ) -> PurgeCandidate:
     name, _, extension = filename.rpartition(".")
     return PurgeCandidate(
-        file_id=file_id,
+        file_id=_uid(file_id),
         path=path,
         name=name,
         extension=extension,
@@ -251,7 +269,7 @@ def test_purge_without_id_is_rejected_by_argparse() -> None:
     assert exc_info.value.code == 2
 
 
-def test_purge_with_non_integer_id_is_rejected_by_argparse() -> None:
+def test_purge_with_malformed_id_is_rejected_by_argparse() -> None:
     with pytest.raises(SystemExit) as exc_info:
         _run_main(["purge", "abc"])
 
@@ -270,12 +288,12 @@ def test_purge_with_id_not_in_list_errors_without_prompting(capsys) -> None:
         patch("builtins.input") as mock_input,
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "999"])
+        _run_main(["purge", _fake_uuid(999)])
 
     assert exc_info.value.code == 1
     mock_input.assert_not_called()
     mock_purge_file.assert_not_called()
-    assert "999" in capsys.readouterr().err
+    assert _fake_uuid(999) in capsys.readouterr().err
 
 
 def test_purge_aborts_on_non_yes_answer(capsys) -> None:
@@ -290,7 +308,7 @@ def test_purge_aborts_on_non_yes_answer(capsys) -> None:
         patch("builtins.input", return_value="no"),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     assert exc_info.value.code == 0
     mock_purge_file.assert_not_called()
@@ -312,7 +330,7 @@ def test_purge_aborts_on_missing_tty(capsys) -> None:
         patch("builtins.input", side_effect=EOFError),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     assert exc_info.value.code == 1
     mock_purge_file.assert_not_called()
@@ -323,7 +341,7 @@ def test_purge_with_matching_id_prompts_and_purges_on_yes() -> None:
     mock_db = MagicMock()
     candidates = [_candidate(file_id=1), _candidate(file_id=2)]
     result = PurgeResult(
-        file_id=2, store_item_deleted=True, s3_keys_deleted=["k"], s3_errors=[]
+        file_id=_uid(2), store_item_deleted=True, s3_keys_deleted=["k"], s3_errors=[]
     )
 
     with (
@@ -336,14 +354,14 @@ def test_purge_with_matching_id_prompts_and_purges_on_yes() -> None:
         patch("builtins.input", return_value="yes") as mock_input,
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "2"])
+        _run_main(["purge", _fake_uuid(2)])
 
     assert exc_info.value.code == 0
     mock_input.assert_called_once()
     mock_purge_file.assert_called_once()
     call_args = mock_purge_file.call_args[0]
     assert call_args[0] is mock_db
-    assert call_args[2] == 2
+    assert call_args[2] == _uid(2)
     mock_db.close.assert_called_once()
 
 
@@ -362,7 +380,7 @@ def test_purge_error_is_reported_and_exit_code_one(capsys) -> None:
         patch("builtins.input", return_value="yes"),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     assert exc_info.value.code == 1
     assert "boom" in capsys.readouterr().err
@@ -371,7 +389,7 @@ def test_purge_error_is_reported_and_exit_code_one(capsys) -> None:
 def test_purge_s3_errors_are_reported_as_warnings_exit_code_one(capsys) -> None:
     mock_db = MagicMock()
     result = PurgeResult(
-        file_id=1,
+        file_id=_uid(1),
         store_item_deleted=True,
         s3_keys_deleted=[],
         s3_errors=["archive/store/abc: boom"],
@@ -387,7 +405,7 @@ def test_purge_s3_errors_are_reported_as_warnings_exit_code_one(capsys) -> None:
         patch("builtins.input", return_value="yes"),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     assert exc_info.value.code == 1
     assert "archive/store/abc: boom" in capsys.readouterr().err
@@ -396,7 +414,7 @@ def test_purge_s3_errors_are_reported_as_warnings_exit_code_one(capsys) -> None:
 def test_purge_success_exit_code_zero() -> None:
     mock_db = MagicMock()
     result = PurgeResult(
-        file_id=1, store_item_deleted=True, s3_keys_deleted=[], s3_errors=[]
+        file_id=_uid(1), store_item_deleted=True, s3_keys_deleted=[], s3_errors=[]
     )
 
     with (
@@ -409,7 +427,7 @@ def test_purge_success_exit_code_zero() -> None:
         patch("builtins.input", return_value="yes"),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     assert exc_info.value.code == 0
 
@@ -453,7 +471,7 @@ def test_purge_confirm_shows_duplicate_note(capsys) -> None:
         patch("builtins.input", return_value="no") as mock_input,
         pytest.raises(SystemExit),
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     out = capsys.readouterr().out
     assert "2 active file(s)" in out
@@ -476,7 +494,7 @@ def test_purge_confirm_shows_shared_note(capsys) -> None:
         patch("builtins.input", return_value="no") as mock_input,
         pytest.raises(SystemExit),
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     out = capsys.readouterr().out
     assert "3 other" in out
@@ -496,7 +514,7 @@ def test_purge_confirm_shows_sole_warning(capsys) -> None:
         patch("builtins.input", return_value="no") as mock_input,
         pytest.raises(SystemExit),
     ):
-        _run_main(["purge", "1"])
+        _run_main(["purge", _fake_uuid(1)])
 
     out = capsys.readouterr().out
     assert "WARNING: this is the ONLY reference" in out
@@ -540,7 +558,7 @@ class TestPurgeDuplicatesCommand:
             _candidate(file_id=2, active_sibling_count=1),
         ]
         result = PurgeResult(
-            file_id=0, store_item_deleted=False, s3_keys_deleted=[], s3_errors=[]
+            file_id=_uid(0), store_item_deleted=False, s3_keys_deleted=[], s3_errors=[]
         )
 
         with (
@@ -607,7 +625,10 @@ class TestPurgeDuplicatesCommand:
         mock_db = MagicMock()
         candidates = [_candidate(file_id=1, active_sibling_count=1)]
         result = PurgeResult(
-            file_id=1, store_item_deleted=True, s3_keys_deleted=["k"], s3_errors=[]
+            file_id=_uid(1),
+            store_item_deleted=True,
+            s3_keys_deleted=["k"],
+            s3_errors=[],
         )
 
         with (
@@ -661,7 +682,7 @@ class TestPurgeDuplicatesCommand:
         shared = _candidate(file_id=2, other_deleted_sibling_count=1)
         sole = _candidate(file_id=3)
         result = PurgeResult(
-            file_id=0, store_item_deleted=False, s3_keys_deleted=[], s3_errors=[]
+            file_id=_uid(0), store_item_deleted=False, s3_keys_deleted=[], s3_errors=[]
         )
 
         with (
@@ -684,7 +705,7 @@ class TestPurgeDuplicatesCommand:
         assert exc_info.value.code == 0
         mock_input.assert_called_once()  # only the batch prompt, no walkthrough
         mock_purge_file.assert_called_once()
-        assert mock_purge_file.call_args.args[2] == 1
+        assert mock_purge_file.call_args.args[2] == _uid(1)
         out = capsys.readouterr().out
         assert "2 remaining file(s)" in out
         assert "list-duplicates" in out
@@ -697,7 +718,7 @@ class TestRestoreCommand:
 
         assert exc_info.value.code == 2
 
-    def test_non_integer_file_id_is_rejected_by_argparse(self) -> None:
+    def test_malformed_file_id_is_rejected_by_argparse(self) -> None:
         with pytest.raises(SystemExit) as exc_info:
             _run_main(["restore", "abc"])
 
@@ -706,7 +727,7 @@ class TestRestoreCommand:
     def test_success_without_confirmation_prompt(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=42, path="Fotos", name="bild", extension="jpg", deleted=False
+            file_id=_uid(42), path="Fotos", name="bild", extension="jpg", deleted=False
         )
 
         with (
@@ -717,13 +738,13 @@ class TestRestoreCommand:
             patch("builtins.input") as mock_input,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["restore", "42"])
+            _run_main(["restore", _fake_uuid(42)])
 
         assert exc_info.value.code == 0
         mock_input.assert_not_called()
-        mock_restore_file.assert_called_once_with(mock_db, 42)
+        mock_restore_file.assert_called_once_with(mock_db, _uid(42))
         out = capsys.readouterr().out
-        assert "Restored file 42" in out
+        assert f"Restored file {_fake_uuid(42)}" in out
         assert "bild.jpg" in out
         assert "Fotos" in out
         mock_db.close.assert_called_once()
@@ -740,20 +761,20 @@ class TestRestoreCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["restore", "999"])
+            _run_main(["restore", _fake_uuid(999)])
 
         assert exc_info.value.code == 1
         err = capsys.readouterr().err
-        assert "WARNING: file 999 not restored" in err
+        assert f"WARNING: file {_fake_uuid(999)} not restored" in err
         assert "nicht gefunden" in err
 
     def test_multiple_ids_processed_in_order(self) -> None:
         mock_db = MagicMock()
         loc1 = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=False
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=False
         )
         loc2 = FileLocation(
-            file_id=2, path="Fotos", name="b", extension="jpg", deleted=False
+            file_id=_uid(2), path="Fotos", name="b", extension="jpg", deleted=False
         )
 
         with (
@@ -763,20 +784,23 @@ class TestRestoreCommand:
             ) as mock_restore_file,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["restore", "1", "2"])
+            _run_main(["restore", _fake_uuid(1), _fake_uuid(2)])
 
         assert exc_info.value.code == 0
-        assert [c.args[1] for c in mock_restore_file.call_args_list] == [1, 2]
+        assert [c.args[1] for c in mock_restore_file.call_args_list] == [
+            _uid(1),
+            _uid(2),
+        ]
 
     def test_unrestorable_id_warns_and_does_not_stop_the_batch(self, capsys) -> None:
         """A file that isn't SOLE (or otherwise can't be restored) must not
         abort the remaining ids — only a warning is printed for it."""
         mock_db = MagicMock()
         loc1 = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=False
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=False
         )
         loc3 = FileLocation(
-            file_id=3, path="Fotos", name="c", extension="jpg", deleted=False
+            file_id=_uid(3), path="Fotos", name="c", extension="jpg", deleted=False
         )
 
         with (
@@ -792,20 +816,20 @@ class TestRestoreCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["restore", "1", "2", "3"])
+            _run_main(["restore", _fake_uuid(1), _fake_uuid(2), _fake_uuid(3)])
 
         assert exc_info.value.code == 1
         out, err = capsys.readouterr()
-        assert "Restored file 1" in out
-        assert "Restored file 3" in out
-        assert "WARNING: file 2 not restored" in err
+        assert f"Restored file {_fake_uuid(1)}" in out
+        assert f"Restored file {_fake_uuid(3)}" in out
+        assert f"WARNING: file {_fake_uuid(2)} not restored" in err
         assert "nicht SOLE" in err
         assert "2 file(s) restored, 1 failed." in out
 
     def test_summary_line_omitted_for_single_id(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=42, path="Fotos", name="bild", extension="jpg", deleted=False
+            file_id=_uid(42), path="Fotos", name="bild", extension="jpg", deleted=False
         )
 
         with (
@@ -813,7 +837,7 @@ class TestRestoreCommand:
             patch.object(maintain_script, "restore_file", return_value=location),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["restore", "42"])
+            _run_main(["restore", _fake_uuid(42)])
 
         assert exc_info.value.code == 0
         assert "file(s) restored" not in capsys.readouterr().out
@@ -835,7 +859,7 @@ class TestListDuplicatesCommand:
     def test_single_deleted_file_with_no_duplicates(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=True
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=True
         )
 
         with (
@@ -847,7 +871,7 @@ class TestListDuplicatesCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1"])
+            _run_main(["list-duplicates", "--file", _fake_uuid(1)])
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
@@ -855,7 +879,7 @@ class TestListDuplicatesCommand:
         assert "ACTIVE FILE:" not in out
         assert "DUPLICATES:" in out
         assert "(none)" in out
-        assert "1" in out
+        assert _fake_uuid(1) in out
         assert "Fotos" in out
         assert "a.jpg" in out
 
@@ -864,7 +888,7 @@ class TestListDuplicatesCommand:
         section label must reflect the file's actual current state."""
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=False
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=False
         )
 
         with (
@@ -876,7 +900,7 @@ class TestListDuplicatesCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1"])
+            _run_main(["list-duplicates", "--file", _fake_uuid(1)])
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
@@ -886,10 +910,10 @@ class TestListDuplicatesCommand:
     def test_multiple_file_flags_processed_in_order(self) -> None:
         mock_db = MagicMock()
         loc1 = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=True
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=True
         )
         loc2 = FileLocation(
-            file_id=2, path="Fotos", name="b", extension="jpg", deleted=True
+            file_id=_uid(2), path="Fotos", name="b", extension="jpg", deleted=True
         )
 
         with (
@@ -901,18 +925,23 @@ class TestListDuplicatesCommand:
             ) as mock_active_dup,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1", "--file", "2"])
+            _run_main(
+                ["list-duplicates", "--file", _fake_uuid(1), "--file", _fake_uuid(2)]
+            )
 
         assert exc_info.value.code == 0
-        assert [c.args[1] for c in mock_active_dup.call_args_list] == [1, 2]
+        assert [c.args[1] for c in mock_active_dup.call_args_list] == [
+            _uid(1),
+            _uid(2),
+        ]
 
     def test_multiple_blocks_separated_by_delimiter(self, capsys) -> None:
         mock_db = MagicMock()
         loc1 = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=True
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=True
         )
         loc2 = FileLocation(
-            file_id=2, path="Fotos", name="b", extension="jpg", deleted=True
+            file_id=_uid(2), path="Fotos", name="b", extension="jpg", deleted=True
         )
 
         with (
@@ -924,7 +953,9 @@ class TestListDuplicatesCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1", "--file", "2"])
+            _run_main(
+                ["list-duplicates", "--file", _fake_uuid(1), "--file", _fake_uuid(2)]
+            )
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
@@ -935,7 +966,7 @@ class TestListDuplicatesCommand:
     def test_file_not_found_reports_error_but_continues(self, capsys) -> None:
         mock_db = MagicMock()
         loc = FileLocation(
-            file_id=2, path="Fotos", name="b", extension="jpg", deleted=True
+            file_id=_uid(2), path="Fotos", name="b", extension="jpg", deleted=True
         )
 
         with (
@@ -950,7 +981,9 @@ class TestListDuplicatesCommand:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1", "--file", "2"])
+            _run_main(
+                ["list-duplicates", "--file", _fake_uuid(1), "--file", _fake_uuid(2)]
+            )
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
@@ -974,7 +1007,7 @@ class TestListDuplicatesCommand:
     def test_dir_lists_pairs_with_active_duplicates(self, capsys) -> None:
         mock_db = MagicMock()
         candidate = _candidate(file_id=1)
-        dup = ActiveDuplicate(file_id=99, path="Aktiv", name="x", extension="jpg")
+        dup = ActiveDuplicate(file_id=_uid(99), path="Aktiv", name="x", extension="jpg")
 
         with (
             patch.object(maintain_script, "SessionLocal", return_value=mock_db),
@@ -993,14 +1026,14 @@ class TestListDuplicatesCommand:
         assert "DELETED FILE:" in out
         assert "ACTIVE FILE:" not in out
         assert "DUPLICATES:" in out
-        assert "99" in out
+        assert _fake_uuid(99) in out
         assert "Aktiv" in out
         assert "x.jpg" in out
 
     def test_combines_file_and_dir_in_one_call(self) -> None:
         mock_db = MagicMock()
         loc = FileLocation(
-            file_id=1, path="Fotos", name="a", extension="jpg", deleted=True
+            file_id=_uid(1), path="Fotos", name="a", extension="jpg", deleted=True
         )
 
         with (
@@ -1015,10 +1048,10 @@ class TestListDuplicatesCommand:
             ) as mock_dir,
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["list-duplicates", "--file", "1", "--dir", "10"])
+            _run_main(["list-duplicates", "--file", _fake_uuid(1), "--dir", "10"])
 
         assert exc_info.value.code == 0
-        mock_file.assert_called_once_with(mock_db, 1)
+        mock_file.assert_called_once_with(mock_db, _uid(1))
         mock_dir.assert_called_once_with(mock_db, 10)
 
 
@@ -1029,11 +1062,27 @@ class TestUrlpathCommand:
 
         assert exc_info.value.code == 2
 
-    def test_non_integer_id_is_rejected_by_argparse(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
+    def test_malformed_id_is_treated_as_not_found(self, capsys) -> None:
+        """Neither a valid UUID nor a valid int - `id` has no argparse
+        `type=` any more (it must work as both a file and a directory
+        lookup), so a malformed value is never rejected at the argparse
+        level. Both internal lookups catch their own ValueError before
+        ever calling the mocked service function, so this behaves exactly
+        like "not found", not a crash."""
+        mock_db = MagicMock()
+
+        with (
+            patch.object(maintain_script, "SessionLocal", return_value=mock_db),
+            patch.object(maintain_script, "find_file_location") as mock_find_file,
+            patch.object(maintain_script, "find_dir_location") as mock_find_dir,
+            pytest.raises(SystemExit) as exc_info,
+        ):
             _run_main(["urlpath", "abc"])
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.code == 1
+        assert "no file or directory with id abc" in capsys.readouterr().err
+        mock_find_file.assert_not_called()
+        mock_find_dir.assert_not_called()
 
     def test_neither_file_nor_dir_found(self, capsys) -> None:
         mock_db = MagicMock()
@@ -1053,7 +1102,7 @@ class TestUrlpathCommand:
     def test_deleted_file_only(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=42, path="Fotos", name="bild", extension="jpg", deleted=True
+            file_id=_uid(42), path="Fotos", name="bild", extension="jpg", deleted=True
         )
 
         with (
@@ -1062,22 +1111,22 @@ class TestUrlpathCommand:
             patch.object(maintain_script, "find_dir_location", return_value=None),
             pytest.raises(SystemExit) as exc_info,
         ):
-            _run_main(["urlpath", "42"])
+            _run_main(["urlpath", _fake_uuid(42)])
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
         assert "DELETED FILE:" in out
         assert "ACTIVE FILE:" not in out
-        assert "42" in out
+        assert _fake_uuid(42) in out
         assert "Fotos" in out
         assert "bild.jpg" in out
-        assert "URL PATH: /archive/files/42" in out
+        assert f"URL PATH: /archive/files/{_fake_uuid(42)}" in out
         assert "DIRECTORY" not in out
 
     def test_active_file_shows_active_label(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
-            file_id=42, path="Fotos", name="bild", extension="jpg", deleted=False
+            file_id=_uid(42), path="Fotos", name="bild", extension="jpg", deleted=False
         )
 
         with (
@@ -1086,7 +1135,7 @@ class TestUrlpathCommand:
             patch.object(maintain_script, "find_dir_location", return_value=None),
             pytest.raises(SystemExit),
         ):
-            _run_main(["urlpath", "42"])
+            _run_main(["urlpath", _fake_uuid(42)])
 
         out = capsys.readouterr().out
         assert "ACTIVE FILE:" in out
@@ -1125,30 +1174,3 @@ class TestUrlpathCommand:
             _run_main(["urlpath", "7"])
 
         assert "DELETED DIRECTORY:" in capsys.readouterr().out
-
-    def test_both_file_and_dir_found_shows_both_with_delimiter(self, capsys) -> None:
-        mock_db = MagicMock()
-        file_location = FileLocation(
-            file_id=7, path="Fotos", name="bild", extension="jpg", deleted=True
-        )
-        dir_location = DirLocation(dir_id=7, path="Bilder / 2012", deleted=False)
-
-        with (
-            patch.object(maintain_script, "SessionLocal", return_value=mock_db),
-            patch.object(
-                maintain_script, "find_file_location", return_value=file_location
-            ),
-            patch.object(
-                maintain_script, "find_dir_location", return_value=dir_location
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            _run_main(["urlpath", "7"])
-
-        assert exc_info.value.code == 0
-        out = capsys.readouterr().out
-        assert "DELETED FILE:" in out
-        assert "ACTIVE DIRECTORY:" in out
-        assert "URL PATH: /archive/files/7" in out
-        assert "URL PATH: /archive/dirs/7" in out
-        assert out.count("=====") == 1

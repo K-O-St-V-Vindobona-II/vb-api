@@ -58,21 +58,17 @@ class RoleResponse(BaseModel):
 
 
 class BadgeResponse(BaseModel):
-    # badges.id itself is still an integer (its own Final-Cutover is
-    # slice 25) - this reads badges.id_uuid instead, since that's what
-    # badges_members.badge_id references from slice 14 onward, and every
-    # badge/key reference in this API speaks in terms of that FK value.
-    id: uuid.UUID = Field(validation_alias="id_uuid")
+    id: uuid.UUID
     name: str
     group: BadgeGroup | None = None
     order: int = 0
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class KeyResponse(BaseModel):
-    id: uuid.UUID = Field(validation_alias="id_uuid")
+    id: uuid.UUID
     name: str
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReferenceDataResponse(BaseModel):

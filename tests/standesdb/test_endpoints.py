@@ -24,8 +24,8 @@ def _seed(db):
             State(id="bu", label="Bursch", order=2),
             Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
             Role(id="senior", group="chc", label="Senior", order=2),
-            Badge(id=1, name="Fuxenband", group="jubelband", order=1),
-            Key(id=1, name="Haustorschlüssel"),
+            Badge(name="Fuxenband", group="jubelband", order=1),
+            Key(name="Haustorschlüssel"),
         ]
     )
     db.commit()
