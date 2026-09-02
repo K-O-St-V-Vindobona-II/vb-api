@@ -280,7 +280,7 @@ class DirReceiveRequest(StrictInputModel):
     type: str
     # A dir id or file id, depending on `type` - the service layer
     # branches on `type` and only ever looks each id up against the
-    # matching table. Both are UUIDs since each table's own Final-Cutover.
+    # matching table. Both are UUIDs.
     # strict=False must sit on the list's item type, not the `ids` field
     # itself - a field-level override does not cascade into a generic
     # container's item validator, so it would otherwise still reject the

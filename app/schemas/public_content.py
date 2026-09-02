@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.enums import AboutTabSlot
 from app.schemas.base import StrictInputModel
 
 # [text](url) - the only "formatting" allowed in about-tab body text. Only
@@ -56,7 +57,7 @@ class AboutTabAdminResponse(BaseModel):
     """Admin shape: includes `slot` so the admin UI can iterate all three
     as a list of forms."""
 
-    slot: str
+    slot: AboutTabSlot
     title: str
     body: str
 

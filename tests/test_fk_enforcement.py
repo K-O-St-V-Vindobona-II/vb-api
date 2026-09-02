@@ -28,6 +28,7 @@ from app.models.member_key import MemberKey
 from app.models.member_role import MemberRole
 from app.models.members_log import MembersLog
 from app.models.members_oauth2binding import MembersOauth2Binding
+from app.models.org import Org
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
@@ -37,6 +38,7 @@ from app.models.public_gallery_image import PublicGalleryImage
 from app.models.request_log import RequestLog
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
+from app.models.state import State
 
 
 def _seed_p4x_account(db) -> P4xAccount:
@@ -178,11 +180,16 @@ class TestFkInsertEnforcement:
         """archive_permissions.archive_dir_id -> archive_dirs.id (FK
         established in 673aa46dc3b3, retargeted onto the real id column by
         archive_dirs' own Final-Cutover in 2727a9187d6e)."""
+        org = Org(id="fk-test-org-dir", label="FK Test Org")
+        state = State(id="fk-test-state-dir", label="FK Test State")
+        db_session.add_all([org, state])
+        db_session.commit()
+
         db_session.add(
             ArchivePermission(
                 archive_dir_id=uuid.uuid4(),
-                org_id="vbw",
-                state_id="fu",
+                org_id=org.id,
+                state_id=state.id,
             )
         )
         with pytest.raises(IntegrityError):
@@ -198,6 +205,49 @@ class TestFkInsertEnforcement:
         with no FK at all, so this constraint could never be exercised
         before this migration."""
         db_session.add(ArchiveDir(name="fk-test-dir", archive_dir_id=uuid.uuid4()))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_org_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.org_id -> orgs.id (Alembic revision
+        ce00727a65e4) - was a bare TEXT column with no FK at all until this
+        migration, unlike every other org_id column in the schema."""
+        state = State(id="fk-test-state", label="FK Test State")
+        dir_obj = ArchiveDir(name="fk-test-dir-org")
+        db_session.add_all([state, dir_obj])
+        db_session.commit()
+
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id,
+                org_id="does-not-exist",
+                state_id=state.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    def test_inserting_an_archive_permission_with_unknown_state_id_is_rejected(
+        self, db_session
+    ):
+        """archive_permissions.state_id -> states.id (Alembic revision
+        ce00727a65e4), same reasoning as org_id above."""
+        org = Org(id="fk-test-org", label="FK Test Org")
+        dir_obj = ArchiveDir(name="fk-test-dir-state")
+        db_session.add_all([org, dir_obj])
+        db_session.commit()
+
+        db_session.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id,
+                org_id=org.id,
+                state_id="does-not-exist",
+            )
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -542,14 +592,14 @@ class TestStandesdbImageCreatedByFk:
 
 class TestP4xPartnerExclusiveArc:
     """p4x_partners.member_id/contact_id/p4x_account_id/
-    p4x_specialcontact_id replaces partner_type/partner_id with an
+    p4x_special_contact_id replaces partner_type/partner_id with an
     exclusive-arc pair of real FKs - exactly one must be set, enforced by
     a CHECK constraint. ondelete is RESTRICT (not CASCADE like
     standesdb_images) since a P4xPartner row is a financial/accounting
     link, not owned content. member_id/contact_id each reference their
     target's id_uuid column (Alembic revision ddc0a9d04eef), not its own
     still-integer id - members/contacts each keep their own Final-Cutover
-    for a later slice. p4x_account_id/p4x_specialcontact_id reference
+    for a later slice. p4x_account_id/p4x_special_contact_id reference
     their target's own UUID primary key directly."""
 
     def test_two_columns_set_is_rejected(self, db_session):
@@ -589,8 +639,10 @@ class TestP4xPartnerExclusiveArc:
             db_session.commit()
         db_session.rollback()
 
-    def test_inserting_with_unknown_p4x_specialcontact_id_is_rejected(self, db_session):
-        db_session.add(P4xPartner(iban="AT006", p4x_specialcontact_id=uuid.uuid4()))
+    def test_inserting_with_unknown_p4x_special_contact_id_is_rejected(
+        self, db_session
+    ):
+        db_session.add(P4xPartner(iban="AT006", p4x_special_contact_id=uuid.uuid4()))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -637,7 +689,7 @@ class TestP4xPartnerExclusiveArc:
         special = P4xSpecialcontact(cn="Test Special")
         db_session.add(special)
         db_session.commit()
-        db_session.add(P4xPartner(iban="AT010", p4x_specialcontact_id=special.id))
+        db_session.add(P4xPartner(iban="AT010", p4x_special_contact_id=special.id))
         db_session.commit()
 
         db_session.delete(special)
@@ -648,7 +700,7 @@ class TestP4xPartnerExclusiveArc:
 
 class TestP4xTransactionDelegatingExclusiveArc:
     """p4x_transactions.delegating_member_id/delegating_contact_id/
-    delegating_p4x_account_id/delegating_p4x_specialcontact_id (Alembic
+    delegating_p4x_account_id/delegating_p4x_special_contact_id (Alembic
     revision 514ac66eb66e) replaces delegating_partner_type/
     delegating_partner_id with an exclusive-arc pair of real FKs — at most
     one may be set (the field is optional, "all four NULL" stays valid).
@@ -701,12 +753,12 @@ class TestP4xTransactionDelegatingExclusiveArc:
             db_session.commit()
         db_session.rollback()
 
-    def test_inserting_with_unknown_delegating_p4x_specialcontact_id_is_rejected(
+    def test_inserting_with_unknown_delegating_p4x_special_contact_id_is_rejected(
         self, db_session
     ):
         account = _seed_p4x_account(db_session)
         tx = _seed_p4x_transaction(db_session, account, "unk_special")
-        tx.delegating_p4x_specialcontact_id = uuid.uuid4()
+        tx.delegating_p4x_special_contact_id = uuid.uuid4()
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -738,7 +790,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
         db_session.commit()
 
         tx = _seed_p4x_transaction(db_session, account, "set_null_special")
-        tx.delegating_p4x_specialcontact_id = special.id
+        tx.delegating_p4x_special_contact_id = special.id
         db_session.commit()
         tx_id = tx.id
 
@@ -749,7 +801,7 @@ class TestP4xTransactionDelegatingExclusiveArc:
 
         refreshed = db_session.get(P4xTransaction, tx_id)
         assert refreshed is not None
-        assert refreshed.delegating_p4x_specialcontact_id is None
+        assert refreshed.delegating_p4x_special_contact_id is None
 
 
 class TestContactsLogModifiedByFk:

@@ -1,11 +1,12 @@
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.db.database import get_db
+from app.models.enums import AboutTabSlot
 from app.models.member import Member
 from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_content import (
@@ -38,8 +39,6 @@ public_content_admin_router = APIRouter()
 RequirePublicContentEditor = Annotated[
     Member, Depends(require_permission("publicContentEditor"))
 ]
-
-AboutTabSlot = Literal["anfang", "mkv", "heute"]
 
 
 # --- About tabs -----------------------------------------------------------

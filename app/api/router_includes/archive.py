@@ -94,11 +94,11 @@ def create_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Create a new subdirectory within an existing directory (or the root, if parentId
     is omitted). Requires archiveAdmin."""
     d = archive_service.create_dir(db, data.model_dump(), user)
-    return StatusIdResponse[uuid.UUID](status="ok", id=d.id)
+    return StatusIdResponse(status="ok", id=d.id)
 
 
 @archive_router.put("/dirs/{dir_id}")

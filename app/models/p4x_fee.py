@@ -1,7 +1,7 @@
 import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, Numeric
+from sqlalchemy import CheckConstraint, Date, DateTime, Numeric, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -14,3 +14,9 @@ class P4xFee(Base):
     start: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
     fee: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     protected: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )

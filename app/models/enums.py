@@ -56,3 +56,9 @@ class ChangeLogAction(StrEnum):
 class MemberChangeRequestStatus(StrEnum):
     PENDING = "pending"
     RESOLVED = "resolved"
+
+
+class AboutTabSlot(StrEnum):
+    ANFANG = "anfang"
+    MKV = "mkv"
+    HEUTE = "heute"

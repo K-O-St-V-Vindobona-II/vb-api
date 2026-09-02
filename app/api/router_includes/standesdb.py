@@ -352,7 +352,7 @@ async def create_member(
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Create a new member record. Requires the standesdb admin permission for the
     target org (data.org_id) - checked at runtime, not via a route dependency."""
     member, notification = await run_in_threadpool(
@@ -360,7 +360,7 @@ async def create_member(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[uuid.UUID](status="ok", id=member.id)
+    return StatusIdResponse(status="ok", id=member.id)
 
 
 def _update_member_sync(
@@ -401,7 +401,7 @@ async def update_member(
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[Member, Depends(get_current_user)],
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Update an existing member's data and notify the org's standesdb admins by email
     if anything actually changed. Requires the standesdb admin permission for the
     member's own org - checked at runtime, not via a route dependency."""
@@ -410,7 +410,7 @@ async def update_member(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[uuid.UUID](status="ok", id=member.id)
+    return StatusIdResponse(status="ok", id=member.id)
 
 
 @standesdb_router.get("/members/{member_id}/searchparent")
@@ -602,14 +602,14 @@ async def create_contact(
     ],
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Create a new contact record. Requires standesdbContactAdmin."""
     contact, notification = await run_in_threadpool(
         _create_contact_sync, db, data, current_user
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[uuid.UUID](status="ok", id=contact.id)
+    return StatusIdResponse(status="ok", id=contact.id)
 
 
 def _update_contact_sync(
@@ -643,7 +643,7 @@ async def update_contact(
     ],
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
     db: Annotated[Session, Depends(get_db)],
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Update an existing contact's data and notify subscribers by email if anything
     actually changed. Requires standesdbContactAdmin."""
     contact, notification = await run_in_threadpool(
@@ -651,7 +651,7 @@ async def update_contact(
     )
     if notification:
         await _enqueue_entry_changed_email(arq_pool, notification)
-    return StatusIdResponse[uuid.UUID](status="ok", id=contact.id)
+    return StatusIdResponse(status="ok", id=contact.id)
 
 
 @standesdb_router.delete(
@@ -731,7 +731,7 @@ async def upload_own_member_image(
     current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Upload a new profile image for the authenticated member's own
     account. No admin permission required - every member may manage their
     own profile images; org admins are notified by email afterward,
@@ -747,7 +747,7 @@ async def upload_own_member_image(
         storage=storage,
     )
     await _notify_own_image_changed(db, arq_pool, current_user, "upload")
-    return StatusIdResponse[uuid.UUID](status="ok", id=img.id)
+    return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/members/me/images/{image_id}")
@@ -882,7 +882,7 @@ def upload_member_image(
     current_user: Annotated[Member, Depends(get_current_user)],
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Upload a new profile image for a member. Requires the standesdb admin permission
     for the member's own org."""
     member = db.get(Member, member_id)
@@ -901,7 +901,7 @@ def upload_member_image(
         created_by=current_user.id,
         storage=storage,
     )
-    return StatusIdResponse[uuid.UUID](status="ok", id=img.id)
+    return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/members/{member_id}/images/{image_id}")
@@ -1038,7 +1038,7 @@ def upload_contact_image(
     ],
     storage: Annotated[StorageClient, Depends(get_storage)],
     description: Annotated[str | None, Form()] = None,
-) -> StatusIdResponse[uuid.UUID]:
+) -> StatusIdResponse:
     """Upload a new profile image for a contact. Requires standesdbContactAdmin."""
     contact = db.get(Contact, contact_id)
     if not contact or contact.deleted_at:
@@ -1055,7 +1055,7 @@ def upload_contact_image(
         created_by=current_user.id,
         storage=storage,
     )
-    return StatusIdResponse[uuid.UUID](status="ok", id=img.id)
+    return StatusIdResponse(status="ok", id=img.id)
 
 
 @standesdb_router.put("/contacts/{contact_id}/images/{image_id}")

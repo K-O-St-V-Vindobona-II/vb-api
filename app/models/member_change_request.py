@@ -81,6 +81,7 @@ class MemberChangeRequest(Base):
     field_decisions: Mapped[dict[str, str] | None] = mapped_column(JSONB)
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

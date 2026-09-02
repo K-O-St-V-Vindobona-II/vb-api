@@ -413,7 +413,9 @@ class TestArchivePermissionIdUuidDefault:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         d = ArchiveDir(name="Guard Dir")
-        db_session.add(d)
+        org = Org(id="vbw", label="VBW")
+        state = State(id="fu", label="Fux")
+        db_session.add_all([d, org, state])
         db_session.flush()
 
         perm = ArchivePermission(archive_dir_id=d.id, org_id="vbw", state_id="fu")

@@ -26,10 +26,7 @@ class ArchiveDir(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str | None]
-    # NULL means "no parent" (a root directory) - a plain nullable
-    # self-reference, unlike the pre-migration integer column which used a
-    # `0` sentinel because a real FK couldn't point at "no row" any other
-    # way.
+    # NULL means "no parent" (a root directory).
     archive_dir_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("archive_dirs.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,

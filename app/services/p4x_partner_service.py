@@ -125,7 +125,7 @@ def _clear_delegating(transaction: P4xTransaction) -> None:
     transaction.delegating_member_id = None
     transaction.delegating_contact_id = None
     transaction.delegating_p4x_account_id = None
-    transaction.delegating_p4x_specialcontact_id = None
+    transaction.delegating_p4x_special_contact_id = None
 
 
 def set_transaction_partner(  # noqa: C901, PLR0912
@@ -174,7 +174,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         partner.member_id = None
         partner.contact_id = None
         partner.p4x_account_id = None
-        partner.p4x_specialcontact_id = None
+        partner.p4x_special_contact_id = None
         if isinstance(remote, Member):
             partner.member_id = remote.id
         elif isinstance(remote, Contact):
@@ -182,7 +182,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         elif isinstance(remote, P4xAccount):
             partner.p4x_account_id = remote.id
         else:
-            partner.p4x_specialcontact_id = remote.id
+            partner.p4x_special_contact_id = remote.id
         partner.deleted_at = None
         db.flush()
     else:
@@ -208,7 +208,7 @@ def set_transaction_partner(  # noqa: C901, PLR0912
         elif isinstance(remote, P4xAccount):
             transaction.delegating_p4x_account_id = remote.id
         else:
-            transaction.delegating_p4x_specialcontact_id = remote.id
+            transaction.delegating_p4x_special_contact_id = remote.id
     else:
         _clear_delegating(transaction)
 

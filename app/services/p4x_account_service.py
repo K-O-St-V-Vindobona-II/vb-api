@@ -181,7 +181,7 @@ def no_delegation_filter() -> ColumnElement[bool]:
         P4xTransaction.delegating_member_id.is_(None)
         & P4xTransaction.delegating_contact_id.is_(None)
         & P4xTransaction.delegating_p4x_account_id.is_(None)
-        & P4xTransaction.delegating_p4x_specialcontact_id.is_(None)
+        & P4xTransaction.delegating_p4x_special_contact_id.is_(None)
     )
 
 
@@ -204,8 +204,8 @@ def get_transactions_by_partner(
         partner_column = P4xPartner.p4x_account_id
         delegating_column = P4xTransaction.delegating_p4x_account_id
     elif partner_type == "special":
-        partner_column = P4xPartner.p4x_specialcontact_id
-        delegating_column = P4xTransaction.delegating_p4x_specialcontact_id
+        partner_column = P4xPartner.p4x_special_contact_id
+        delegating_column = P4xTransaction.delegating_p4x_special_contact_id
     else:
         msg = f"Unbekannter partner_type: {partner_type!r}"
         raise ValueError(msg)

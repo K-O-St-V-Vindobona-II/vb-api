@@ -18,7 +18,8 @@ class P4xSummaryOrder(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     ordered_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     email: Mapped[str]
     summary_start: Mapped[datetime.date] = mapped_column(Date)

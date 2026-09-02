@@ -33,6 +33,7 @@ class MemberRole(Base):
     role_id: Mapped[str] = mapped_column(
         ForeignKey("roles.id", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
+        index=True,
     )
     startdate: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
     enddate: Mapped[datetime.date | None] = mapped_column(Date)

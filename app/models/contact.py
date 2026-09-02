@@ -48,7 +48,8 @@ class Contact(Base):
     name: Mapped[str] = mapped_column(String, unique=True)
     couleurname: Mapped[str | None]
     org_id: Mapped[str | None] = mapped_column(
-        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
     # 9618c2de197f) - name weighted above couleurname, org_id weighted
@@ -83,6 +84,7 @@ class Contact(Base):
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -451,7 +451,7 @@ def _persist_change_log(
     db: Session,
     log_model: type,
     fk_field: str,
-    entity_id: int | uuid.UUID,
+    entity_id: uuid.UUID,
     *,
     diff: dict[str, dict[str, object]],
     action: str,

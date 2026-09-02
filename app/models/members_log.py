@@ -15,9 +15,11 @@ class MembersLog(Base):
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     member_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     action: Mapped[ChangeLogAction] = mapped_column(
         Enum(

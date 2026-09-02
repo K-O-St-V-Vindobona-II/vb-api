@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 class P4xTransaction(Base):
     """delegating_member_id/delegating_contact_id/delegating_p4x_account_id/
-    delegating_p4x_specialcontact_id is an exclusive-arc polymorphic
+    delegating_p4x_special_contact_id is an exclusive-arc polymorphic
     association: at most one is set (the field is optional), enforced by
     the CHECK below."""
 
@@ -36,7 +36,7 @@ class P4xTransaction(Base):
     __table_args__ = (
         CheckConstraint(
             "num_nonnulls(delegating_member_id, delegating_contact_id,"
-            " delegating_p4x_account_id, delegating_p4x_specialcontact_id)"
+            " delegating_p4x_account_id, delegating_p4x_special_contact_id)"
             " <= 1",
             name="p4x_transactions_delegating_partner_arc_check",
         ),
@@ -67,7 +67,7 @@ class P4xTransaction(Base):
         ForeignKey("p4x_accounts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    delegating_p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(
+    delegating_p4x_special_contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("p4x_special_contacts.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
@@ -108,7 +108,7 @@ class P4xTransaction(Base):
             return "contact"
         if self.delegating_p4x_account_id is not None:
             return "account"
-        if self.delegating_p4x_specialcontact_id is not None:
+        if self.delegating_p4x_special_contact_id is not None:
             return "special"
         return None
 
@@ -118,7 +118,7 @@ class P4xTransaction(Base):
             self.delegating_member_id,
             self.delegating_contact_id,
             self.delegating_p4x_account_id,
-            self.delegating_p4x_specialcontact_id,
+            self.delegating_p4x_special_contact_id,
         ):
             if col is not None:
                 return col

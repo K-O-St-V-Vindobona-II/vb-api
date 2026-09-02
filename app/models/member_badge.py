@@ -31,6 +31,7 @@ class MemberBadge(Base):
     badge_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("badges.id", ondelete="RESTRICT", onupdate="CASCADE"),
         primary_key=True,
+        index=True,
     )
     presentationdate: Mapped[datetime.date | None] = mapped_column(Date)
     presentationdate_accuracy: Mapped[int | None] = mapped_column(default=0)

@@ -12,7 +12,8 @@ class AuthSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     jti: Mapped[str] = mapped_column(unique=True, index=True)  # JWT-ID claim
     refresh_token_hash: Mapped[str | None]

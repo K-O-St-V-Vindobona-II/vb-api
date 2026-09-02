@@ -13,17 +13,13 @@ class RequestLog(Base):
         CheckConstraint("memory_usage >= 0", name="request_logs_memory_usage_check"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     client_ip: Mapped[str]
     client_ips: Mapped[str | None]
-    # References client_user_agents.id (that table's own Final-Cutover
-    # lands in this same slice) - a genuinely missing FK, not a
-    # Referrer-Cutover of an existing one.
     client_user_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("client_user_agents.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    # A genuinely missing FK, not a Referrer-Cutover of an existing one.
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,

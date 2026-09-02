@@ -17,10 +17,17 @@ class ArchivePermission(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     archive_dir_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("archive_dirs.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
-    org_id: Mapped[str]
-    state_id: Mapped[str]
+    org_id: Mapped[str] = mapped_column(
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
+    state_id: Mapped[str] = mapped_column(
+        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
+    )
 
     archive_dir: Mapped[ArchiveDir] = relationship(
         back_populates="archive_permissions",

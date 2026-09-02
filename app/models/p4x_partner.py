@@ -8,7 +8,7 @@ from app.db.database import Base
 
 
 class P4xPartner(Base):
-    """member_id/contact_id/p4x_account_id/p4x_specialcontact_id is an
+    """member_id/contact_id/p4x_account_id/p4x_special_contact_id is an
     exclusive-arc polymorphic association: exactly one is set, enforced by
     the CHECK below. Real FKs per target table since Postgres can't point a
     single FK at "whichever table a discriminator column names" - each
@@ -18,7 +18,7 @@ class P4xPartner(Base):
     __table_args__ = (
         CheckConstraint(
             "num_nonnulls(member_id, contact_id, p4x_account_id,"
-            " p4x_specialcontact_id) = 1",
+            " p4x_special_contact_id) = 1",
             name="p4x_partners_partner_exclusive_arc_check",
         ),
     )
@@ -37,7 +37,7 @@ class P4xPartner(Base):
         ForeignKey("p4x_accounts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    p4x_specialcontact_id: Mapped[uuid.UUID | None] = mapped_column(
+    p4x_special_contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("p4x_special_contacts.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
@@ -53,7 +53,7 @@ class P4xPartner(Base):
             return "contact"
         if self.p4x_account_id is not None:
             return "account"
-        if self.p4x_specialcontact_id is not None:
+        if self.p4x_special_contact_id is not None:
             return "special"
         msg = "P4xPartner row violates its exclusive-arc CHECK constraint."
         raise ValueError(msg)
@@ -64,7 +64,7 @@ class P4xPartner(Base):
             self.member_id,
             self.contact_id,
             self.p4x_account_id,
-            self.p4x_specialcontact_id,
+            self.p4x_special_contact_id,
         ):
             if col is not None:
                 return col

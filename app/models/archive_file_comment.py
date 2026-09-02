@@ -26,11 +26,13 @@ class ArchiveFileComment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     archive_file_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE")
+        ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE"),
+        index=True,
     )
     content: Mapped[str | None]
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE")
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

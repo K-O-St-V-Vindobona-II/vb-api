@@ -64,10 +64,12 @@ class Member(Base):
 
     # --- Organization & Status ---
     org_id: Mapped[str | None] = mapped_column(
-        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     state_id: Mapped[str | None] = mapped_column(
-        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE")
+        ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        index=True,
     )
     gruender: Mapped[bool | None] = mapped_column(default=False)
     entlassen: Mapped[bool | None] = mapped_column(default=False)
@@ -75,6 +77,7 @@ class Member(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         default=None,
+        index=True,
     )
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
     # 9618c2de197f) - vorname+nachname weighted above couleurname, org_id
@@ -168,6 +171,7 @@ class Member(Base):
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
+        index=True,
     )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

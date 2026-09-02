@@ -2,7 +2,7 @@
 
 import io
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 import bcrypt
 from PIL import Image as PILImage
@@ -410,3 +410,29 @@ class TestAdminDuplicateUpload:
             files={"file": ("b.jpg", io.BytesIO(same_content), "image/jpeg")},
         )
         assert r2.status_code == 422
+
+
+class TestPublicGalleryImageIdDefault:
+    """public_gallery_images.id is generated via uuid.uuid7(), same as
+    every other primary key in the schema - every insert goes through the
+    ORM instance, so the default fires without ever needing a
+    server-side default."""
+
+    def test_id_defaults_to_a_valid_uuid7(self, db_session):
+        now = datetime.now(UTC)
+        img = PublicGalleryImage(
+            sha256_hash="uuid7-guard-test",
+            extension="jpg",
+            content_type="image/jpeg",
+            size=1,
+            width=1,
+            height=1,
+            sort_order=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(img)
+        db_session.flush()
+
+        assert isinstance(img.id, uuid.UUID)
+        assert img.id.version == 7
