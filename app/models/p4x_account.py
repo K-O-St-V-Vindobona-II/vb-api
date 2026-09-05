@@ -16,12 +16,18 @@ if TYPE_CHECKING:
 
 # The "Girokonto" account (formerly integer id 1) - the sole account that
 # tracks SumUp settlements and is shown as the association's main IBAN/BIC
-# for donations. Fixed forever - unlike p4x_categories, p4x_accounts has
-# no unique business-name field robust enough for a name-based lookup
-# (IBAN is unique but represents an operational bank detail, not a stable
-# label), so this is a migration-fixed literal instead, analogous to
-# public_site_settings.SETTINGS_ROW_ID.
-GIROKONTO_ACCOUNT_ID = uuid.UUID("01a05d4d-14b5-7482-a9a3-d9e3e06fa7c6")
+# for donations. Unlike p4x_categories, p4x_accounts has no unique
+# business-name field robust enough for a name-based lookup (IBAN is
+# unique but represents an operational bank detail, not a stable label),
+# so this account is looked up by a fixed id instead. The literal is not
+# a deliberately chosen value: it is whatever uuid.uuid7() assigned this
+# row during the additive backfill in the schema-wide UUID-PK migration
+# (e0a57d5a7522_p4x_accounts_id_uuid_phase_a), then promoted unchanged to
+# the primary key by the Final-Cutover migration - nothing reassigns it
+# afterwards, so it stays fixed, but it must be read back out of the
+# actual database rather than invented if this account row is ever
+# recreated from scratch.
+GIROKONTO_ACCOUNT_ID = uuid.UUID("01a0645c-a89e-72ae-b12c-d68913d686e4")
 
 
 class P4xAccount(Base):
