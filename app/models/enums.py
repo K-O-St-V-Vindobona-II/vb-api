@@ -62,3 +62,22 @@ class AboutTabSlot(StrEnum):
     ANFANG = "anfang"
     MKV = "mkv"
     HEUTE = "heute"
+
+
+class JobId(StrEnum):
+    """Every id registered in app.core.job_schedule_registry.JOB_REGISTRY.
+
+    Single source of truth for a scheduled job's identity across the web
+    and worker containers — the Postgres ENUM column, the cron schedule
+    registry, and the ARQ task dispatch table all bind to this class
+    instead of duplicating the raw strings independently."""
+
+    CLEANUP = "cleanup"
+    REFRESH_CATEGORY_FILTER_HITS = "refresh_category_filter_hits"
+    BIRTHDAY_MAILS = "birthday_mails"
+    DEBTOR_REMINDER = "debtor_reminder"
+    STANDESDB_CHRONICLES = "standesdb_chronicles"
+    ARCHIVE_HEALTH_CHECK = "archive_health_check"
+    STANDESDB_HEALTH_CHECK = "standesdb_health_check"
+    DB_BACKUP = "db_backup"
+    DOWNSYNC = "downsync"

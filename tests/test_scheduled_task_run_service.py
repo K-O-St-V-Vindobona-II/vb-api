@@ -20,9 +20,10 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app.db.database import SessionLocal
+from app.models.enums import JobId
 from app.models.scheduled_task_run import ScheduledTaskRun
 from app.services.scheduled_task_run_service import (
     get_latest_run_per_job,
@@ -32,6 +33,8 @@ from app.services.scheduled_task_run_service import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from sqlalchemy.orm import Session
 
 
 @pytest.fixture
@@ -50,6 +53,10 @@ def _cleanup_real_runs() -> Iterator[None]:
 
 class TestScheduledTaskRunConstraints:
     def test_unknown_job_id_rejected(self, db_session):
+        """Now enforced by the native `job_id` ENUM type rather than a
+        CHECK constraint — an unrecognized value fails as a Postgres
+        enum-input error (DataError), not a constraint violation
+        (IntegrityError)."""
         started = datetime.now(UTC)
         db_session.add(
             ScheduledTaskRun(
@@ -59,17 +66,30 @@ class TestScheduledTaskRunConstraints:
                 exit_code=0,
             )
         )
-        with pytest.raises(IntegrityError):
+        with pytest.raises(DataError):
             db_session.commit()
 
     def test_negative_exit_code_rejected(self, db_session):
         started = datetime.now(UTC)
         db_session.add(
             ScheduledTaskRun(
-                job_id="cleanup",
+                job_id=JobId.CLEANUP,
                 started_at=started,
                 finished_at=started,
                 exit_code=-1,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_finished_before_started_rejected(self, db_session):
+        started = datetime.now(UTC)
+        db_session.add(
+            ScheduledTaskRun(
+                job_id=JobId.CLEANUP,
+                started_at=started,
+                finished_at=started - timedelta(seconds=1),
+                exit_code=0,
             )
         )
         with pytest.raises(IntegrityError):
@@ -79,7 +99,7 @@ class TestScheduledTaskRunConstraints:
         started = datetime.now(UTC)
         finished = started + timedelta(seconds=5)
         run = ScheduledTaskRun(
-            job_id="cleanup", started_at=started, finished_at=finished, exit_code=0
+            job_id=JobId.CLEANUP, started_at=started, finished_at=finished, exit_code=0
         )
         db_session.add(run)
         db_session.commit()
@@ -93,7 +113,7 @@ class TestRecordJobRun:
     def test_inserts_a_row(self):
         started = datetime.now(UTC)
 
-        record_job_run("cleanup", started, exit_code=0, output="5 removed")
+        record_job_run(JobId.CLEANUP, started, exit_code=0, output="5 removed")
 
         db = SessionLocal()
         try:
@@ -104,14 +124,14 @@ class TestRecordJobRun:
             )
         finally:
             db.close()
-        assert row.job_id == "cleanup"
+        assert row.job_id == JobId.CLEANUP
         assert row.exit_code == 0
         assert row.output == "5 removed"
 
     def test_truncates_long_output(self):
         started = datetime.now(UTC)
 
-        record_job_run("cleanup", started, exit_code=1, output="x" * 5000)
+        record_job_run(JobId.CLEANUP, started, exit_code=1, output="x" * 5000)
 
         db = SessionLocal()
         try:
@@ -132,11 +152,13 @@ class TestRecordJobRun:
             side_effect=RuntimeError("db unavailable"),
         ):
             record_job_run(
-                "cleanup", started, exit_code=0, output="ok"
+                JobId.CLEANUP, started, exit_code=0, output="ok"
             )  # must not raise
 
 
-def _make_run(db, job_id, started_at, *, exit_code=0):
+def _make_run(
+    db: Session, job_id: JobId, started_at: datetime, *, exit_code: int = 0
+) -> ScheduledTaskRun:
     run = ScheduledTaskRun(
         job_id=job_id,
         started_at=started_at,
@@ -151,9 +173,9 @@ def _make_run(db, job_id, started_at, *, exit_code=0):
 class TestListJobRuns:
     def test_filters_by_job_id_and_orders_newest_first(self, db_session):
         base = datetime.now(UTC)
-        _make_run(db_session, "cleanup", base)
-        _make_run(db_session, "cleanup", base + timedelta(minutes=1))
-        _make_run(db_session, "db_backup", base + timedelta(minutes=2))
+        _make_run(db_session, JobId.CLEANUP, base)
+        _make_run(db_session, JobId.CLEANUP, base + timedelta(minutes=1))
+        _make_run(db_session, JobId.DB_BACKUP, base + timedelta(minutes=2))
 
         result = list_job_runs(db_session, "cleanup", page=1, page_size=25)
 
@@ -161,12 +183,12 @@ class TestListJobRuns:
         assert [r.started_at for r in result["items"]] == sorted(
             (r.started_at for r in result["items"]), reverse=True
         )
-        assert all(r.job_id == "cleanup" for r in result["items"])
+        assert all(r.job_id == JobId.CLEANUP for r in result["items"])
 
     def test_pagination(self, db_session):
         base = datetime.now(UTC)
         for i in range(5):
-            _make_run(db_session, "cleanup", base + timedelta(minutes=i))
+            _make_run(db_session, JobId.CLEANUP, base + timedelta(minutes=i))
 
         page1 = list_job_runs(db_session, "cleanup", page=1, page_size=2)
         page2 = list_job_runs(db_session, "cleanup", page=2, page_size=2)
@@ -180,9 +202,9 @@ class TestListJobRuns:
 class TestGetLatestRunPerJob:
     def test_returns_only_the_newest_run_per_job(self, db_session):
         base = datetime.now(UTC)
-        _make_run(db_session, "cleanup", base, exit_code=1)
-        _make_run(db_session, "cleanup", base + timedelta(minutes=5), exit_code=0)
-        _make_run(db_session, "db_backup", base, exit_code=0)
+        _make_run(db_session, JobId.CLEANUP, base, exit_code=1)
+        _make_run(db_session, JobId.CLEANUP, base + timedelta(minutes=5), exit_code=0)
+        _make_run(db_session, JobId.DB_BACKUP, base, exit_code=0)
 
         latest = get_latest_run_per_job(db_session)
 
@@ -195,20 +217,20 @@ class TestGetLatestRunPerJob:
 
     def test_no_n_plus_one(self, db_session, count_queries):
         base = datetime.now(UTC)
-        _make_run(db_session, "cleanup", base)
+        _make_run(db_session, JobId.CLEANUP, base)
 
         with count_queries() as small:
             small_result = get_latest_run_per_job(db_session)
 
         for job_id in [
-            "refresh_category_filter_hits",
-            "birthday_mails",
-            "debtor_reminder",
-            "standesdb_chronicles",
-            "archive_health_check",
-            "standesdb_health_check",
-            "db_backup",
-            "downsync",
+            JobId.REFRESH_CATEGORY_FILTER_HITS,
+            JobId.BIRTHDAY_MAILS,
+            JobId.DEBTOR_REMINDER,
+            JobId.STANDESDB_CHRONICLES,
+            JobId.ARCHIVE_HEALTH_CHECK,
+            JobId.STANDESDB_HEALTH_CHECK,
+            JobId.DB_BACKUP,
+            JobId.DOWNSYNC,
         ]:
             _make_run(db_session, job_id, base)
 
@@ -229,7 +251,7 @@ class TestScheduledTaskRunUuidDefault:
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         started = datetime.now(UTC)
         run = ScheduledTaskRun(
-            job_id="cleanup", started_at=started, finished_at=started, exit_code=0
+            job_id=JobId.CLEANUP, started_at=started, finished_at=started, exit_code=0
         )
         db_session.add(run)
         db_session.flush()

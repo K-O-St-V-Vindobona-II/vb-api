@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import bcrypt
 
+from app.models.enums import JobId
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -138,7 +139,7 @@ class TestScheduledJobs:
         started = datetime(2026, 8, 4, 3, 0, 0, tzinfo=UTC)
         db_session.add(
             ScheduledTaskRun(
-                job_id="cleanup",
+                job_id=JobId.CLEANUP,
                 started_at=started,
                 finished_at=started,
                 exit_code=0,
@@ -190,20 +191,20 @@ class TestScheduledJobHistory:
         db_session.add_all(
             [
                 ScheduledTaskRun(
-                    job_id="cleanup",
+                    job_id=JobId.CLEANUP,
                     started_at=older,
                     finished_at=older,
                     exit_code=0,
                 ),
                 ScheduledTaskRun(
-                    job_id="cleanup",
+                    job_id=JobId.CLEANUP,
                     started_at=newer,
                     finished_at=newer,
                     exit_code=1,
                     output="boom",
                 ),
                 ScheduledTaskRun(
-                    job_id="db_backup",
+                    job_id=JobId.DB_BACKUP,
                     started_at=newer,
                     finished_at=newer,
                     exit_code=0,
@@ -229,7 +230,7 @@ class TestScheduledJobHistory:
         db_session.add_all(
             [
                 ScheduledTaskRun(
-                    job_id="cleanup",
+                    job_id=JobId.CLEANUP,
                     started_at=base,
                     finished_at=base,
                     exit_code=0,

@@ -28,6 +28,7 @@ from arq.cron import next_cron
 
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
+from app.models.enums import JobId
 
 if TYPE_CHECKING:
     from arq.typing import WeekdayOptionType
@@ -43,7 +44,7 @@ JobScope = Literal["always", "production_only", "non_production_only"]
 
 @dataclass(frozen=True)
 class JobScheduleEntry:
-    id: str
+    id: JobId
     description: str
     scope: JobScope
     day: int | None = None
@@ -54,7 +55,7 @@ class JobScheduleEntry:
 
 JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
     JobScheduleEntry(
-        id="cleanup",
+        id=JobId.CLEANUP,
         scope="always",
         description=(
             "Bereinigt abgelaufene Sessions,"
@@ -64,7 +65,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="refresh_category_filter_hits",
+        id=JobId.REFRESH_CATEGORY_FILTER_HITS,
         hour=7,
         scope="production_only",
         description=(
@@ -75,7 +76,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="birthday_mails",
+        id=JobId.BIRTHDAY_MAILS,
         hour=15,
         minute=53,
         scope="production_only",
@@ -87,7 +88,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="debtor_reminder",
+        id=JobId.DEBTOR_REMINDER,
         day=25,
         hour=18,
         minute=32,
@@ -101,7 +102,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="standesdb_chronicles",
+        id=JobId.STANDESDB_CHRONICLES,
         weekday="tues",
         hour=17,
         scope="production_only",
@@ -115,7 +116,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="archive_health_check",
+        id=JobId.ARCHIVE_HEALTH_CHECK,
         weekday="tues",
         hour=1,
         scope="production_only",
@@ -129,7 +130,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="standesdb_health_check",
+        id=JobId.STANDESDB_HEALTH_CHECK,
         weekday="tues",
         hour=3,
         scope="production_only",
@@ -143,7 +144,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="db_backup",
+        id=JobId.DB_BACKUP,
         hour=BACKUP_HOUR,
         scope="production_only",
         description=(
@@ -156,7 +157,7 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
         ),
     ),
     JobScheduleEntry(
-        id="downsync",
+        id=JobId.DOWNSYNC,
         hour=DOWNSYNC_HOUR,
         scope="non_production_only",
         description=(
@@ -204,7 +205,7 @@ def applicable_entries(
             continue
         if entry.scope == "non_production_only" and is_production:
             continue
-        if entry.id == "db_backup" and not backup_enabled:
+        if entry.id == JobId.DB_BACKUP and not backup_enabled:
             continue
         result.append(entry)
     return result

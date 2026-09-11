@@ -33,7 +33,7 @@ class PublicGalleryImage(Base):
     sort_order: Mapped[int] = mapped_column(index=True)
     is_published: Mapped[bool] = mapped_column(default=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("members.id", ondelete="SET NULL"),
+        ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
