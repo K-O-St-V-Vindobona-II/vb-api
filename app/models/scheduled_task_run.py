@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     Computed,
     DateTime,
+    Enum,
     Index,
     Numeric,
     Text,
@@ -15,22 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
-
-# Every id currently registered in app.core.scheduler's job registry. Kept
-# here (not imported from scheduler.py, to avoid a models -> core import)
-# purely for documentation — the actual enforcement is the CHECK constraint
-# below, which must be extended in a migration whenever a new job is added.
-KNOWN_JOB_IDS = (
-    "cleanup",
-    "refresh_category_filter_hits",
-    "birthday_mails",
-    "debtor_reminder",
-    "standesdb_chronicles",
-    "archive_health_check",
-    "standesdb_health_check",
-    "db_backup",
-    "downsync",
-)
+from app.models.enums import JobId, enum_values
 
 
 class ScheduledTaskRun(Base):
@@ -55,11 +41,11 @@ class ScheduledTaskRun(Base):
 
     __tablename__ = "scheduled_task_runs"
     __table_args__ = (
-        CheckConstraint(
-            "job_id IN (" + ", ".join(f"'{job_id}'" for job_id in KNOWN_JOB_IDS) + ")",
-            name="scheduled_task_runs_job_id_check",
-        ),
         CheckConstraint("exit_code >= 0", name="scheduled_task_runs_exit_code_check"),
+        CheckConstraint(
+            "finished_at >= started_at",
+            name="scheduled_task_runs_started_finished_check",
+        ),
         Index(
             "ix_scheduled_task_runs_job_id_started_at",
             "job_id",
@@ -68,7 +54,9 @@ class ScheduledTaskRun(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
-    job_id: Mapped[str] = mapped_column(Text)
+    job_id: Mapped[JobId] = mapped_column(
+        Enum(JobId, name="job_id", native_enum=True, values_callable=enum_values)
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[Decimal] = mapped_column(

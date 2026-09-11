@@ -17,6 +17,8 @@ from app.models.scheduled_task_run import ScheduledTaskRun
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from app.models.enums import JobId
+
 logger = logging.getLogger(__name__)
 
 _OUTPUT_MAX_LENGTH = 4000
@@ -30,7 +32,7 @@ class PaginatedRuns(TypedDict):
 
 
 def record_job_run(
-    job_id: str,
+    job_id: JobId,
     started_at: datetime,
     *,
     exit_code: int,
@@ -56,6 +58,10 @@ def record_job_run(
 
 
 def list_job_runs(db: Session, job_id: str, page: int, page_size: int) -> PaginatedRuns:
+    """job_id stays a plain str here (unlike record_job_run's JobId): this
+    is fed straight from the systemAdmin API's path parameter, an
+    unvalidated client-supplied value — an unknown id simply matches no
+    rows rather than needing router-level enum coercion."""
     query = db.query(ScheduledTaskRun).filter(ScheduledTaskRun.job_id == job_id)
     total = query.count()
     items = (
@@ -75,11 +81,13 @@ def list_job_runs(db: Session, job_id: str, page: int, page_size: int) -> Pagina
 def get_latest_run_per_job(db: Session) -> dict[str, ScheduledTaskRun]:
     """One query for every job's most recent run, keyed by job_id — avoids
     N+1 when merged into the scheduled-jobs list (one job registry, one
-    query, not one query per job)."""
+    query, not one query per job). Keyed by str, not JobId: the caller
+    looks this up against get_scheduled_jobs()'s plain str ids without
+    needing its own JobId conversion."""
     rows = (
         db.query(ScheduledTaskRun)
         .distinct(ScheduledTaskRun.job_id)
         .order_by(ScheduledTaskRun.job_id, ScheduledTaskRun.started_at.desc())
         .all()
     )
-    return {row.job_id: row for row in rows}
+    return {str(row.job_id): row for row in rows}

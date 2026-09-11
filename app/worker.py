@@ -61,9 +61,11 @@ from app.core.scheduler import (
     job_standesdb_health_check,
 )
 from app.core.worker_logging import describe_job_origin, install_task_origin_log_filter
+from app.models.enums import JobId
 
 if TYPE_CHECKING:
     from arq.cron import CronJob
+    from arq.typing import WorkerCoroutine
 
 install_task_origin_log_filter()
 
@@ -186,16 +188,16 @@ async def task_send_own_image_changed_email(
     await asyncio.to_thread(send_own_image_changed_email, to_emails, member_cn, action)
 
 
-_JOB_ID_TO_TASK: dict[str, Any] = {
-    "cleanup": task_cleanup,
-    "refresh_category_filter_hits": task_refresh_category_filter_hits,
-    "birthday_mails": task_birthday_mails,
-    "debtor_reminder": task_debtor_reminder,
-    "standesdb_chronicles": task_standesdb_chronicles,
-    "archive_health_check": task_archive_health_check,
-    "standesdb_health_check": task_standesdb_health_check,
-    "db_backup": task_db_backup,
-    "downsync": task_downsync,
+_JOB_ID_TO_TASK: dict[JobId, WorkerCoroutine] = {
+    JobId.CLEANUP: task_cleanup,
+    JobId.REFRESH_CATEGORY_FILTER_HITS: task_refresh_category_filter_hits,
+    JobId.BIRTHDAY_MAILS: task_birthday_mails,
+    JobId.DEBTOR_REMINDER: task_debtor_reminder,
+    JobId.STANDESDB_CHRONICLES: task_standesdb_chronicles,
+    JobId.ARCHIVE_HEALTH_CHECK: task_archive_health_check,
+    JobId.STANDESDB_HEALTH_CHECK: task_standesdb_health_check,
+    JobId.DB_BACKUP: task_db_backup,
+    JobId.DOWNSYNC: task_downsync,
 }
 
 

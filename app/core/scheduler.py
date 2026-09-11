@@ -33,6 +33,7 @@ from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import SessionLocal
 from app.models.auth_session import AuthSession
 from app.models.client_user_agent import ClientUserAgent
+from app.models.enums import JobId
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.p4x_transaction import P4xTransaction
@@ -149,14 +150,14 @@ def job_cleanup() -> None:
 
         db.commit()
         record_job_run(
-            "cleanup",
+            JobId.CLEANUP,
             started,
             exit_code=0,
             output=f"{deleted_logs} logs, {deleted_emails} emails removed",
         )
     except Exception as exc:
         logger.exception("Cleanup failed")
-        record_job_run("cleanup", started, exit_code=1, output=str(exc))
+        record_job_run(JobId.CLEANUP, started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -173,7 +174,7 @@ def job_refresh_category_filter_hits() -> None:
         apply_all_category_filters(db, truncate_first=True)
         logger.info("Category filter hits refreshed.")
         record_job_run(
-            "refresh_category_filter_hits",
+            JobId.REFRESH_CATEGORY_FILTER_HITS,
             started,
             exit_code=0,
             output="Category filter hits refreshed.",
@@ -181,7 +182,7 @@ def job_refresh_category_filter_hits() -> None:
     except Exception as exc:
         logger.exception("RefreshCategoryFilterHits failed")
         record_job_run(
-            "refresh_category_filter_hits", started, exit_code=1, output=str(exc)
+            JobId.REFRESH_CATEGORY_FILTER_HITS, started, exit_code=1, output=str(exc)
         )
     finally:
         db.close()
@@ -223,7 +224,10 @@ def job_birthday_mails() -> None:
 
         if not birthday_members:
             record_job_run(
-                "birthday_mails", started, exit_code=0, output="No birthdays tomorrow."
+                JobId.BIRTHDAY_MAILS,
+                started,
+                exit_code=0,
+                output="No birthdays tomorrow.",
             )
             return
 
@@ -258,14 +262,14 @@ def job_birthday_mails() -> None:
                 m.cn,
             )
         record_job_run(
-            "birthday_mails",
+            JobId.BIRTHDAY_MAILS,
             started,
             exit_code=0,
             output=f"{len(birthday_members)} birthday mail(s) sent.",
         )
     except Exception as exc:
         logger.exception("BirthdayMails failed")
-        record_job_run("birthday_mails", started, exit_code=1, output=str(exc))
+        record_job_run(JobId.BIRTHDAY_MAILS, started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -413,7 +417,7 @@ def job_debtor_reminder() -> None:
     try:
         if not _validate_latest_booking(db, today):
             record_job_run(
-                "debtor_reminder",
+                JobId.DEBTOR_REMINDER,
                 started,
                 exit_code=1,
                 output="Latest transaction booking is too old — import missing.",
@@ -424,14 +428,14 @@ def job_debtor_reminder() -> None:
         target_str = target.strftime("%Y-%m-%d")
         _send_debtor_reminders(db, target, target_str)
         record_job_run(
-            "debtor_reminder",
+            JobId.DEBTOR_REMINDER,
             started,
             exit_code=0,
             output=f"Debtor reminders sent for target date {target_str}.",
         )
     except Exception as exc:
         logger.exception("DebtorReminder failed")
-        record_job_run("debtor_reminder", started, exit_code=1, output=str(exc))
+        record_job_run(JobId.DEBTOR_REMINDER, started, exit_code=1, output=str(exc))
     finally:
         db.close()
 
@@ -471,7 +475,7 @@ def job_standesdb_chronicles() -> None:
         bcc_emails = get_opted_in_recipients(db)
         if not bcc_emails:
             record_job_run(
-                "standesdb_chronicles",
+                JobId.STANDESDB_CHRONICLES,
                 started,
                 exit_code=0,
                 output="No opted-in recipients.",
@@ -482,7 +486,7 @@ def job_standesdb_chronicles() -> None:
         anniversaries = compute_anniversaries(db, given)
         if not anniversaries:
             record_job_run(
-                "standesdb_chronicles",
+                JobId.STANDESDB_CHRONICLES,
                 started,
                 exit_code=0,
                 output="No anniversaries this week.",
@@ -508,14 +512,16 @@ def job_standesdb_chronicles() -> None:
             len(bcc_emails),
         )
         record_job_run(
-            "standesdb_chronicles",
+            JobId.STANDESDB_CHRONICLES,
             started,
             exit_code=0,
             output=f"Chronicles sent to {len(bcc_emails)} recipient(s).",
         )
     except Exception as exc:
         logger.exception("Chronicles failed")
-        record_job_run("standesdb_chronicles", started, exit_code=1, output=str(exc))
+        record_job_run(
+            JobId.STANDESDB_CHRONICLES, started, exit_code=1, output=str(exc)
+        )
     finally:
         db.close()
 
@@ -538,7 +544,7 @@ def job_archive_health_check() -> None:
         if not to_emails:
             logger.warning("ArchiveHealthCheck: no archiveAdmin recipients found.")
             record_job_run(
-                "archive_health_check",
+                JobId.ARCHIVE_HEALTH_CHECK,
                 started,
                 exit_code=1,
                 output="No archiveAdmin recipients found.",
@@ -571,7 +577,7 @@ def job_archive_health_check() -> None:
             unsorted_count,
         )
         record_job_run(
-            "archive_health_check",
+            JobId.ARCHIVE_HEALTH_CHECK,
             started,
             exit_code=0 if report.is_healthy else 1,
             output=(
@@ -581,7 +587,9 @@ def job_archive_health_check() -> None:
         )
     except Exception as exc:
         logger.exception("ArchiveHealthCheck failed")
-        record_job_run("archive_health_check", started, exit_code=1, output=str(exc))
+        record_job_run(
+            JobId.ARCHIVE_HEALTH_CHECK, started, exit_code=1, output=str(exc)
+        )
     finally:
         db.close()
 
@@ -601,7 +609,7 @@ def job_standesdb_health_check() -> None:
                 "StandesdbHealthCheck: no standesdbVbwAdmin recipients found."
             )
             record_job_run(
-                "standesdb_health_check",
+                JobId.STANDESDB_HEALTH_CHECK,
                 started,
                 exit_code=1,
                 output="No standesdbVbwAdmin recipients found.",
@@ -630,14 +638,16 @@ def job_standesdb_health_check() -> None:
             len(report.orphans),
         )
         record_job_run(
-            "standesdb_health_check",
+            JobId.STANDESDB_HEALTH_CHECK,
             started,
             exit_code=0 if report.is_healthy else 1,
             output=f"{len(report.missing)} missing, {len(report.orphans)} orphans.",
         )
     except Exception as exc:
         logger.exception("StandesdbHealthCheck failed")
-        record_job_run("standesdb_health_check", started, exit_code=1, output=str(exc))
+        record_job_run(
+            JobId.STANDESDB_HEALTH_CHECK, started, exit_code=1, output=str(exc)
+        )
     finally:
         db.close()
 
@@ -656,7 +666,7 @@ def job_db_backup() -> None:
     except Exception as exc:
         logger.exception("Scheduled DB backup failed.")
         record_job_run(
-            "db_backup", started, exit_code=1, output=f"Backup failed: {exc}"
+            JobId.DB_BACKUP, started, exit_code=1, output=f"Backup failed: {exc}"
         )
         return
 
@@ -670,7 +680,7 @@ def job_db_backup() -> None:
         logger.exception("Backup retention cleanup failed.")
         output += f"; retention cleanup failed: {exc}"
 
-    record_job_run("db_backup", started, exit_code=0, output=output)
+    record_job_run(JobId.DB_BACKUP, started, exit_code=0, output=output)
 
 
 # -------------------------------------------------------------------
@@ -727,7 +737,7 @@ def job_downsync() -> None:
     except RuntimeError as exc:
         logger.exception("Downsync failed: could not load prod AWS credentials.")
         record_job_run(
-            "downsync",
+            JobId.DOWNSYNC,
             started,
             exit_code=1,
             output=f"Could not load prod AWS credentials: {exc}",
@@ -739,7 +749,7 @@ def job_downsync() -> None:
     except Exception as exc:
         logger.exception("Downsync S3 mirror failed.")
         record_job_run(
-            "downsync", started, exit_code=1, output=f"S3 mirror failed: {exc}"
+            JobId.DOWNSYNC, started, exit_code=1, output=f"S3 mirror failed: {exc}"
         )
         return
 
@@ -749,7 +759,7 @@ def job_downsync() -> None:
             len(result.errors),
         )
         record_job_run(
-            "downsync",
+            JobId.DOWNSYNC,
             started,
             exit_code=1,
             output=f"S3 mirror had {len(result.errors)} error(s), restore skipped.",
@@ -768,7 +778,7 @@ def job_downsync() -> None:
     except Exception as exc:
         logger.exception("Downsync DB restore/migration failed.")
         record_job_run(
-            "downsync",
+            JobId.DOWNSYNC,
             started,
             exit_code=1,
             output=f"DB restore/migration failed: {exc}",
@@ -777,7 +787,7 @@ def job_downsync() -> None:
 
     logger.info("Downsync complete: local DB restored from %s.", restored_backup_name)
     record_job_run(
-        "downsync",
+        JobId.DOWNSYNC,
         started,
         exit_code=0,
         output=(
