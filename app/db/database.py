@@ -32,6 +32,16 @@ engine = create_engine(
     # failure - the standard fix for any out-of-band connection loss, not
     # just this one.
     pool_pre_ping=True,
+    # Without this, SQLAlchemy formats the fully bound SQL statement -
+    # including every parameter value - into any exception raised for a
+    # failed query, and into INFO-level SQL logging. Since a failed
+    # INSERT/UPDATE against a member-data table routinely carries real
+    # names, emails, or other PII as parameters, and non-production stages
+    # regularly hold real production data via downsync, an unfiltered
+    # str(exc) reaching any logger.exception(...) call site (e.g.
+    # record_job_run()'s catch-all) would leak that PII into plain-text
+    # logs. hide_parameters replaces bound values with "?" in both places.
+    hide_parameters=True,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

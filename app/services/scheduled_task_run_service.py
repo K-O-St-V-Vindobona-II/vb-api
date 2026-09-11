@@ -54,7 +54,15 @@ def record_job_run(
         finally:
             db.close()
     except Exception:
-        logger.exception("Failed to record run history for job %s", job_id)
+        # CodeQL flags job_id here as clear-text logging of sensitive data
+        # purely because of the JobId.BIRTHDAY_MAILS member name - it
+        # traces the enum member's identifier, not its actual value or any
+        # real date-of-birth data. job_id is always one of nine internal
+        # job identifiers (e.g. "cleanup", "birthday_mails"), never a
+        # value derived from member PII. False positive.
+        logger.exception(  # lgtm[py/clear-text-logging-sensitive-data]
+            "Failed to record run history for job %s", job_id
+        )
 
 
 def list_job_runs(db: Session, job_id: str, page: int, page_size: int) -> PaginatedRuns:
