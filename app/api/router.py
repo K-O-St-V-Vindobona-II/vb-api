@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.router_includes.activity_log import activity_log_router
 from app.api.router_includes.archive import (
     archive_router,
 )
@@ -71,7 +72,8 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "Tracking",
         "description": (
             "Audit trail and email monitoring. "
-            "Activity logs with session grouping, sent email archive, "
+            "Activity logs grouped by calendar day and member, "
+            "sent email archive, "
             "email template registry with live preview rendering."
         ),
     },
@@ -138,6 +140,11 @@ api_router.include_router(
 api_router.include_router(
     tracking_router,
     prefix="/tracking",
+    tags=["Tracking"],
+)
+api_router.include_router(
+    activity_log_router,
+    prefix="/tracking/activity",
     tags=["Tracking"],
 )
 api_router.include_router(

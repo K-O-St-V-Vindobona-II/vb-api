@@ -12,10 +12,6 @@ from app.models.member import Member
 from app.models.sent_email import SentEmail
 from app.schemas.base import PaginatedResponse
 from app.schemas.tracking import (
-    ActivityLogDetail,
-    ActivityLogItem,
-    ActivitySessionItem,
-    ActivityStats,
     EmailTemplatePreview,
     EmailTemplateStats,
     SentEmailDetail,
@@ -198,64 +194,5 @@ def list_sent_emails(
     return PaginatedResponse[SentEmailListItem].model_validate(
         tracking_service.list_sent_emails(
             db, page, page_size, year=year, month=month, search=search
-        )
-    )
-
-
-@tracking_router.get("/activity/stats")
-def get_activity_stats(
-    db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> ActivityStats:
-    """Return today's activity summary: active users, actions, breakdown."""
-    return tracking_service.get_activity_stats(db)
-
-
-@tracking_router.get("/activity/sessions")
-def get_activity_sessions(
-    db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-    date_str: str | None = None,
-    member_id: uuid.UUID | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> PaginatedResponse[ActivitySessionItem]:
-    """Return user activity grouped into sessions (30-min gap = new session),
-    paginated."""
-    return PaginatedResponse[ActivitySessionItem].model_validate(
-        tracking_service.get_activity_sessions(db, date_str, member_id, page, page_size)
-    )
-
-
-@tracking_router.get("/activity/{log_id}")
-def get_activity_detail(
-    log_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> ActivityLogDetail:
-    """Return full details of a single activity log entry."""
-    return tracking_service.get_activity_detail(db, log_id)
-
-
-@tracking_router.get("/activity")
-def list_activity(
-    db: Annotated[Session, Depends(get_db)],
-    *,
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    member_id: uuid.UUID | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-) -> PaginatedResponse[ActivityLogItem]:
-    """List activity log entries with optional filters (paginated)."""
-    return PaginatedResponse[ActivityLogItem].model_validate(
-        tracking_service.list_activity(
-            db,
-            page,
-            page_size,
-            member_id=member_id,
-            date_from=date_from,
-            date_to=date_to,
         )
     )

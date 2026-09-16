@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey
+from sqlalchemy import DateTime, Enum, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -11,7 +11,7 @@ from app.models.enums import ChangeLogAction, enum_values
 class MembersLog(Base):
     __tablename__ = "members_logs"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
