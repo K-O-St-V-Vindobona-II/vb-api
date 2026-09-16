@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric, Uuid
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -26,7 +26,9 @@ class P4xCategoryFilter(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     name: Mapped[str] = mapped_column(unique=True)
     p4x_account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_accounts.id", ondelete="CASCADE", onupdate="CASCADE"),

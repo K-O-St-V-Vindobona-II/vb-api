@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Uuid
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -16,7 +16,9 @@ class P4xSummaryOrder(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     ordered_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,

@@ -407,9 +407,9 @@ class TestFilePermissionInheritance:
 
 class TestArchivePermissionIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (see
-    673aa46dc3b3_archive_files_phase_a_and_archive_.py): every insert goes
-    through the ORM instance, so `default=uuid.uuid7` on the model fires
-    without ever needing a server-side default."""
+    673aa46dc3b3_archive_files_phase_a_and_archive_.py): id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         d = ArchiveDir(name="Guard Dir")

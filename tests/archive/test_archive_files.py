@@ -749,9 +749,9 @@ class TestMoveAndRestore:
 
 
 class TestArchiveDirIdDefault:
-    """Guards ArchiveDir's own UUID primary key: every insert goes
-    through the ORM instance, so `default=uuid.uuid7` fires without
-    ever needing a server-side default - same guard as every other
+    """Guards ArchiveDir's own UUID primary key: id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default - same guard as every other
     Final-Cutover table's primary key in this series."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
@@ -765,9 +765,9 @@ class TestArchiveDirIdDefault:
 
 class TestArchiveStoreItemIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (see
-    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
-    goes through the ORM instance, so `default=uuid.uuid7` on the model
-    fires without ever needing a server-side default."""
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): id is
+    generated exclusively by the database's uuidv7() server_default, not
+    by any Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(
@@ -786,9 +786,9 @@ class TestArchiveStoreItemIdUuidDefault:
 
 class TestArchiveFileIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (see
-    115c679b7348_archive_files_final_cutover.py): every insert goes
-    through the ORM instance, so `default=uuid.uuid7` on the model fires
-    without ever needing a server-side default."""
+    115c679b7348_archive_files_final_cutover.py): id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(
@@ -811,9 +811,9 @@ class TestArchiveFileIdUuidDefault:
 
 class TestArchiveFileCommentIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (see
-    dd8661641df7_archive_file_comments_id_and_fk_cutover.py): every insert
-    goes through the ORM instance, so `default=uuid.uuid7` on the model
-    fires without ever needing a server-side default."""
+    dd8661641df7_archive_file_comments_id_and_fk_cutover.py): id is
+    generated exclusively by the database's uuidv7() server_default, not
+    by any Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         item = ArchiveStoreItem(

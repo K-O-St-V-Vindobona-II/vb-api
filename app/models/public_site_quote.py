@@ -20,7 +20,9 @@ class PublicSiteQuote(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     quote: Mapped[str] = mapped_column(Text)
     author: Mapped[str] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(index=True)

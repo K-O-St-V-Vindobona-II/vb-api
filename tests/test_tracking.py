@@ -391,9 +391,9 @@ class TestTemplatePreviewNoData:
 
 class TestSentEmailUuidDefault:
     """Guards the UUID-PK migration's central assumption (see
-    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py): every
-    insert goes through the ORM instance, so `default=uuid.uuid7` on the
-    model fires without ever needing a server-side default."""
+    22fc473b0891_sent_emails_and_scheduled_task_runs_ids_.py): id is
+    generated exclusively by the database's uuidv7() server_default, not
+    by any Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         email = SentEmail(mail_from="test@vb.at", to="a@b.at", subject="Test")
@@ -405,10 +405,10 @@ class TestSentEmailUuidDefault:
 
 
 class TestClientUserAgentIdUuidDefault:
-    """Guards ClientUserAgent's own UUID primary key: every insert goes
-    through the ORM instance, so `default=uuid.uuid7` fires without
-    ever needing a server-side default - same guard as every other
-    migrated table's primary key."""
+    """Guards ClientUserAgent's own UUID primary key: id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default - same guard as every other migrated table's
+    primary key."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         ua = ClientUserAgent(string="Phase A guard/1.0")

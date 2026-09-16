@@ -10,7 +10,9 @@ from app.db.database import Base
 class ClientUserAgent(Base):
     __tablename__ = "client_user_agents"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     string: Mapped[str] = mapped_column(unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

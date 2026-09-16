@@ -753,9 +753,9 @@ class TestSocialLinksAdmin:
 
 class TestSocialLinkUuidDefault:
     """Guards the UUID-PK migration's central assumption (see
-    61330e9e0ca8_public_site_social_links_id_to_uuid.py): every insert
-    goes through the ORM instance, so `default=uuid.uuid7` on the model
-    fires without ever needing a server-side default."""
+    61330e9e0ca8_public_site_social_links_id_to_uuid.py): id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         link = PublicSiteSocialLink(

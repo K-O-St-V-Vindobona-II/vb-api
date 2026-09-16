@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Computed, DateTime, ForeignKey, Uuid
+from sqlalchemy import Computed, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     # NULL means "unfiled upload" (sitting directly at the synthetic
     # root).
     archive_dir_id: Mapped[uuid.UUID | None] = mapped_column(

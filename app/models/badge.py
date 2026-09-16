@@ -14,7 +14,9 @@ class Badge(Base):
         CheckConstraint('"order" IS NULL OR "order" >= 0', name="badges_order_check"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     name: Mapped[str | None]
     group: Mapped[BadgeGroup | None] = mapped_column(
         Enum(

@@ -413,10 +413,9 @@ class TestAdminDuplicateUpload:
 
 
 class TestPublicGalleryImageIdDefault:
-    """public_gallery_images.id is generated via uuid.uuid7(), same as
-    every other primary key in the schema - every insert goes through the
-    ORM instance, so the default fires without ever needing a
-    server-side default."""
+    """public_gallery_images.id is generated via the database's uuidv7()
+    server_default, same as every other primary key in the schema - there
+    is no Python-side default left to fall back on."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         now = datetime.now(UTC)

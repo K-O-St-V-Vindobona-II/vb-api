@@ -34,7 +34,9 @@ class PublicSiteAboutTab(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     slot: Mapped[AboutTabSlot] = mapped_column(
         Enum(
             AboutTabSlot,

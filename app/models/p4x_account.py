@@ -5,7 +5,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Numeric, Uuid
+from sqlalchemy import CheckConstraint, Date, DateTime, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -42,7 +42,9 @@ class P4xAccount(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     iban: Mapped[str] = mapped_column(unique=True)
     bic: Mapped[str | None]
     label: Mapped[str | None]
