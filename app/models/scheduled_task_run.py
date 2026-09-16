@@ -53,7 +53,9 @@ class ScheduledTaskRun(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     job_id: Mapped[JobId] = mapped_column(
         Enum(JobId, name="job_id", native_enum=True, values_callable=enum_values)
     )

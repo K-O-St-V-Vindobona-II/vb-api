@@ -4,7 +4,15 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    Computed,
+    DateTime,
+    ForeignKey,
+    String,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -23,7 +31,9 @@ class ArchiveDir(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str | None]
     # NULL means "no parent" (a root directory).

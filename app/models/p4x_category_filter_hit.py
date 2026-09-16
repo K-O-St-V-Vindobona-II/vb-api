@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Uuid
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -24,7 +24,9 @@ class P4xCategoryFilterHit(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     p4x_transaction_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,

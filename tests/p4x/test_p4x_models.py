@@ -86,8 +86,8 @@ class TestP4xAccount:
         assert account.deleted_at is not None
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
-        """Every insert goes through the ORM instance, so `default=uuid.uuid7`
-        on the primary key fires without ever needing a server-side default."""
+        """id has no Python-side default anymore; this only passes because
+        the id column's uuidv7() server_default actually fires on INSERT."""
         account = _seed_account(db_session)
         assert isinstance(account.id, uuid.UUID)
         assert account.id.version == 7
@@ -154,9 +154,9 @@ class TestP4xTransaction:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        59abc303eb28_p4x_category_filters_and_transactions_.py): every
-        insert goes through the ORM instance, so `default=uuid.uuid7` on
-        the model fires without ever needing a server-side default."""
+        59abc303eb28_p4x_category_filters_and_transactions_.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         account = _seed_account(db_session)
         tx = P4xTransaction(
             sha256_hash="final-cutover-guard",
@@ -195,9 +195,9 @@ class TestP4xCategory:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
-        goes through the ORM instance, so `default=uuid.uuid7` on the
-        model fires without ever needing a server-side default."""
+        a94438173fe9_p4x_categories_and_special_contacts_.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         cat = _seed_category(db_session)
         assert isinstance(cat.id, uuid.UUID)
         assert cat.id.version == 7
@@ -228,9 +228,9 @@ class TestP4xCategoryFilter:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        59abc303eb28_p4x_category_filters_and_transactions_.py): every
-        insert goes through the ORM instance, so `default=uuid.uuid7` on
-        the model fires without ever needing a server-side default."""
+        59abc303eb28_p4x_category_filters_and_transactions_.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         account = _seed_account(db_session)
         category = _seed_category(db_session)
         f = P4xCategoryFilter(
@@ -333,9 +333,9 @@ class TestP4xPartner:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        ddc0a9d04eef_p4x_partners_id_uuid_and_fk_cutover.py): every insert
-        goes through the ORM instance, so `default=uuid.uuid7` on the
-        model fires without ever needing a server-side default."""
+        ddc0a9d04eef_p4x_partners_id_uuid_and_fk_cutover.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         member = Member(vorname="Test", nachname="Partner")
         db_session.add(member)
         db_session.commit()
@@ -399,9 +399,9 @@ class TestP4xSpecialcontact:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        a94438173fe9_p4x_categories_and_special_contacts_.py): every insert
-        goes through the ORM instance, so `default=uuid.uuid7` on the
-        model fires without ever needing a server-side default."""
+        a94438173fe9_p4x_categories_and_special_contacts_.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         sc = P4xSpecialcontact(cn="Final-Cutover Guard")
         db_session.add(sc)
         db_session.flush()
@@ -431,9 +431,9 @@ class TestP4xSummaryOrder:
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         """Guards the UUID-PK migration's Final-Cutover assumption (see
-        bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): every
-        insert goes through the ORM instance, so `default=uuid.uuid7` on
-        the model fires without ever needing a server-side default."""
+        bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): id is
+        generated exclusively by the database's uuidv7() server_default,
+        not by any Python-side default."""
         member = Member(vorname="Test", nachname="Orderer")
         db_session.add(member)
         db_session.commit()

@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,7 +43,9 @@ class P4xTransaction(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True)
     booking: Mapped[date] = mapped_column(Date, index=True)
     valuation: Mapped[date] = mapped_column(Date, index=True)

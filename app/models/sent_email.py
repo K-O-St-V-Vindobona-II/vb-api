@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Uuid
+from sqlalchemy import DateTime, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -10,7 +10,9 @@ from app.db.database import Base
 class SentEmail(Base):
     __tablename__ = "sent_emails"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     mail_from: Mapped[str | None] = mapped_column("from")
     to: Mapped[str | None]
     cc: Mapped[str | None]

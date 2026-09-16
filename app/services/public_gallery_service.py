@@ -1,6 +1,5 @@
 import hashlib
 import io
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, UploadFile, status
@@ -108,7 +107,6 @@ def upload_image(
         db.query(func.max(PublicGalleryImage.sort_order)).scalar() or 0
     ) + 1
 
-    now = datetime.now(UTC)
     img = PublicGalleryImage(
         sha256_hash=sha256,
         extension=ext,
@@ -120,8 +118,6 @@ def upload_image(
         sort_order=next_sort_order,
         is_published=True,
         created_by=created_by,
-        created_at=now,
-        updated_at=now,
     )
     db.add(img)
     db.commit()

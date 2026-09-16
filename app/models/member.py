@@ -15,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,7 +53,9 @@ class Member(Base):
         for col in _ACCURACY_COLUMNS
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
 
     # --- Name ---
     vortitel: Mapped[str | None]

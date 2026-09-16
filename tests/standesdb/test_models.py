@@ -352,9 +352,9 @@ def test_standesdb_image_model(db_session):
 
 
 class TestStandesdbImageIdDefault:
-    """Guards StandesdbImage's own UUID primary key: every insert goes
-    through the ORM instance, so `default=uuid.uuid7` fires without
-    ever needing a server-side default - same guard as every other
+    """Guards StandesdbImage's own UUID primary key: id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default - same guard as every other
     Final-Cutover table's primary key in this series."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
@@ -401,8 +401,8 @@ def test_member_default_image(db_session):
 
 
 class TestContactIdDefault:
-    """Every insert goes through the ORM instance, so `default=uuid.uuid7`
-    on the primary key fires without ever needing a server-side default."""
+    """id has no Python-side default anymore; this only passes because
+    the id column's uuidv7() server_default actually fires on INSERT."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         contact = Contact(kontakttyp="person", name="Final Cutover Guard")
@@ -415,9 +415,9 @@ class TestContactIdDefault:
 
 class TestBadgeIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (see
-    03c2395ca34e_archive_store_items_badges_keys_final_.py): every insert
-    goes through the ORM instance, so `default=uuid.uuid7` on the model
-    fires without ever needing a server-side default."""
+    03c2395ca34e_archive_store_items_badges_keys_final_.py): id is
+    generated exclusively by the database's uuidv7() server_default, not
+    by any Python-side default."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         badge = Badge(name="Final-Cutover Guard")

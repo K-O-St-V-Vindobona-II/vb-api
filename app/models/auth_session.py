@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Uuid
+from sqlalchemy import DateTime, ForeignKey, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -10,7 +10,9 @@ from app.db.database import Base
 class AuthSession(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,

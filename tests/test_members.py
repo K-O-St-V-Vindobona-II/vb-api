@@ -164,10 +164,10 @@ class TestReadCurrentUserIsFeeMember:
 class TestMemberIdUuidDefault:
     """Guards the UUID-PK migration's Final-Cutover assumption (the additive
     `id_uuid` column added in a908d5613d52_members_and_client_user_agents_
-    id_uuid_.py was later promoted to the primary key): every insert goes
-    through the ORM instance, so `default=uuid.uuid7` on the primary key
-    fires without ever needing a server-side default - same guard as every
-    other Final-Cutover table's primary key in this series."""
+    id_uuid_.py was later promoted to the primary key): id is generated
+    exclusively by the database's uuidv7() server_default, not by any
+    Python-side default - same guard as every other Final-Cutover table's
+    primary key in this series."""
 
     def test_id_defaults_to_a_valid_uuid7(self, db_session):
         member = Member(email="phase-a-guard@vindobona.at")

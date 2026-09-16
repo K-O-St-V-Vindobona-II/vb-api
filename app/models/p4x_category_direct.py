@@ -33,7 +33,9 @@ class P4xCategoryDirect(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     p4x_transaction_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("p4x_transactions.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,

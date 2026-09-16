@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,7 +24,9 @@ class ArchiveFileComment(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     archive_file_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,

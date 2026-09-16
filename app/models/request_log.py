@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import JsonValue
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,7 +20,9 @@ class RequestLog(Base):
         CheckConstraint("memory_usage >= 0", name="request_logs_memory_usage_check"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     client_ip: Mapped[str]
     client_ips: Mapped[list[str]] = mapped_column(JSONB)
     client_user_agent_id: Mapped[uuid.UUID | None] = mapped_column(

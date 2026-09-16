@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -23,7 +23,9 @@ class P4xPartner(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid7)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("uuidv7()")
+    )
     iban: Mapped[str | None] = mapped_column(unique=True)
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="RESTRICT", onupdate="CASCADE"),
