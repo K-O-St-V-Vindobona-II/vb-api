@@ -73,10 +73,11 @@ max-complexity = 8
 # Declarative models use `from __future__ import annotations`, so SQLAlchemy
 # resolves `Mapped[...]` annotations at mapper-configure time by evaluating
 # the stringified annotation against the module's real (non-TYPE_CHECKING)
-# globals. Hiding stdlib types like `datetime`/`Decimal` behind
+# globals. Hiding stdlib types like `datetime`/`Decimal` (TC003) or
+# third-party types like `pydantic.JsonValue` (TC002) behind
 # `TYPE_CHECKING` breaks that resolution with a runtime `NameError` —
 # verified empirically, not just theoretically, before adding this ignore.
-"app/models/**" = ["TC003"]
+"app/models/**" = ["TC002", "TC003"]
 # FastAPI resolves a route handler's full signature - Depends()/Body()/
 # Query()/Path() parameter types included - against the module's real
 # runtime globals, both when a router is registered and when a decorator

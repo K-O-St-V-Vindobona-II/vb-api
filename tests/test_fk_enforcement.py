@@ -883,6 +883,7 @@ class TestRequestLogFks:
         db_session.add(
             RequestLog(
                 client_ip="127.0.0.1",
+                client_ips=["127.0.0.1"],
                 member_id=uuid.uuid4(),
                 request_method="GET",
                 request_path="/",
@@ -897,6 +898,7 @@ class TestRequestLogFks:
         db_session.add(
             RequestLog(
                 client_ip="127.0.0.1",
+                client_ips=["127.0.0.1"],
                 client_user_agent_id=uuid.uuid4(),
                 request_method="GET",
                 request_path="/",
@@ -914,6 +916,7 @@ class TestRequestLogFks:
 
         log = RequestLog(
             client_ip="127.0.0.1",
+            client_ips=["127.0.0.1"],
             member_id=member.id,
             request_method="GET",
             request_path="/",
@@ -937,6 +940,7 @@ class TestRequestLogFks:
 
         log = RequestLog(
             client_ip="127.0.0.1",
+            client_ips=["127.0.0.1"],
             client_user_agent_id=ua.id,
             request_method="GET",
             request_path="/",

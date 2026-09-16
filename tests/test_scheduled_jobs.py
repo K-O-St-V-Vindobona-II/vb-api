@@ -806,6 +806,7 @@ class TestJobCleanup:
                 # orphan_agent alive.
                 RequestLog(
                     client_ip="127.0.0.1",
+                    client_ips=["127.0.0.1"],
                     client_user_agent_id=orphan_agent.id,
                     request_method="GET",
                     request_path="/",
@@ -817,6 +818,7 @@ class TestJobCleanup:
                 # the purge above runs.
                 RequestLog(
                     client_ip="127.0.0.1",
+                    client_ips=["127.0.0.1"],
                     client_user_agent_id=referenced_agent.id,
                     request_method="GET",
                     request_path="/",
