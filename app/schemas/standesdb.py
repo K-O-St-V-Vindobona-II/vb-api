@@ -775,7 +775,7 @@ class StatsResponse(BaseModel):
 
 
 class ChangeLogEntry(BaseModel):
-    id: int
+    id: uuid.UUID
     modified_at: UtcDatetime | None
     modified_by_name: str | None
     action: str
