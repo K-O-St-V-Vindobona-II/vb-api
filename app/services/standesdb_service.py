@@ -36,6 +36,7 @@ from app.schemas.standesdb import (
     RoleHistoryResponse,
     TreeNodeResponse,
 )
+from app.services.role_history_service import RoleEntry, record_role_changes
 from app.services.search_utils import build_prefix_tsquery_text
 
 if TYPE_CHECKING:
@@ -533,7 +534,7 @@ def apply_member_input(  # noqa: C901
     _sync_keys(db, member, keys_entries, diff)
 
     validate_roles_history(db, roles_entries, member.org_id or "", member.id)
-    _sync_roles(db, member, roles_entries, diff)
+    _sync_roles(db, member, roles_entries, diff, current_user.id)
 
     if diff:
         _persist_change_log(
@@ -668,6 +669,7 @@ def _sync_roles(
     member: Member,
     roles_input: list[RoleHistoryEntry],
     diff: dict[str, dict[str, object]],
+    actor_id: uuid.UUID,
 ) -> None:
     old: list[dict[str, str | None]] = sorted(
         [
@@ -697,6 +699,16 @@ def _sync_roles(
             "old": old,
             "new": new,
         }
+        record_role_changes(
+            db,
+            member.id,
+            before=[
+                RoleEntry(mr.role_id, mr.startdate, mr.enddate)
+                for mr in member.member_roles
+            ],
+            after=[RoleEntry(r.id, r.startdate, r.enddate) for r in roles_input],
+            actor_id=actor_id,
+        )
 
     db.query(MemberRole).filter(MemberRole.member_id == member.id).delete()
     db.flush()

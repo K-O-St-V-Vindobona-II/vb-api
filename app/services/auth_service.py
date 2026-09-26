@@ -15,6 +15,7 @@ from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
 from requests.adapters import HTTPAdapter
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.security import (
@@ -31,6 +32,7 @@ from app.core.security import (
     verify_refresh_secret,
 )
 from app.models.auth_session import AuthSession
+from app.models.enums import OauthProvider
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
@@ -50,6 +52,9 @@ _GOOGLE_CERTS_TIMEOUT_SECONDS = 5
 _GOOGLE_CERTS_CACHE_SECONDS = 300
 _GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (
     "Google-Anmeldung ist gerade nicht erreichbar. Bitte versuch es später erneut."
+)
+_GOOGLE_ALREADY_LINKED_MESSAGE = (
+    "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
 )
 
 # Cost-12 hash of a random value that was discarded right after hashing.
@@ -210,15 +215,9 @@ def process_forgot_password(
 
     token = secrets.token_urlsafe(32)
     db.query(PasswordResetToken).filter(
-        func.lower(PasswordResetToken.email) == func.lower(email)
+        PasswordResetToken.member_id == member.id
     ).delete()
-
-    reset_entry = PasswordResetToken(
-        email=member.email,
-        token=hash_reset_token(token),
-        created_at=datetime.now(UTC),
-    )
-    db.add(reset_entry)
+    db.add(PasswordResetToken(member_id=member.id, token_hash=hash_reset_token(token)))
     db.commit()
 
     return (member.email, token) if member.email else None
@@ -230,40 +229,29 @@ def execute_password_reset(
     token: str,
     new_password: str,
 ) -> None:
-    reset_entry = (
-        db.query(PasswordResetToken)
-        .filter(
-            func.lower(PasswordResetToken.email) == func.lower(email),
-            PasswordResetToken.token == hash_reset_token(token),
-        )
-        .first()
-    )
-
-    if not reset_entry:
-        msg = "Ungültiger Token oder E-Mail-Adresse."
-        raise ValueError(msg)
-
-    created_at = reset_entry.created_at
-    if not created_at:
-        msg = "Token hat kein Erstellungsdatum."
-        raise ValueError(msg)
-    # Handle legacy tokens stored before timezone-aware datetimes
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-
-    token_age = datetime.now(UTC) - created_at
-
-    if token_age > timedelta(minutes=20):
-        db.delete(reset_entry)
-        db.commit()
-        msg = "Der Reset-Token ist abgelaufen."
-        raise ValueError(msg)
-
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
     )
-    if not member:
-        msg = "Benutzerkonto nicht gefunden."
+    reset_entry = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.member_id == member.id,
+            PasswordResetToken.token_hash == hash_reset_token(token),
+        )
+        .first()
+        if member
+        else None
+    )
+
+    # An unknown address and a wrong token get the same answer.
+    if not member or not reset_entry:
+        msg = "Ungültiger Token oder E-Mail-Adresse."
+        raise ValueError(msg)
+
+    if datetime.now(UTC) - reset_entry.created_at > timedelta(minutes=20):
+        db.delete(reset_entry)
+        db.commit()
+        msg = "Der Reset-Token ist abgelaufen."
         raise ValueError(msg)
 
     member.auth_password = get_password_hash(new_password)
@@ -290,8 +278,6 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
         jti=session_id,
         refresh_token_hash=hash_refresh_secret(refresh_secret),
         last_used_at=now,
-        created_at=now,
-        updated_at=now,
     )
     db.add(db_token)
     member.auth_lastlogin = now
@@ -300,9 +286,7 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     return access_token, session_id, refresh_secret
 
 
-def _ensure_tz_aware(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
+def _ensure_tz_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -331,13 +315,11 @@ def _validate_session_expiry(
     now: datetime,
 ) -> None:
     last_used = _ensure_tz_aware(session.last_used_at)
-    if last_used and (now - last_used) > timedelta(
-        minutes=SESSION_IDLE_TIMEOUT_MINUTES
-    ):
+    if (now - last_used) > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
         _invalidate_session(db, session, "Session expired due to inactivity")
 
     created = _ensure_tz_aware(session.created_at)
-    if created and (now - created) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
+    if (now - created) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
         _invalidate_session(db, session, "Session expired")
 
 
@@ -402,10 +384,10 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     binding = (
         db.query(MembersOauth2Binding)
         .filter(
-            MembersOauth2Binding.provider == "google",
+            MembersOauth2Binding.provider == OauthProvider.GOOGLE,
             MembersOauth2Binding.remote_id == google_id,
         )
-        .first()
+        .one_or_none()
     )
 
     if binding:
@@ -424,6 +406,27 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
 
     # Unlinked Google account triggers special frontend linking flow
     raise AccountNotLinkedError
+
+
+def _insert_google_binding(
+    db: Session, member_id: uuid.UUID, google_id: str, google_name: str
+) -> None:
+    """Add the binding inside a savepoint. The unique constraints decide a race
+    between two concurrent link requests: the loser's savepoint is rolled back
+    and it gets the same answer as if the check before had found the binding.
+    """
+    try:
+        with db.begin_nested():
+            db.add(
+                MembersOauth2Binding(
+                    member_id=member_id,
+                    provider=OauthProvider.GOOGLE,
+                    remote_id=google_id,
+                    remote_name=google_name,
+                )
+            )
+    except IntegrityError:
+        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE) from None
 
 
 def link_google_account(
@@ -456,6 +459,9 @@ def link_google_account(
         raise ValueError(msg) from None
 
     google_id = id_info.get("sub")
+    if not google_id:
+        msg = "Der Google-Token ist ungültig oder abgelaufen."
+        raise ValueError(msg)
     google_name = id_info.get("name", "Unknown")
 
     # 3. Check if this Google account is already linked to ANOTHER user
@@ -463,7 +469,7 @@ def link_google_account(
     existing_binding = (
         db.query(MembersOauth2Binding)
         .filter(
-            MembersOauth2Binding.provider == "google",
+            MembersOauth2Binding.provider == OauthProvider.GOOGLE,
             (MembersOauth2Binding.remote_id == google_id)
             | (MembersOauth2Binding.member_id == member.id),
         )
@@ -480,21 +486,11 @@ def link_google_account(
             existing_binding.lastuse_at = datetime.now(UTC)
             db.flush()
             return member
-        msg = "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
-        raise ValueError(msg)
+        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE)
 
     # 4. Create the binding in the database. Not committed here either -
     # same reasoning, create_user_session()'s commit covers this too.
-    new_binding = MembersOauth2Binding(
-        member_id=member.id,
-        provider="google",
-        remote_id=google_id,
-        remote_name=google_name,
-        bound_at=datetime.now(UTC),
-        lastuse_at=datetime.now(UTC),
-    )
-    db.add(new_binding)
-    db.flush()
+    _insert_google_binding(db, member.id, google_id, google_name)
 
     return member
 
@@ -532,6 +528,6 @@ def unlink_google_account(db: Session, member_id: uuid.UUID) -> None:
     """
     db.query(MembersOauth2Binding).filter(
         MembersOauth2Binding.member_id == member_id,
-        MembersOauth2Binding.provider == "google",
+        MembersOauth2Binding.provider == OauthProvider.GOOGLE,
     ).delete()
     db.commit()

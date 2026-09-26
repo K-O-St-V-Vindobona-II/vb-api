@@ -61,16 +61,7 @@ def _bump_lastsignal(db: Session, member_id: uuid.UUID, now: datetime) -> None:
 
 def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
     now = datetime.now(UTC)
-    last_used = session_record.last_used_at
-
-    if not last_used:
-        session_record.last_used_at = now
-        _bump_lastsignal(db, session_record.member_id, now)
-        db.commit()
-        return
-
-    last_used = _ensure_tz_aware(last_used)
-    idle_duration = now - last_used
+    idle_duration = now - _ensure_tz_aware(session_record.last_used_at)
 
     if idle_duration > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
         db.delete(session_record)

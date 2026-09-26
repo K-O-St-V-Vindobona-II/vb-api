@@ -101,9 +101,12 @@ def test_reset_password_invalid_token(client, db_session):  # noqa: ARG001
 def test_reset_password_expired_token(client, db_session):
     """Tests if a token older than 20 minutes is rejected."""
     past = datetime.now(UTC) - timedelta(minutes=25)
+    member = Member(email="expired@vindobona.at", auth_locked=False)
+    db_session.add(member)
+    db_session.commit()
     token = PasswordResetToken(
-        email="expired@vindobona.at",
-        token=hash_reset_token("exp_token"),
+        member_id=member.id,
+        token_hash=hash_reset_token("exp_token"),
         created_at=past,
     )
     db_session.add(token)
@@ -122,12 +125,20 @@ def test_reset_password_expired_token(client, db_session):
 
 
 def test_reset_password_user_deleted(client, db_session):
-    """Tests reset when the user was deleted while holding a valid token."""
-    token = PasswordResetToken(
-        email="ghost@vindobona.at", token=hash_reset_token("ghost_token")
-    )
-    db_session.add(token)
+    """A deleted member's pending token is removed with the member (foreign key
+    cascade), so the reset answers like any other unknown token."""
+    member = Member(email="ghost@vindobona.at", auth_locked=False)
+    db_session.add(member)
     db_session.commit()
+    db_session.add(
+        PasswordResetToken(
+            member_id=member.id, token_hash=hash_reset_token("ghost_token")
+        )
+    )
+    db_session.commit()
+    db_session.delete(member)
+    db_session.commit()
+    assert db_session.query(PasswordResetToken).count() == 0
 
     resp = client.post(
         "/api/auth/reset-password",
@@ -138,7 +149,7 @@ def test_reset_password_user_deleted(client, db_session):
         },
     )
     assert resp.status_code == 400
-    assert "nicht gefunden" in resp.json()["detail"].lower()
+    assert "ungültig" in resp.json()["detail"].lower()
 
 
 def test_reset_password_too_short_is_rejected(client, db_session):  # noqa: ARG001

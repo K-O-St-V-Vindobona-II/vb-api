@@ -104,14 +104,12 @@ def test_password_reset_flow(client, db_session, mock_arq_pool):
 
     # Assert: Only a digest is stored, the token itself travels in the e-mail job
     reset_entry = (
-        db_session.query(PasswordResetToken)
-        .filter_by(email="reset@vindobona.at")
-        .first()
+        db_session.query(PasswordResetToken).filter_by(member_id=user.id).first()
     )
     assert reset_entry is not None
     task_name, _, emailed_token = mock_arq_pool.enqueue_job.call_args.args
     assert task_name == "task_send_reset_email"
-    assert reset_entry.token == hash_reset_token(emailed_token)
+    assert reset_entry.token_hash == hash_reset_token(emailed_token)
 
     # 3. Act: Execute password reset
     resp2 = client.post(
@@ -157,7 +155,7 @@ def test_password_reset_invalidates_existing_sessions(client, db_session):
 
     # 2. Act: reset the password using a directly created reset token (skips SMTP)
     reset_entry = PasswordResetToken(
-        email=user.email, token=hash_reset_token("reset-token-123")
+        member_id=user.id, token_hash=hash_reset_token("reset-token-123")
     )
     db_session.add(reset_entry)
     db_session.commit()

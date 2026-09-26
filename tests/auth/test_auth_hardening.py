@@ -137,13 +137,13 @@ class TestResetTokenStorage:
         assert result is not None
         _, token = result
         row = db_session.query(PasswordResetToken).one()
-        assert row.token != token
-        assert row.token == security.hash_reset_token(token)
+        assert row.token_hash != token
+        assert row.token_hash == security.hash_reset_token(token)
 
     def test_stored_digest_cannot_be_replayed_as_the_token(self, db_session):
         member = _make_member(db_session, "reset.me@vindobona.at")
         auth_service.process_forgot_password(db_session, member.email)
-        digest = db_session.query(PasswordResetToken).one().token
+        digest = db_session.query(PasswordResetToken).one().token_hash
 
         with pytest.raises(ValueError, match="Ungültiger Token"):
             auth_service.execute_password_reset(

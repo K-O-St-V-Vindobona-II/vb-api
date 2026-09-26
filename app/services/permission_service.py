@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
+    from app.models.role import Role
+
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
@@ -129,8 +131,7 @@ ALL_PERMISSIONS: list[str] = sorted({rule.permission for rule in PERMISSION_RULE
 def _active_roles(member: Member) -> tuple[set[str], set[str]]:
     """Currently active role IDs and role groups for a member (today between
     startdate and enddate, in Settings.app_timezone — role dates are
-    Vienna-local calendar days entered by admins, not UTC ones; see the
-    2026-08-15 timezone audit)."""
+    Vienna-local calendar days entered by admins, not UTC ones)."""
     today = local_today()
     active_role_ids: set[str] = set()
     active_role_groups: set[str] = set()
@@ -144,6 +145,20 @@ def _active_roles(member: Member) -> tuple[set[str], set[str]]:
                 active_role_groups.add(mr.role.group)
 
     return active_role_ids, active_role_groups
+
+
+def permissions_conferred_by_role(role: Role, org_id: str | None) -> frozenset[str]:
+    """Permissions that holding `role` alone gives a member of `org_id`.
+
+    Evaluated with the rules themselves, so a new rule or role is covered
+    without a second list that could drift.
+    """
+    role_groups = {str(role.group)} if role.group else set[str]()
+    return frozenset(
+        rule.permission
+        for rule in PERMISSION_RULES
+        if rule.condition({role.id}, role_groups, org_id, None)
+    )
 
 
 def calculate_permissions(

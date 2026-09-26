@@ -4,10 +4,12 @@ from typing import TYPE_CHECKING
 
 import jwt
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.datetime_utils import get_app_timezone, local_day_bounds_utc
 from app.core.security import ALGORITHM, SECRET_KEY
-from app.models.client_user_agent import ClientUserAgent
+from app.models.client_user_agent import MAX_USER_AGENT_LENGTH, ClientUserAgent
 from app.models.member import Member
 from app.models.request_log import RequestLog
 from app.schemas.activity_log import (
@@ -96,16 +98,36 @@ def _resolve_member_id(db: Session, auth_header: str | None) -> uuid.UUID | None
     return member.id if member else None
 
 
-def _get_or_create_client_user_agent(db: Session, ua_string: str) -> uuid.UUID:
-    existing = (
-        db.query(ClientUserAgent).filter(ClientUserAgent.string == ua_string).first()
+def _find_client_user_agent_id(db: Session, ua_string: str) -> uuid.UUID | None:
+    return db.scalar(
+        select(ClientUserAgent.id).where(ClientUserAgent.string == ua_string)
     )
-    if existing:
-        return existing.id
-    new_ua = ClientUserAgent(string=ua_string)
-    db.add(new_ua)
-    db.flush()
-    return new_ua.id
+
+
+def _get_or_create_client_user_agent(db: Session, ua_string: str) -> uuid.UUID:
+    """Id of the stored User-Agent row, created on first sight.
+
+    The header is client-controlled: it is cut to MAX_USER_AGENT_LENGTH so no
+    value can outgrow the unique index (an over-long one would make the
+    insert fail and the request disappear from the log). The insert ignores a
+    conflict because two first requests with the same value can arrive at
+    once; the loser then reads the row the winner created.
+    """
+    bounded = ua_string[:MAX_USER_AGENT_LENGTH]
+    existing_id = _find_client_user_agent_id(db, bounded)
+    if existing_id is not None:
+        return existing_id
+    inserted_id = db.scalar(
+        pg_insert(ClientUserAgent)
+        .values(string=bounded)
+        .on_conflict_do_nothing(index_elements=[ClientUserAgent.string])
+        .returning(ClientUserAgent.id)
+    )
+    if inserted_id is not None:
+        return inserted_id
+    return db.execute(
+        select(ClientUserAgent.id).where(ClientUserAgent.string == bounded)
+    ).scalar_one()
 
 
 def record_request(

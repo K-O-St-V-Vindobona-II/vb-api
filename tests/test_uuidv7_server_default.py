@@ -28,6 +28,7 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_transaction import P4xTransaction
+from app.models.role import Role
 from app.models.state import State
 
 if TYPE_CHECKING:
@@ -48,6 +49,13 @@ def _make_org(session: Session) -> str:
     session.add(org)
     session.flush()
     return org.id
+
+
+def _make_role(session: Session) -> str:
+    role = Role(id="uuidv7-test-role")
+    session.add(role)
+    session.flush()
+    return role.id
 
 
 def _make_state(session: Session) -> str:
@@ -179,6 +187,10 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "member_id": f"'{_make_member(s)}'",
         "jti": "'uuidv7-test-jti'",
     },
+    "password_reset_tokens": lambda s: {
+        "member_id": f"'{_make_member(s)}'",
+        "token_hash": "'uuidv7-test-digest'",
+    },
     "client_user_agents": lambda _s: {"string": "'uuidv7-test-ua'"},
     "contacts": lambda _s: {"kontakttyp": "'person'", "name": "'uuidv7-test'"},
     "contacts_logs": lambda _s: {"action": "'create'", "key": "'uuidv7-test'"},
@@ -188,6 +200,12 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "proposed_data": '\'{"vorname": "Test"}\'::jsonb',
     },
     "members_logs": lambda _s: {"action": "'create'", "key": "'uuidv7-test'"},
+    "role_assignment_events": lambda s: {
+        "member_id": f"'{_make_member(s)}'",
+        "role_id": f"'{_make_role(s)}'",
+        "action": "'granted'",
+        "startdate": "'2024-01-01'",
+    },
     "members_oauth2bindings": lambda s: {
         "member_id": f"'{_make_member(s)}'",
         "provider": "'google'",

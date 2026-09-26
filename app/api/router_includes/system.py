@@ -16,7 +16,8 @@ from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
 from app.models.member import Member
 from app.schemas.base import PaginatedResponse, StatusResponse, UtcDatetime
-from app.services import system_service
+from app.schemas.role_history import RoleAssignmentEventResponse
+from app.services import role_history_service, system_service
 from app.services.backup_service import run_backup
 from app.services.permission_service import (
     get_dev_superuser_cn,
@@ -133,6 +134,23 @@ def list_permission_rules(
         rules=[PermissionRuleResponse(**r) for r in get_permission_rules_display(db)],
         dev_superuser_cn=get_dev_superuser_cn(db),
     )
+
+
+@system_router.get("/role-history")
+def list_role_history(
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[Member, Depends(get_current_user)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> PaginatedResponse[RoleAssignmentEventResponse]:
+    """Who granted, revoked or re-dated which role of which member, and when,
+    newest first, with the permissions each role confers. Append-only.
+
+    Any authenticated member may read this - like the permission rules it
+    belongs to, it is a transparency page, not an admin tool.
+    """
+    items, total = role_history_service.list_role_history(db, page, page_size)
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @system_router.post("/backups/trigger", status_code=status.HTTP_201_CREATED)
