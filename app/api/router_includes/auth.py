@@ -67,20 +67,17 @@ def login(
 
     Rate limit: 5/min.
     """
-    member, reason = auth_service.authenticate_user(
+    member, _ = auth_service.authenticate_user(
         db, form_data.username, form_data.password
     )
 
     if not member:
+        # The client only learns that the login failed, never why.
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={
                 "detail": "Ungültige E-Mail-Adresse oder Passwort,"
                 " oder das Konto ist gesperrt.",
-                "failure_reason": reason,
-                "attempted_email": (
-                    form_data.username if reason == "unknown_email" else None
-                ),
             },
         )
 
@@ -118,10 +115,16 @@ async def forgot_password(
 
 
 @auth_router.post("/reset-password")
+@limiter.limit("5/minute")  # type: ignore[reportUntypedFunctionDecorator]
 def reset_password(
-    data: ResetPasswordRequest, db: Annotated[Session, Depends(get_db)]
+    request: Request,  # noqa: ARG001
+    data: ResetPasswordRequest,
+    db: Annotated[Session, Depends(get_db)],
 ) -> StatusMessageResponse:
-    """Set a new password using a time-limited reset token (20 min TTL)."""
+    """Set a new password using a time-limited reset token (20 min TTL).
+
+    Rate limit: 5/min.
+    """
     try:
         auth_service.execute_password_reset(db, data.email, data.token, data.password)
     except ValueError as e:
@@ -137,10 +140,16 @@ def reset_password(
 
 
 @auth_router.post("/google")
+@limiter.limit("10/minute")  # type: ignore[reportUntypedFunctionDecorator]
 def login_with_google(
-    data: GoogleLoginRequest, db: Annotated[Session, Depends(get_db)]
+    request: Request,  # noqa: ARG001
+    data: GoogleLoginRequest,
+    db: Annotated[Session, Depends(get_db)],
 ) -> JSONResponse:
-    """Authenticate via Google OAuth ID token. Account must be linked first."""
+    """Authenticate via Google OAuth ID token. Account must be linked first.
+
+    Rate limit: 10/min.
+    """
     try:
         member = auth_service.authenticate_google_user(db, data.credential)
     except AccountNotLinkedError:

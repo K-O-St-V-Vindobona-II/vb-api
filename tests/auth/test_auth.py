@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import bcrypt
 import pytest
 
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_reset_token, verify_password
 from app.models.member import Member
 from app.models.password_reset import PasswordResetToken
 from app.services.auth_service import create_user_session, logout_user
@@ -43,9 +43,7 @@ def test_login_wrong_password(client, test_user):
         "/api/auth/login", data={"username": user.email, "password": "wrongpassword"}
     )
     assert response.status_code == 401
-    data = response.json()
-    assert data["failure_reason"] == "wrong_password"
-    assert data["attempted_email"] is None
+    assert response.json().keys() == {"detail"}
 
 
 def test_login_unknown_email(client, test_user):  # noqa: ARG001
@@ -54,9 +52,8 @@ def test_login_unknown_email(client, test_user):  # noqa: ARG001
         data={"username": "nonexistent@nowhere.at", "password": "whatever"},
     )
     assert response.status_code == 401
-    data = response.json()
-    assert data["failure_reason"] == "unknown_email"
-    assert data["attempted_email"] == "nonexistent@nowhere.at"
+    assert response.json().keys() == {"detail"}
+    assert "nonexistent@nowhere.at" not in response.text
 
 
 def test_verify_password_edge_cases():
@@ -106,7 +103,7 @@ def test_reset_password_expired_token(client, db_session):
     past = datetime.now(UTC) - timedelta(minutes=25)
     token = PasswordResetToken(
         email="expired@vindobona.at",
-        token="exp_token",
+        token=hash_reset_token("exp_token"),
         created_at=past,
     )
     db_session.add(token)
@@ -126,7 +123,9 @@ def test_reset_password_expired_token(client, db_session):
 
 def test_reset_password_user_deleted(client, db_session):
     """Tests reset when the user was deleted while holding a valid token."""
-    token = PasswordResetToken(email="ghost@vindobona.at", token="ghost_token")
+    token = PasswordResetToken(
+        email="ghost@vindobona.at", token=hash_reset_token("ghost_token")
+    )
     db_session.add(token)
     db_session.commit()
 

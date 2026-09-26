@@ -5,7 +5,12 @@ import jwt
 import pytest
 
 from app.core.rate_limit import limiter
-from app.core.security import ALGORITHM, SECRET_KEY, SESSION_IDLE_TIMEOUT_MINUTES
+from app.core.security import (
+    ALGORITHM,
+    SECRET_KEY,
+    SESSION_IDLE_TIMEOUT_MINUTES,
+    hash_reset_token,
+)
 from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.password_reset import PasswordResetToken
@@ -78,7 +83,7 @@ def test_rate_limiter_blocks_brute_force(client, db_session):  # noqa: ARG001
     assert response.status_code == 429  # Too Many Requests
 
 
-def test_password_reset_flow(client, db_session):
+def test_password_reset_flow(client, db_session, mock_arq_pool):
     """Tests the entire password reset cycle (forgot -> reset -> new login)."""
     # 1. Arrange: Create user
     hashed = bcrypt.hashpw(b"oldpassword", bcrypt.gensalt()).decode("utf-8")
@@ -97,20 +102,23 @@ def test_password_reset_flow(client, db_session):
     )
     assert resp1.status_code == 200
 
-    # Assert: Check if token was saved to DB
+    # Assert: Only a digest is stored, the token itself travels in the e-mail job
     reset_entry = (
         db_session.query(PasswordResetToken)
         .filter_by(email="reset@vindobona.at")
         .first()
     )
     assert reset_entry is not None
+    task_name, _, emailed_token = mock_arq_pool.enqueue_job.call_args.args
+    assert task_name == "task_send_reset_email"
+    assert reset_entry.token == hash_reset_token(emailed_token)
 
     # 3. Act: Execute password reset
     resp2 = client.post(
         "/api/auth/reset-password",
         json={
             "email": "reset@vindobona.at",
-            "token": reset_entry.token,
+            "token": emailed_token,
             "password": "new_super_password",
         },
     )
@@ -148,7 +156,9 @@ def test_password_reset_invalidates_existing_sessions(client, db_session):
     assert client.get("/api/members/me", headers=headers).status_code == 200
 
     # 2. Act: reset the password using a directly created reset token (skips SMTP)
-    reset_entry = PasswordResetToken(email=user.email, token="reset-token-123")
+    reset_entry = PasswordResetToken(
+        email=user.email, token=hash_reset_token("reset-token-123")
+    )
     db_session.add(reset_entry)
     db_session.commit()
 
