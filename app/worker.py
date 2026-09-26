@@ -29,7 +29,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from arq import cron
+from arq import Retry, cron, func
 from arq.connections import RedisSettings
 
 # Unlike the web container (main.py imports this too), this process never
@@ -43,6 +43,7 @@ from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
 from app.core.job_schedule_registry import applicable_entries
 from app.core.mailer import (
+    send_contact_form_email,
     send_entry_changed_email,
     send_member_change_request_resolved_email,
     send_member_change_request_submitted_email,
@@ -134,6 +135,33 @@ async def task_downsync(ctx: dict[str, Any]) -> None:
 
 async def task_send_reset_email(ctx: dict[str, Any], email: str, token: str) -> None:  # noqa: ARG001
     await asyncio.to_thread(send_reset_email, email, token)
+
+
+# A visitor has already seen "thank you" when this job runs, so a failed
+# delivery is retried instead of dropped: after 1, 2, 3 and 4 minutes, five
+# tries in total (arq enforces the limit, see the registration below).
+_CONTACT_FORM_MAX_TRIES = 5
+_CONTACT_FORM_RETRY_STEP_SECONDS = 60
+
+
+async def task_send_contact_form_email(
+    ctx: dict[str, object], name: str, email: str, message: str
+) -> None:
+    try:
+        await asyncio.to_thread(send_contact_form_email, name, email, message)
+    except OSError as error:
+        # smtplib.SMTPException is an OSError, so this covers refused or timed
+        # out connections and SMTP-level failures. A configuration error
+        # (RuntimeError) is not retried: trying again cannot fix it. The log
+        # line carries the error type only, never the visitor's data.
+        job_try = ctx.get("job_try")
+        attempt = job_try if isinstance(job_try, int) else 1
+        logger.warning(
+            "Contact form mail not delivered (try %d): %s",
+            attempt,
+            type(error).__name__,
+        )
+        raise Retry(defer=attempt * _CONTACT_FORM_RETRY_STEP_SECONDS) from error
 
 
 async def task_send_entry_changed_email(
@@ -240,6 +268,13 @@ class WorkerSettings:
     functions: ClassVar[list[object]] = [
         task_health_check,
         task_send_reset_email,
+        # keep_result=0: arq would otherwise keep the finished job, including
+        # the visitor's name, address and message, for an hour.
+        func(
+            task_send_contact_form_email,
+            max_tries=_CONTACT_FORM_MAX_TRIES,
+            keep_result=0,
+        ),
         task_send_entry_changed_email,
         task_send_member_change_request_submitted_email,
         task_send_member_change_request_resolved_email,

@@ -33,6 +33,7 @@ _jinja_env = Environment(
 
 _LOG_REDACTION = "[redacted]"
 _SMTPS_PORT = 465
+CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
 
 
 def _build_from_header() -> tuple[str, str]:
@@ -225,6 +226,26 @@ def send_reset_email(to_email: str, token: str) -> None:
         logged_html,
         "password-reset",
         from_addr=from_header,
+    )
+
+
+def send_contact_form_email(name: str, email: str, message: str) -> None:
+    """Mail a public contact form submission to the club's fixed recipients.
+
+    The visitor's address is the reply-to, so answering the mail reaches them.
+    """
+    html_content = render_template(
+        "public_contact_form.html",
+        name=name,
+        email=email,
+        message=message,
+    )
+    send_to_recipients(
+        CONTACT_RECIPIENTS,
+        subject=f"Neue Kontaktaufnahme von {name}",
+        html_content=html_content,
+        template_key="public-contact-form",
+        reply_to=email,
     )
 
 

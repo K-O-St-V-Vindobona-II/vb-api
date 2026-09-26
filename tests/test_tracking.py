@@ -128,6 +128,17 @@ class TestEmailTemplates:
             assert t["source_location"]
             assert t["template_name"]
 
+    def test_contact_form_mail_source_points_to_the_mailer(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+
+        resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
+
+        entry = next(
+            t for t in resp.json() if t["template_key"] == "public-contact-form"
+        )
+        assert entry["source_location"] == "mailer.py → send_contact_form_email()"
+
     def test_counts_increase_with_data(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)

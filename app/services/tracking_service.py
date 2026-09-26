@@ -77,7 +77,7 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
     {
         "key": "public-contact-form",
         "name": "Kontaktformular (www.vindobona2.at)",
-        "source": "public_site.py → submit_contact_form()",
+        "source": "mailer.py → send_contact_form_email()",
         "file": "public_contact_form.html",
     },
 ]
