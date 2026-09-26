@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     smtp_from_email: str | None = Field(
         default=None, validation_alias="SMTP_FROM_EMAIL"
     )
+    smtp_timeout_seconds: int = Field(
+        default=30, ge=1, le=300, validation_alias="SMTP_TIMEOUT_SECONDS"
+    )
     frontend_reset_url: str | None = Field(
         default=None, validation_alias="FRONTEND_RESET_URL"
     )

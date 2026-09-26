@@ -1,8 +1,12 @@
 """Tests for mailer helper functions and edge cases."""
 
+import smtplib
+import socket
+import ssl
+import time
 from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -292,6 +296,11 @@ class TestBuildFromHeader:
         assert from_header == '"Philister-ChC Vindobona II" <noreply@test.at>'
 
 
+def _assert_verifying(context: ssl.SSLContext) -> None:
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+
+
 class TestSendMessage:
     def test_ssl_port_logs_in_and_sends(self, monkeypatch):
         monkeypatch.setenv("SMTP_HOST", "smtp.test.at")
@@ -306,7 +315,8 @@ class TestSendMessage:
             mock_server = mock_ssl.return_value.__enter__.return_value
             _send_message(msg, ["a@b.at"])
 
-        mock_ssl.assert_called_once_with("smtp.test.at", 465)
+        mock_ssl.assert_called_once_with("smtp.test.at", 465, timeout=30, context=ANY)
+        _assert_verifying(mock_ssl.call_args.kwargs["context"])
         mock_server.login.assert_called_once_with("user@test.at", "secret")
         mock_server.sendmail.assert_called_once_with(
             "noreply@test.at", ["a@b.at"], msg.as_string()
@@ -340,8 +350,9 @@ class TestSendMessage:
             mock_server.has_extn.return_value = True
             _send_message(msg, ["a@b.at"])
 
-        mock_smtp.assert_called_once_with("smtp.test.at", 587)
+        mock_smtp.assert_called_once_with("smtp.test.at", 587, timeout=30)
         mock_server.starttls.assert_called_once()
+        _assert_verifying(mock_server.starttls.call_args.kwargs["context"])
         assert mock_server.ehlo.call_count == 2
         mock_server.login.assert_called_once_with("user@test.at", "secret")
 
@@ -361,6 +372,38 @@ class TestSendMessage:
         mock_server.starttls.assert_not_called()
         assert mock_server.ehlo.call_count == 1
         mock_server.login.assert_not_called()
+
+    def test_credentials_are_never_sent_without_starttls(self, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.test.at")
+        monkeypatch.setenv("SMTP_PORT", "587")
+        monkeypatch.setenv("SMTP_USER", "user@test.at")
+        monkeypatch.setenv("SMTP_PASSWORD", "secret")
+        monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
+        msg = MIMEMultipart()
+
+        with patch("app.core.mailer.smtplib.SMTP") as mock_smtp:
+            mock_server = mock_smtp.return_value.__enter__.return_value
+            mock_server.has_extn.return_value = False
+            with pytest.raises(RuntimeError, match="does not offer STARTTLS"):
+                _send_message(msg, ["a@b.at"])
+
+        mock_server.login.assert_not_called()
+        mock_server.sendmail.assert_not_called()
+
+    def test_a_silent_server_ends_in_a_timeout(self, monkeypatch):
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            monkeypatch.setenv("SMTP_HOST", "127.0.0.1")
+            monkeypatch.setenv("SMTP_PORT", str(listener.getsockname()[1]))
+            monkeypatch.setenv("SMTP_TIMEOUT_SECONDS", "1")
+            monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
+            started = time.monotonic()
+
+            with pytest.raises(smtplib.SMTPServerDisconnected, match="timed out"):
+                _send_message(MIMEMultipart(), ["a@b.at"])
+
+        assert time.monotonic() - started < 5
 
     def test_missing_smtp_host_raises_runtime_error(self, monkeypatch):
         monkeypatch.delenv("SMTP_HOST", raising=False)
@@ -402,7 +445,14 @@ class TestSendResetEmailReal:
         log_args = mock_log.call_args[0]
         assert log_args[0] == "member@test.at"
         assert log_args[3] == "password-reset"
-        assert "tok123" in log_args[2]
+        assert "tok123" not in log_args[2]
+        assert "token=[redacted]" in log_args[2]
+        assert "member@test.at" in log_args[2]
+
+        sent_parts = [
+            part.get_payload(decode=True).decode() for part in msg.get_payload()
+        ]
+        assert all("token=tok123" in part for part in sent_parts)
 
 
 class TestSendToMultipleReal:
