@@ -149,6 +149,16 @@ def set_transaction_partner(  # noqa: C901, PLR0912
     p4x_transactions.delegating_*)."""
     now = datetime.now(UTC)
 
+    if partner_data and not transaction.iban.strip():
+        # A partner is stored per counter-account IBAN. A booking without one
+        # (a cash entry) would share the single partner row of the empty IBAN
+        # with every other such booking, so one assignment would silently
+        # assign them all.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Buchungen ohne Gegenkonto können keinem Partner zugeordnet werden.",
+        )
+
     if partner_data:
         p_type = str(partner_data["type"])
         p_id = cast("uuid.UUID", partner_data["id"])

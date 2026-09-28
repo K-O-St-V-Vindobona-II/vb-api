@@ -228,7 +228,43 @@ def search_members_and_contacts(
 # --- Member Detail ---
 
 
-def _build_tree_node(member: Member) -> TreeNodeResponse:
+# Deepest chain of Leibverhaeltnisse that is followed in either direction. A
+# real chain has a few dozen links; the bound keeps a corrupt one (a cycle)
+# from running forever.
+_MAX_TREE_DEPTH = 100
+
+
+def _descendants_by_parent(
+    db: Session, root_id: uuid.UUID
+) -> dict[uuid.UUID, list[Member]]:
+    """Every descendant of `root_id`, grouped by parent id: one query per
+    generation instead of one per member. A member is taken once, so a cycle
+    in the data ends the walk."""
+    by_parent: dict[uuid.UUID, list[Member]] = {}
+    seen = {root_id}
+    generation = [root_id]
+    for _ in range(_MAX_TREE_DEPTH):
+        if not generation:
+            break
+        children = (
+            db.query(Member)
+            .filter(Member.parent_id.in_(generation))
+            .order_by(Member.id)
+            .all()
+        )
+        generation = []
+        for child in children:
+            if child.id in seen or child.parent_id is None:
+                continue
+            seen.add(child.id)
+            by_parent.setdefault(child.parent_id, []).append(child)
+            generation.append(child.id)
+    return by_parent
+
+
+def _build_tree_node(
+    member: Member, by_parent: dict[uuid.UUID, list[Member]]
+) -> TreeNodeResponse:
     return TreeNodeResponse(
         id=member.id,
         cn=member.cn,
@@ -237,7 +273,7 @@ def _build_tree_node(member: Member) -> TreeNodeResponse:
         state_id=member.state_id,
         entlassen=member.entlassen or False,
         verstorben=member.verstorben or False,
-        children=[_build_tree_node(c) for c in member.children],
+        children=[_build_tree_node(c, by_parent) for c in by_parent.get(member.id, [])],
     )
 
 
@@ -309,8 +345,12 @@ def get_member_detail(
             parent_cn = parent.cn
 
     ancestry = []
-    current = member
-    while current:
+    seen: set[uuid.UUID] = set()
+    current: Member | None = member
+    while (
+        current is not None and current.id not in seen and len(seen) < _MAX_TREE_DEPTH
+    ):
+        seen.add(current.id)
         ancestry.append(
             TreeNodeResponse(
                 id=current.id,
@@ -322,13 +362,16 @@ def get_member_detail(
                 verstorben=current.verstorben or False,
             ).model_dump()
         )
-        if current.parent_id is not None:
-            current = current.parent
-        else:
-            break
+        current = (
+            db.get(Member, current.parent_id) if current.parent_id is not None else None
+        )
 
+    by_parent = _descendants_by_parent(db, member.id)
     tree: dict[str, object] = {
-        "children": [_build_tree_node(c).model_dump() for c in member.children],
+        "children": [
+            _build_tree_node(c, by_parent).model_dump()
+            for c in by_parent.get(member.id, [])
+        ],
         "ancestry": list(reversed(ancestry)),
     }
 
@@ -756,6 +799,24 @@ def validate_member_uniqueness(
         )
 
 
+def _is_self_or_ancestor(db: Session, start: Member, member_id: uuid.UUID) -> bool:
+    """True if `member_id` is `start` itself or anywhere above it in the chain
+    of Leibverhaeltnisse. Making `start` the parent of `member_id` would then
+    close a cycle: the member's own descendants (children, grandchildren, ...)
+    would become its parent. Every member is visited once, so an existing
+    cycle in the data cannot make the walk run forever."""
+    seen: set[uuid.UUID] = set()
+    current: Member | None = start
+    while current is not None and current.id not in seen:
+        if current.id == member_id:
+            return True
+        seen.add(current.id)
+        current = (
+            db.get(Member, current.parent_id) if current.parent_id is not None else None
+        )
+    return False
+
+
 def validate_parent_id(
     db: Session,
     parent_id: uuid.UUID | None,
@@ -778,19 +839,11 @@ def validate_parent_id(
             detail="Ungültiges Leibverhältnis.",
         )
 
-    if member_id and parent_id == member_id:
+    if member_id and _is_self_or_ancestor(db, parent, member_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ungültiges Leibverhältnis.",
         )
-
-    if member_id:
-        child_ids = db.query(Member.id).filter(Member.parent_id == member_id).all()
-        if parent_id in [c[0] for c in child_ids]:
-            raise HTTPException(
-                status_code=(status.HTTP_400_BAD_REQUEST),
-                detail="Ungültiges Leibverhältnis.",
-            )
 
 
 def _validate_ids_exist(

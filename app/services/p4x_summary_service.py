@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
     from sqlalchemy.orm import Session
 
+from app.core.spreadsheet import neutralize_formulas
 from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_direct import P4xCategoryDirect
@@ -400,6 +401,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
             letter = get_column_letter(col_idx)
             ws_auto.column_dimensions[letter].width = max_len + 3
 
+    neutralize_formulas(wb)
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue(), attachments
@@ -518,6 +520,7 @@ def generate_fee_member_xlsx(response: FeeMemberResponse) -> bytes:
     wb.active = 0
     _autosize_columns(wb)
 
+    neutralize_formulas(wb)
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
