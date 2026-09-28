@@ -314,6 +314,18 @@ def _format_date_by_accuracy(value: date, accuracy: int) -> str:
     return f"{value.day}. {_MONTHS_DE[value.month]} {value.year}"
 
 
+def _as_date(value: object) -> date | None:
+    """A date, or the date behind an ISO string (jobs travel as JSON)."""
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _format_diff_value(
     key: str, value: object, diff: dict[str, dict[str, object]]
 ) -> str:
@@ -321,10 +333,12 @@ def _format_diff_value(
         return "-"
     if isinstance(value, list):
         return ", ".join(str(v) for v in value) or "-"
-    if isinstance(value, date) and key.endswith("datum"):
-        accuracy = _resolve_date_accuracy(key, diff)
-        return _format_date_by_accuracy(value, accuracy)
-    return str(value)
+    if not key.endswith("datum"):
+        return str(value)
+    parsed = _as_date(value)
+    if parsed is None:
+        return str(value)
+    return _format_date_by_accuracy(parsed, _resolve_date_accuracy(key, diff))
 
 
 def send_entry_changed_email(

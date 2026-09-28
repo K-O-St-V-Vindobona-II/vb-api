@@ -12,6 +12,7 @@ from typing import cast
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
 from app.core.config import get_settings
+from app.core.job_serialization import deserialize_job, serialize_job
 
 _arq_pool: ArqRedis | None = None
 
@@ -21,7 +22,9 @@ async def _get_arq_pool_singleton() -> ArqRedis:
     if _arq_pool is None:
         settings = get_settings()
         _arq_pool = await create_pool(
-            RedisSettings.from_dsn(cast("str", settings.valkey_url))
+            RedisSettings.from_dsn(cast("str", settings.valkey_url)),
+            job_serializer=serialize_job,
+            job_deserializer=deserialize_job,
         )
     return _arq_pool
 

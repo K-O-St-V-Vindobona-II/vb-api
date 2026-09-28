@@ -9,6 +9,13 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Runs of one kind on one ref execute one after the other, so an older push
+# can never finish after a newer one and overwrite its image tag. Only a newer
+# push to a pull request cancels the superseded run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint & Format
@@ -204,7 +211,9 @@ jobs:
     name: Build & Push Image
     needs: [lint, quality, security, smoke-test-readonly]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
       packages: write

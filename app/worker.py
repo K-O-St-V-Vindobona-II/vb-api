@@ -42,6 +42,7 @@ import app.db.base  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
 from app.core.job_schedule_registry import applicable_entries
+from app.core.job_serialization import deserialize_job, serialize_job
 from app.core.mailer import (
     send_contact_form_email,
     send_entry_changed_email,
@@ -292,3 +293,5 @@ class WorkerSettings:
     # valkey_settings -- arq's own Worker class looks it up by this exact
     # name (wire-compatible, protocol-level API, not ours to rename).
     redis_settings = RedisSettings.from_dsn(cast("str", get_settings().valkey_url))
+    job_serializer = serialize_job
+    job_deserializer = deserialize_job

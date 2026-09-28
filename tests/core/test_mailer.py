@@ -76,6 +76,18 @@ class TestFormatDiffValue:
         result = _format_diff_value("vorname", date(2020, 1, 1), {})
         assert result == "2020-01-01"
 
+    def test_iso_date_string_is_formatted_like_a_date_object(self) -> None:
+        # Jobs travel through the queue as JSON, so a date arrives as text.
+        diff = {"geburtsdatum_accuracy": {"new": 3}}
+
+        from_object = _format_diff_value("geburtsdatum", date(2001, 5, 4), diff)
+        from_text = _format_diff_value("geburtsdatum", "2001-05-04", diff)
+
+        assert from_text == from_object == "4. Mai 2001"
+
+    def test_text_that_is_not_a_date_stays_text(self) -> None:
+        assert _format_diff_value("sterbedatum", "unbekannt", {}) == "unbekannt"
+
 
 class TestSendEntryChangedEmail:
     @patch("app.core.mailer._send_to_multiple")
