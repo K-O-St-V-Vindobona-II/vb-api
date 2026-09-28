@@ -29,6 +29,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Interactive API documentation is a development aid only: elsewhere it would
+# publish the complete endpoint inventory and run third-party scripts from a
+# CDN on the origin that also serves the refresh cookie.
+_DOCS_ENABLED = settings.app_environment == "development"
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
@@ -70,6 +75,9 @@ app = FastAPI(
     version="0.1.0",
     openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 
