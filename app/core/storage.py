@@ -184,7 +184,7 @@ class StorageClient:
 
         Only meant to be called on non-production stages (see
         _get_storage_singleton()): a freshly provisioned non-prod stage's
-        own S3-compatible storage (e.g. the per-stage MinIO instance vb-deploy
+        own S3-compatible storage (e.g. the per-stage Garage instance vb-deploy
         sets up) starts out with no bucket at all, and nothing else in this
         codebase ever creates one. Idempotent - a no-op once the bucket
         exists. Deliberately not called for production: a missing/mistyped

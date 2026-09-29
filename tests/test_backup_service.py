@@ -306,6 +306,7 @@ class TestRunRestore:
         assert mock_run.call_count == 7
         restore_args = mock_run.call_args_list[3][0][0]
         assert "pg_restore" in restore_args[0]
+        assert "--no-owner" in restore_args
 
     def test_run_restore_snapshots_and_restores_local_job_history(self, backup_bucket):
         """scheduled_task_runs is stage-local (see run_backup()'s

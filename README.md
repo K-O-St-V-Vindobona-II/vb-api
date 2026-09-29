@@ -8,7 +8,7 @@ FastAPI backend for **vb** — the internal management system of Vindobona II / 
 
 - **Runtime:** Python 3.14, FastAPI, SQLAlchemy (sync), Alembic
 - **Database:** PostgreSQL 18
-- **Storage:** S3-compatible (MinIO on Dev-VPS, AWS S3 on production)
+- **Storage:** S3-compatible (Garage on non-production stages, AWS S3 on production)
 - **Scheduler:** APScheduler (async)
 - **Container:** Podman Quadlets (rootless systemd)
 
@@ -147,7 +147,7 @@ The overall idea: **once a day, every non-production stage (dev, test, qa) autom
 
 `job_downsync()` fires shortly after the production `db_backup` job (default: one hour later, so that day's dump already exists on prod S3) and does, in this fixed order:
 
-1. Mirrors the **entire** production AWS S3 bucket (`archive/`, `standesdb/`, `public/`, `db-backups/` — everything) down into this stage's own S3-compatible storage (e.g. MinIO on the Dev-VPS).
+1. Mirrors the **entire** production AWS S3 bucket (`archive/`, `standesdb/`, `public/`, `db-backups/` — everything) down into this stage's own S3-compatible storage (Garage).
 2. Immediately restores the local PostgreSQL database from the now freshly-mirrored `db-backups/` prefix (the latest prod dump) and runs `alembic upgrade head`.
 
 This is the same logic `scripts/downsync_prod.py` already performs for manual/interactive use (see [Scripts](#scripts)) — the shared prod-credential-loading and storage-building code lives in `app/services/downsync_service.py`, used by both the CLI script and the automated job. Production never registers this job at all: it's guarded twice — once via the `APP_ENVIRONMENT` check in `build_cron_jobs()`, and again inside `job_downsync()` itself as a belt-and-suspenders safety net. `POST /api/system/downsync/trigger` (requires `systemAdmin`) enqueues the exact same task on demand (`arq_pool.enqueue_job("task_downsync")`), for an immediate re-run outside the nightly schedule.
@@ -171,7 +171,7 @@ Operational scripts, re-run on demand as part of regular ops:
 | `scripts/backup_db.py` | Manually trigger a PostgreSQL backup to S3 (`--list`, `--cleanup`) |
 | `scripts/restore_db.py` | Restore PostgreSQL from S3 backup (`--list`, `--backup-name`, `--force`) |
 | `scripts/check_s3_integrity.py` | Bidirectional DB↔S3 integrity check + orphan report (read-only) |
-| `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local MinIO, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
+| `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local Garage, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/trigger_chronicles.py` | Manually trigger the chronicle-mail job for an arbitrary reference date (`--date`, `--send`, `--to`) |
 
 Full docs (usage, parameters, env vars) for every script: [`scripts/README.md`](scripts/README.md).
@@ -207,7 +207,7 @@ FastAPI-Backend für **vb** — das interne Verwaltungssystem von Vindobona II /
 
 - **Laufzeitumgebung:** Python 3.14, FastAPI, SQLAlchemy (synchron), Alembic
 - **Datenbank:** PostgreSQL 18
-- **Storage:** S3-kompatibel (MinIO auf Dev-VPS, AWS S3 in Produktion)
+- **Storage:** S3-kompatibel (Garage auf Non-Prod-Stages, AWS S3 in Produktion)
 - **Scheduler:** APScheduler (asynchron)
 - **Container:** Podman Quadlets (rootless systemd)
 
@@ -377,7 +377,7 @@ existiert) und macht in dieser festen Reihenfolge:
 
 1. Spiegelt den **gesamten** Production-AWS-S3-Bucket (`archive/`,
    `standesdb/`, `public/`, `db-backups/` — alles) auf den eigenen
-   S3-kompatiblen Storage dieser Stage herunter (z. B. MinIO auf dem Dev-VPS).
+   S3-kompatiblen Storage dieser Stage herunter (Garage).
 2. Stellt sofort die lokale PostgreSQL-Datenbank aus dem frisch
    gespiegelten `db-backups/`-Präfix wieder her (der neueste Prod-Dump) und
    führt `alembic upgrade head` aus.
@@ -429,7 +429,7 @@ Operative Skripte, bei Bedarf im Rahmen des regulären Betriebs erneut ausgefüh
 | `scripts/backup_db.py` | Manuelles PostgreSQL-Backup nach S3 anstoßen (`--list`, `--cleanup`) |
 | `scripts/restore_db.py` | PostgreSQL aus einem S3-Backup wiederherstellen (`--list`, `--backup-name`, `--force`) |
 | `scripts/check_s3_integrity.py` | Bidirektionaler DB↔S3-Konsistenzcheck + Waisen-Bericht (read-only) |
-| `scripts/downsync_prod.py` | Downsync von Prod-AWS-S3 (voller Spiegel) → lokales MinIO, danach lokale DB daraus wiederherstellen (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
+| `scripts/downsync_prod.py` | Downsync von Prod-AWS-S3 (voller Spiegel) → lokaler Garage-Storage, danach lokale DB daraus wiederherstellen (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/trigger_chronicles.py` | Chronik-Mail-Job manuell für ein beliebiges Referenzdatum anstoßen (`--date`, `--send`, `--to`) |
 
 Vollständige Doku (Aufruf, Parameter, Env-Vars) für jedes Skript: [`scripts/README.md`](scripts/README.md).

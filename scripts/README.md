@@ -103,12 +103,12 @@ podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [-
 
 Self-contained, two-step downsync onto the local non-prod stage — no
 delegation to another script. Step 1 mirrors the **entire** production
-`vindobona2-at` AWS S3 bucket into local MinIO: an exact 1:1 clone, since
+`vindobona2-at` AWS S3 bucket into local Garage: an exact 1:1 clone, since
 source and dest already share the same key structure (no legacy prefix
 remapping needed, unlike the retired `downsync_from_prod_aws.py`). Objects
 that exist locally but not in the prod source are deleted (mirror mode)
 unless `--no-delete` is passed. Step 2 restores the local PostgreSQL
-database from local MinIO's now-current `db-backups/` prefix — i.e. from
+database from local Garage's now-current `db-backups/` prefix — i.e. from
 whatever step 1 just brought down from prod — reusing
 `backup_service.run_restore()` exactly like `restore_db.py` does, then runs
 `alembic upgrade head`. The DB step therefore never talks to prod directly;
@@ -139,13 +139,13 @@ podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
 ```
 
 **Parameters:**
-- `--dry-run` — S3 step: print what would be copied/deleted without performing the sync. DB step: only print the backup that's currently newest in local MinIO (i.e. what a real run would restore), without downloading/restoring it.
+- `--dry-run` — S3 step: print what would be copied/deleted without performing the sync. DB step: only print the backup that's currently newest in local Garage (i.e. what a real run would restore), without downloading/restoring it.
 - `--yes` — skip the interactive confirmation prompt.
 - `--skip-db` — skip the DB restore step entirely.
 - `--skip-s3` — skip the S3 mirror step entirely (prod AWS credentials are then not loaded at all, since the DB step only needs local storage).
 - `--no-delete` — S3 step only: sync new/changed files but do not delete local orphans.
 
-**Relevant env vars:** `DATABASE_URL` (restore target, must be PostgreSQL), `APP_ENVIRONMENT` (must not be `production`), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (local MinIO, used by both the mirror destination and the DB restore source). Prod AWS source credentials for the S3 step are `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (a read-only IAM user scoped to the prod bucket only) — this script only reads them via `get_settings()`, agnostic to how they reach the process environment; see `vb-deploy/README.md` for how each environment wires them up.
+**Relevant env vars:** `DATABASE_URL` (restore target, must be PostgreSQL), `APP_ENVIRONMENT` (must not be `production`), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (local Garage, used by both the mirror destination and the DB restore source). Prod AWS source credentials for the S3 step are `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (a read-only IAM user scoped to the prod bucket only) — this script only reads them via `get_settings()`, agnostic to how they reach the process environment; see `vb-deploy/README.md` for how each environment wires them up.
 
 ---
 
@@ -398,13 +398,13 @@ podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [-
 
 Autarker, zweistufiger Downsync auf die lokale Non-Prod-Stage — keine
 Delegation an ein anderes Skript. Schritt 1 spiegelt den **kompletten**
-produktiven AWS-S3-Bucket `vindobona2-at` 1:1 in das lokale MinIO: ein
+produktiven AWS-S3-Bucket `vindobona2-at` 1:1 in den lokalen Garage-Storage: ein
 exakter Klon, da Quelle und Ziel bereits dieselbe Key-Struktur nutzen (kein
 Legacy-Prefix-Remapping mehr nötig, anders als beim entfernten
 `downsync_from_prod_aws.py`). Objekte, die lokal existieren, aber nicht in
 der Prod-Quelle, werden gelöscht (Mirror-Modus), außer `--no-delete` wird
 übergeben. Schritt 2 stellt die lokale PostgreSQL-Datenbank aus dem jetzt
-aktuellen `db-backups/`-Prefix des lokalen MinIO wieder her — also aus dem,
+aktuellen `db-backups/`-Prefix des lokalen Garage-Storage wieder her — also aus dem,
 was Schritt 1 gerade erst von Prod heruntergebracht hat —, nutzt dafür
 exakt `backup_service.run_restore()` wie `restore_db.py`, führt danach
 `alembic upgrade head` aus. Der DB-Schritt spricht daher nie direkt mit
@@ -436,13 +436,13 @@ podman exec vb-api python scripts/downsync_prod.py --yes  # non-interaktiv
 ```
 
 **Parameter:**
-- `--dry-run` — S3-Schritt: zeigt an, was kopiert/gelöscht würde, ohne den Sync auszuführen. DB-Schritt: gibt nur das im lokalen MinIO aktuell neueste Backup aus (also das, was ein echter Lauf wiederherstellen würde), ohne es herunterzuladen/wiederherzustellen.
+- `--dry-run` — S3-Schritt: zeigt an, was kopiert/gelöscht würde, ohne den Sync auszuführen. DB-Schritt: gibt nur das im lokalen Garage-Storage aktuell neueste Backup aus (also das, was ein echter Lauf wiederherstellen würde), ohne es herunterzuladen/wiederherzustellen.
 - `--yes` — überspringt die interaktive Bestätigungsabfrage.
 - `--skip-db` — überspringt den DB-Wiederherstellungsschritt komplett.
 - `--skip-s3` — überspringt den S3-Mirror-Schritt komplett (Prod-AWS-Credentials werden dann gar nicht erst geladen, da der DB-Schritt nur lokalen Storage braucht).
 - `--no-delete` — nur S3-Schritt: synct neue/geänderte Dateien, überspringt aber das Löschen lokaler Waisen.
 
-**Relevante Env-Vars:** `DATABASE_URL` (Restore-Ziel, muss PostgreSQL sein), `APP_ENVIRONMENT` (darf nicht `production` sein), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (lokales MinIO, sowohl Mirror-Ziel als auch DB-Restore-Quelle). Die Prod-AWS-Quell-Credentials für den S3-Schritt sind `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (ein rein lesender IAM-User, nur auf den Prod-Bucket beschränkt) — dieses Skript liest sie nur über `get_settings()`, unabhängig davon, wie sie in die Prozessumgebung gelangen; siehe `vb-deploy/README.md` für die Verdrahtung je Umgebung.
+**Relevante Env-Vars:** `DATABASE_URL` (Restore-Ziel, muss PostgreSQL sein), `APP_ENVIRONMENT` (darf nicht `production` sein), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (lokaler Garage-Storage, sowohl Mirror-Ziel als auch DB-Restore-Quelle). Die Prod-AWS-Quell-Credentials für den S3-Schritt sind `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (ein rein lesender IAM-User, nur auf den Prod-Bucket beschränkt) — dieses Skript liest sie nur über `get_settings()`, unabhängig davon, wie sie in die Prozessumgebung gelangen; siehe `vb-deploy/README.md` für die Verdrahtung je Umgebung.
 
 ---
 

@@ -4,15 +4,15 @@
 Self-contained, two-step downsync:
 
 1. Mirrors the entire production `vindobona2-at` AWS S3 bucket into the
-   local MinIO instance — an exact 1:1 clone (source and dest use the same
+   local Garage instance — an exact 1:1 clone (source and dest use the same
    key structure, so no remapping is needed). Local-only objects are
    deleted unless --no-delete is passed.
 2. Restores the local PostgreSQL database from the now-current local
-   MinIO's `db-backups/` prefix (i.e. from whatever the mirror step just
+   Garage's `db-backups/` prefix (i.e. from whatever the mirror step just
    brought down from prod) and runs `alembic upgrade head`.
 
 The DB step reads exclusively from local storage, never from prod
-directly — after step 1, local MinIO already holds an exact copy of
+directly — after step 1, local Garage already holds an exact copy of
 prod's backups, so this is the same operation restore_db.py already
 performs. Refuses to run outside a non-prod stage.
 
@@ -96,7 +96,7 @@ def _run_db_restore(local_storage: StorageClient, dry_run: bool) -> None:
         keys = local_storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
         if not keys:
             print(
-                "  WOULD RESTORE: no backups currently in local MinIO "
+                "  WOULD RESTORE: no backups currently in local Garage "
                 "(run without --skip-s3 and --dry-run first to mirror one down)."
             )
             return
@@ -181,7 +181,7 @@ def main() -> None:
     if not args.skip_s3:
         prod_storage = _build_prod_storage()
         print(
-            f"=== S3 mirror (prod {get_settings().aws_prod_bucket} -> local MinIO) ==="
+            f"=== S3 mirror (prod {get_settings().aws_prod_bucket} -> local Garage) ==="
         )
         result = _run_s3_mirror(
             prod_storage, local_storage, args.dry_run, args.no_delete
@@ -191,7 +191,7 @@ def main() -> None:
             sys.exit(1)
 
     if not args.skip_db:
-        print("=== DB restore (from local MinIO db-backups/) ===")
+        print("=== DB restore (from local Garage db-backups/) ===")
         _run_db_restore(local_storage, args.dry_run)
 
 

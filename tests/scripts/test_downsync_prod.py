@@ -155,7 +155,7 @@ class TestStepSkipping:
 
     def test_s3_errors_abort_before_db_step(self) -> None:
         """The S3 mirror must run before the DB restore (the DB step reads
-        from local MinIO, which the mirror step just populated) — if the
+        from local Garage, which the mirror step just populated) — if the
         mirror reports errors, the DB step must not run against
         potentially-incomplete local data."""
         with (
@@ -200,7 +200,7 @@ class TestRunDbRestore:
         """Regression guard: the DB step must never touch prod directly -
         it only ever receives the local StorageClient, since it relies on
         the S3 mirror step having already brought prod's latest backup
-        down into local MinIO."""
+        down into local Garage."""
         local_storage = MagicMock()
         completed = subprocess.CompletedProcess(args=[], returncode=0)
 

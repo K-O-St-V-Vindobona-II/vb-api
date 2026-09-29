@@ -446,6 +446,11 @@ def run_restore(
         _run_pg_subprocess(
             [
                 pg_restore,
+                # The connecting role owns the restored schema and its objects
+                # instead of whatever role the dump was made under - required
+                # since the application no longer connects as the database's
+                # bootstrap owner (see the non-superuser application role).
+                "--no-owner",
                 f"--host={host}",
                 f"--port={port}",
                 f"--username={user}",
