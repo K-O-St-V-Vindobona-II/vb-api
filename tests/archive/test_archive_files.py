@@ -298,11 +298,10 @@ class TestUpload:
         client,
         db_session,
     ):
-        """File > 6MB is rejected."""
+        """A file one kilobyte above the maximum is rejected."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        # 6145 KB = above the 6144 KB maximum
-        content = os.urandom(6145 * 1024)
+        content = os.urandom((archive_service.UPLOAD_MAX_KB + 1) * 1024)
         resp = client.post(
             "/api/archive/upload",
             files={
@@ -312,6 +311,38 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+
+    def test_a_ten_megabyte_file_is_accepted(
+        self,
+        client,
+        db_session,
+    ):
+        """The upload limit is ten megabytes. The file travels through the
+        request body limit as well, which has to leave room for the multipart
+        framing around it."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        content = _valid_file_content(10 * 1024)
+        resp = client.post(
+            "/api/archive/upload",
+            files={
+                "file": ("ten-megabytes.jpg", content, "image/jpeg"),
+            },
+            data={"description": "Ten megabyte upload"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+
+    def test_announced_limit_is_ten_megabytes(
+        self,
+        client,
+        db_session,
+    ):
+        """The frontend shows and checks the limit it gets from this endpoint."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        resp = client.get("/api/archive/upload/config", headers=headers)
+        assert resp.json()["maxfilesize"] == 10 * 1024
 
     def test_upload_never_reads_more_than_the_limit_plus_one_byte(
         self,

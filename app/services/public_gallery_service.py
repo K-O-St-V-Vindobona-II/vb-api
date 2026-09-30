@@ -1,12 +1,11 @@
 import hashlib
-import io
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, UploadFile, status
-from PIL import Image as PILImage
 from sqlalchemy import func
 
 from app.core.storage import S3_PATH_PUBLIC_GALLERY, StorageClient
+from app.core.upload_images import inspect_upload_image
 from app.models.public_gallery_image import PublicGalleryImage
 from app.services.reorder_service import find_reorder_neighbor
 
@@ -79,13 +78,14 @@ def upload_image(
         )
 
     try:
-        pil_img = PILImage.open(io.BytesIO(content))
-        width, height = pil_img.size
+        uploaded = inspect_upload_image(content)
     except OSError, ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Datei ist kein gültiges Bild.",
         ) from None
+    content_type = uploaded.content_type
+    width, height = uploaded.width, uploaded.height
 
     sha256 = hashlib.sha256(content).hexdigest()
     duplicate = db.query(PublicGalleryImage).filter_by(sha256_hash=sha256).first()

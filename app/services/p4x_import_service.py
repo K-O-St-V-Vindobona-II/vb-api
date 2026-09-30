@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     from app.models.p4x_account import P4xAccount
 
 from app.models.p4x_transaction import P4xTransaction
-from app.services import p4x_category_service
+from app.schemas.p4x import ImportGiven, ImportResult
+from app.services import p4x_category_service, p4x_response_builders
 
 GEORGE_BIC = "GIBAATWWXXX"
 
@@ -328,3 +329,23 @@ def import_and_apply_filters(
     p4x_category_service.apply_all_category_filters_core(db)
     db.commit()
     return summary
+
+
+def run_george_import(db: Session, account: P4xAccount, raw_json: str) -> ImportResult:
+    """Parse an uploaded George export and, when valid, import it into `account`."""
+    parse_result = parse_george_json(account.bic or "", raw_json)
+    if not parse_result.success:
+        return ImportResult(
+            given=ImportGiven(p4x_account_id=account.id, parsed=False),
+            message=parse_result.message,
+        )
+
+    summary = import_and_apply_filters(
+        db, account, parse_result.entries, json.loads(raw_json)
+    )
+    db.refresh(account)
+    return ImportResult(
+        given=ImportGiven(p4x_account_id=account.id, parsed=True),
+        summary=summary,
+        account=p4x_response_builders.build_account_response(db, account),
+    )

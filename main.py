@@ -101,8 +101,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 from app.core.activity_logger import ActivityLoggingMiddleware
+from app.core.body_limit import MaxBodySizeMiddleware
 
 app.add_middleware(ActivityLoggingMiddleware)
+# Outside the activity logger, which reads the request body itself; inside the
+# security headers and CORS, so a 413 carries them too.
+app.add_middleware(MaxBodySizeMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Register SlowAPI Rate Limiter ---

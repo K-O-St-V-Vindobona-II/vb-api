@@ -1,6 +1,5 @@
 import base64
 import io
-import json
 import re
 import uuid
 import zipfile
@@ -41,7 +40,6 @@ from app.schemas.p4x import (
     Filter2DirectPreviewResponse,
     Filter2DirectResultResponse,
     FilterHitResponse,
-    ImportGiven,
     ImportResult,
     PaginatedTransactions,
     PartnerSearchResult,
@@ -66,6 +64,8 @@ from app.services import (
 p4x_router = APIRouter()
 
 PREVIEW_LIMIT = 10
+# Largest import file and transaction attachment, in bytes.
+MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def delete_account(
 
 
 @p4x_router.post("/admin/accounts/{account_id}/import")
-async def import_transactions(
+def import_transactions(
     account_id: uuid.UUID,
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
@@ -242,38 +242,22 @@ async def import_transactions(
             detail="Der Name des Upload-Files enthält nicht die IBAN des Kontos.",
         )
 
-    content = await file.read()
-    if len(content) > 3 * 1024 * 1024:
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Datei darf maximal 3 MB groß sein.",
         )
 
-    raw_json = content.decode("utf-8")
-    parse_result = p4x_import_service.parse_george_json(account.bic or "", raw_json)
+    try:
+        raw_json = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Die Datei ist nicht UTF-8-kodiert.",
+        ) from exc
 
-    if not parse_result.success:
-        return ImportResult(
-            given=ImportGiven(p4x_account_id=account.id, parsed=False),
-            message=parse_result.message,
-        )
-
-    original_structs = json.loads(raw_json)
-    summary = p4x_import_service.import_and_apply_filters(
-        db,
-        account,
-        parse_result.entries,
-        original_structs,
-    )
-
-    db.refresh(account)
-    account_data = p4x_response_builders.build_account_response(db, account)
-
-    return ImportResult(
-        given=ImportGiven(p4x_account_id=account.id, parsed=True),
-        summary=summary,
-        account=account_data,
-    )
+    return p4x_import_service.run_george_import(db, account, raw_json)
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +482,7 @@ def set_transaction_partner(
 
 
 @p4x_router.put("/admin/transactions/{transaction_id}")
-async def update_transaction(
+def update_transaction(
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
@@ -518,22 +502,16 @@ async def update_transaction(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Nur PDF-Dateien sind erlaubt.",
             )
-        file_bytes = await file.read()
-        if len(file_bytes) > 3 * 1024 * 1024:
+        file_bytes = file.file.read(MAX_UPLOAD_BYTES + 1)
+        if len(file_bytes) > MAX_UPLOAD_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Datei darf maximal 3 MB groß sein.",
             )
 
-    p4x_partner_service.update_transaction_meta(
-        db,
-        tx,
-        comment,
-        file_bytes,
-        delete_attachment,
+    return p4x_response_builders.update_transaction_and_build_response(
+        db, tx, comment, file_bytes, delete_attachment
     )
-    db.refresh(tx)
-    return p4x_response_builders.build_transaction_response(tx, db)
 
 
 @p4x_router.get("/admin/categories")

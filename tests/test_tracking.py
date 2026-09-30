@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import bcrypt
 
+from app.core.datetime_utils import local_today
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -79,9 +80,13 @@ def _login_unprivileged(db):
 
 
 def _insert_sent_email(
-    db, template_key: str, subject: str = "Test", to: str = "a@b.at"
+    db,
+    template_key: str,
+    subject: str = "Test",
+    to: str = "a@b.at",
+    created_at: datetime | None = None,
 ):
-    now = datetime.now(UTC)
+    now = created_at or datetime.now(UTC)
     e = SentEmail(
         mail_from="test@vb.at",
         to=to,
@@ -269,14 +274,38 @@ class TestSentEmailsList:
     def test_year_month_filter(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        now = datetime.now(UTC)
+        # The service filters by the calendar month of the app time zone, so the
+        # month to ask for must come from there too, not from UTC.
+        today = local_today()
         _insert_sent_email(db_session, "password-reset")
         resp = client.get(
-            f"/api/tracking/sent-emails?year={now.year}&month={now.month}",
+            f"/api/tracking/sent-emails?year={today.year}&month={today.month}",
             headers=headers,
         )
         data = resp.json()
         assert data["total"] >= 1
+
+    def test_month_follows_the_app_time_zone_at_the_month_boundary(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        # 22:30 UTC on 30 September is 00:30 on 1 October in Vienna.
+        _insert_sent_email(
+            db_session,
+            "password-reset",
+            created_at=datetime(2026, 9, 30, 22, 30, tzinfo=UTC),
+        )
+
+        october = client.get(
+            "/api/tracking/sent-emails?year=2026&month=10", headers=headers
+        ).json()
+        september = client.get(
+            "/api/tracking/sent-emails?year=2026&month=9", headers=headers
+        ).json()
+
+        assert october["total"] == 1
+        assert september["total"] == 0
 
 
 # --- Sent Email Detail ---

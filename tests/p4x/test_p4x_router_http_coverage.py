@@ -6,6 +6,7 @@ filter2direct, category-direct assignment, fee config CRUD, fee member
 lookups, SumUp balance, and the summary export.
 """
 
+import asyncio
 import base64
 import io
 import json
@@ -15,10 +16,15 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
 import bcrypt
+import pytest
+from fastapi import HTTPException, UploadFile
+from starlette.datastructures import Headers
 
 if TYPE_CHECKING:
     from decimal import Decimal
 
+from app.api.router_includes import p4x as p4x_routes
+from app.core.body_limit import MAX_UPLOAD_BODY_BYTES
 from app.models.enums import SubjectMode
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -29,6 +35,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
+from app.services import p4x_import_service, p4x_partner_service
 from app.services.auth_service import create_user_session
 
 
@@ -289,6 +296,152 @@ class TestImportEndpointHttp:
         assert data["account"]["transactions_count"] == 1
 
 
+def _spy_on_event_loop(monkeypatch, module, name: str) -> list[bool]:
+    """Wrap `module.name` and record whether each call ran on the event loop.
+
+    `asyncio.get_running_loop()` only succeeds in the thread that runs the loop,
+    so a call from the thread pool (where blocking work belongs) raises.
+    """
+    real = getattr(module, name)
+    on_loop: list[bool] = []
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            on_loop.append(False)
+        else:
+            on_loop.append(True)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, spy)
+    return on_loop
+
+
+class TestImportRequestHandling:
+    def test_non_utf8_file_is_a_422_not_a_500(self, db_session, client):
+        _seed(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        account = _create_account(db_session)
+
+        resp = client.post(
+            f"/api/p4x/admin/accounts/{account.id}/import",
+            files={
+                "file": ("AT942011100005301947.json", b"\xff\xfe[]", "application/json")
+            },
+            headers=headers,
+        )
+
+        assert resp.status_code == 422
+        assert "UTF-8" in resp.json()["detail"]
+
+    def test_body_above_the_upload_limit_is_refused_before_the_handler(
+        self, db_session, client, monkeypatch
+    ):
+        _seed(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        account = _create_account(db_session)
+        reached: list[bool] = []
+        monkeypatch.setattr(
+            p4x_import_service,
+            "parse_george_json",
+            lambda *_args: reached.append(True),
+        )
+
+        resp = client.post(
+            f"/api/p4x/admin/accounts/{account.id}/import",
+            files={
+                "file": (
+                    "AT942011100005301947.json",
+                    b"x" * (MAX_UPLOAD_BODY_BYTES + 1),
+                    "text/plain",
+                )
+            },
+            headers=headers,
+        )
+
+        assert resp.status_code == 413
+        assert reached == []
+
+    def test_the_import_does_not_run_on_the_event_loop(
+        self, db_session, client, monkeypatch
+    ):
+        _seed(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        account = _create_account(db_session)
+        on_loop = _spy_on_event_loop(
+            monkeypatch, p4x_import_service, "parse_george_json"
+        )
+
+        resp = client.post(
+            f"/api/p4x/admin/accounts/{account.id}/import",
+            files={"file": ("AT942011100005301947.json", b"[]", "application/json")},
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert on_loop == [False]
+
+
+class _RecordingFile(io.BytesIO):
+    """An upload body that remembers how much each read asked for."""
+
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.read_sizes: list[int | None] = []
+
+    def read(self, size: int | None = -1) -> bytes:
+        self.read_sizes.append(size)
+        return super().read(size)
+
+
+class TestUploadReadIsBounded:
+    """An oversized upload is refused after reading one byte more than the limit,
+    not after buffering the whole file."""
+
+    _LIMIT = 3 * 1024 * 1024
+
+    def test_import_reads_at_most_one_byte_beyond_the_limit(self, db_session):
+        _seed(db_session)
+        admin = _create_admin(db_session)
+        account = _create_account(db_session)
+        upload = _RecordingFile(b"x" * (self._LIMIT * 2))
+
+        with pytest.raises(HTTPException) as refused:
+            p4x_routes.import_transactions(
+                account.id,
+                UploadFile(file=upload, filename="AT942011100005301947.json"),
+                db_session,
+                admin,
+            )
+
+        assert refused.value.status_code == 422
+        assert upload.read_sizes == [self._LIMIT + 1]
+
+    def test_attachment_reads_at_most_one_byte_beyond_the_limit(self, db_session):
+        _seed(db_session)
+        admin = _create_admin(db_session)
+        tx = _create_transaction(db_session, _create_account(db_session))
+        upload = _RecordingFile(b"x" * (self._LIMIT * 2))
+
+        with pytest.raises(HTTPException) as refused:
+            p4x_routes.update_transaction(
+                tx.id,
+                db_session,
+                admin,
+                comment="x",
+                delete_attachment=False,
+                file=UploadFile(
+                    file=upload,
+                    filename="beleg.pdf",
+                    headers=Headers({"content-type": "application/pdf"}),
+                ),
+            )
+
+        assert refused.value.status_code == 422
+        assert upload.read_sizes == [self._LIMIT + 1]
+
+
 class TestTransactionListingsHttp:
     def test_by_month_success_with_start_and_end_balance(self, db_session, client):
         _seed(db_session)
@@ -512,6 +665,27 @@ class TestUpdateTransactionValidationHttp:
         data = resp.json()
         assert data["comment"] == "Belegkopie"
         assert data["has_attachment"] is True
+
+
+class TestUpdateTransactionRequestHandling:
+    def test_the_update_does_not_run_on_the_event_loop(
+        self, db_session, client, monkeypatch
+    ):
+        _seed(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        tx = _create_transaction(db_session, _create_account(db_session))
+        on_loop = _spy_on_event_loop(
+            monkeypatch, p4x_partner_service, "update_transaction_meta"
+        )
+
+        resp = client.put(
+            f"/api/p4x/admin/transactions/{tx.id}",
+            data={"comment": "Beleg", "delete_attachment": "false"},
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert on_loop == [False]
 
 
 class TestCategoryFilterEndpointsHttp:
