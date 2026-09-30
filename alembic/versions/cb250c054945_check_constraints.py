@@ -213,8 +213,18 @@ def upgrade() -> None:
     # be applied cleanly.
     op.execute("DELETE FROM p4x_category_filters WHERE id = 80")
 
+    # Adding a constraint as NOT VALID is a metadata change. Validating it scans
+    # the table, and that scan must not run under the ACCESS EXCLUSIVE lock that
+    # adding the constraint holds until its transaction ends, so each VALIDATE
+    # runs in its own transaction and only takes a lock that lets reads and
+    # writes continue. If a validation fails, the constraint stays NOT VALID:
+    # fix the data and run ALTER TABLE ... VALIDATE CONSTRAINT by hand.
     for table, name, condition in _CHECK_CONSTRAINTS:
-        op.create_check_constraint(name, table, condition)
+        op.create_check_constraint(name, table, condition, postgresql_not_valid=True)
+
+    with op.get_context().autocommit_block():
+        for table, name, _condition in _CHECK_CONSTRAINTS:
+            op.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
 
 
 def downgrade() -> None:

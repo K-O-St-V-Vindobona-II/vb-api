@@ -74,9 +74,11 @@ class Member(Base):
         ForeignKey("states.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    gruender: Mapped[bool | None] = mapped_column(default=False)
-    entlassen: Mapped[bool | None] = mapped_column(default=False)
-    verstorben: Mapped[bool | None] = mapped_column(default=False)
+    gruender: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    entlassen: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    verstorben: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         default=None,
@@ -154,7 +156,9 @@ class Member(Base):
     grabadresse: Mapped[str | None]
 
     # --- Preferences ---
-    chroniclemail: Mapped[bool | None] = mapped_column(default=False)
+    chroniclemail: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
 
     # --- P4x (Financial System) ---
     p4x_init_date: Mapped[date | None] = mapped_column(Date)
@@ -168,7 +172,9 @@ class Member(Base):
     auth_lastlogin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     auth_lastsignal: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     auth_lastlogout: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    auth_locked: Mapped[bool | None] = mapped_column(default=True)
+    # Locked unless a row says otherwise: a row created outside the ORM (a
+    # restore, a manual insert) must not be able to sign in by omission.
+    auth_locked: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
 
     # --- Audit ---
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

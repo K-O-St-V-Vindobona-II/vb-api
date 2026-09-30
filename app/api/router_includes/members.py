@@ -28,10 +28,10 @@ def read_current_user(
         cn=current_user.cn,
         default_image=current_user.default_image,
         org_id=current_user.org_id or "",
-        auth_locked=current_user.auth_locked or False,
+        auth_locked=current_user.auth_locked,
         permissions=calculate_permissions(current_user),
         google_linked=current_user.google_linked,
-        chroniclemail=current_user.chroniclemail or False,
+        chroniclemail=current_user.chroniclemail,
         is_fee_member=p4x_fee_balance_service.is_fee_member(current_user),
         session_idle_timeout=SESSION_IDLE_TIMEOUT_MINUTES,
     )

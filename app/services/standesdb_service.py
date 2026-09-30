@@ -268,11 +268,11 @@ def _build_tree_node(
     return TreeNodeResponse(
         id=member.id,
         cn=member.cn,
-        gruender=member.gruender or False,
+        gruender=member.gruender,
         org_id=member.org_id,
         state_id=member.state_id,
-        entlassen=member.entlassen or False,
-        verstorben=member.verstorben or False,
+        entlassen=member.entlassen,
+        verstorben=member.verstorben,
         children=[_build_tree_node(c, by_parent) for c in by_parent.get(member.id, [])],
     )
 
@@ -355,11 +355,11 @@ def get_member_detail(
             TreeNodeResponse(
                 id=current.id,
                 cn=current.cn,
-                gruender=current.gruender or False,
+                gruender=current.gruender,
                 org_id=current.org_id,
                 state_id=current.state_id,
-                entlassen=current.entlassen or False,
-                verstorben=current.verstorben or False,
+                entlassen=current.entlassen,
+                verstorben=current.verstorben,
             ).model_dump()
         )
         current = (
@@ -388,15 +388,15 @@ def get_member_detail(
         org_label=member.org.label if member.org else None,
         state_id=member.state_id,
         state_label=member.state.label if member.state else None,
-        gruender=member.gruender or False,
-        entlassen=member.entlassen or False,
-        verstorben=member.verstorben or False,
+        gruender=member.gruender,
+        entlassen=member.entlassen,
+        verstorben=member.verstorben,
         grabadresse=member.grabadresse,
         parent_id=member.parent_id,
         parent_cn=parent_cn,
         default_image=member.default_image,
-        chroniclemail=member.chroniclemail or False,
-        auth_locked=member.auth_locked if member.auth_locked is not None else True,
+        chroniclemail=member.chroniclemail,
+        auth_locked=member.auth_locked,
         email=member.email,
         email_verified_at=(
             str(member.email_verified_at) if member.email_verified_at else None

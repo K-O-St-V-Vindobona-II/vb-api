@@ -9,4 +9,4 @@ if TYPE_CHECKING:
 def toggle_chroniclemail(db: Session, member: Member) -> bool:
     member.chroniclemail = not member.chroniclemail
     db.commit()
-    return member.chroniclemail or False
+    return member.chroniclemail

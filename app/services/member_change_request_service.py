@@ -156,9 +156,9 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "couleurname": member.couleurname,
         "org_id": member.org_id,
         "state_id": member.state_id,
-        "gruender": member.gruender or False,
-        "entlassen": member.entlassen or False,
-        "verstorben": member.verstorben or False,
+        "gruender": member.gruender,
+        "entlassen": member.entlassen,
+        "verstorben": member.verstorben,
         "parent_id": member.parent_id,
         "grabadresse": member.grabadresse,
         "geburtsdatum": member.geburtsdatum,
@@ -195,8 +195,8 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "mitgliedschaften": member.mitgliedschaften,
         "verbandchargen": member.verbandchargen,
         "anmerkungen": member.anmerkungen,
-        "chroniclemail": member.chroniclemail or False,
-        "auth_locked": (member.auth_locked if member.auth_locked is not None else True),
+        "chroniclemail": member.chroniclemail,
+        "auth_locked": member.auth_locked,
         "roles_history": [
             {
                 "id": mr.role_id,
