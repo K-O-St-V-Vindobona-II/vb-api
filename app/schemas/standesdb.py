@@ -835,6 +835,12 @@ class MyChangeRequestResponse(BaseModel):
 
 class MemberChangeRequestDecisionRequest(StrictInputModel):
     field_decisions: dict[str, Literal["approved", "rejected"]]
+    # The updated_at of the request as the admin's review page loaded it. The
+    # member may overwrite the same pending row while the page is open, so a
+    # decision is only valid for exactly the values the admin saw.
+    # strict=False: the ISO-8601 string of the JSON body is parsed into a
+    # datetime (same reasoning as the date fields of the save requests).
+    expected_updated_at: UtcDatetime = Field(strict=False)
 
 
 class SearchResultItem(BaseModel):
