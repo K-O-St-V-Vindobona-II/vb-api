@@ -75,6 +75,11 @@ def verify_refresh_secret(plain: str, hashed: str) -> bool:
     return hashlib.sha256(plain.encode()).hexdigest() == hashed
 
 
+def hash_reset_token(token: str) -> str:
+    """Digest under which a password-reset token is stored (never the token itself)."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def build_refresh_cookie_value(session_id: str, refresh_secret: str) -> str:
     return f"{session_id}:{refresh_secret}"
 

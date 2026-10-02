@@ -6,9 +6,10 @@ queries.py for the dedicated N+1 query-count test.
 """
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import bcrypt
+from sqlalchemy import event
 
 from app.models.badge import Badge
 from app.models.key import Key
@@ -107,6 +108,18 @@ def _self_service_payload(member: Member, **overrides: object) -> dict[str, obje
     }
     base.update(overrides)
     return base
+
+
+def _decide_payload(
+    request: MemberChangeRequest, decisions: dict[str, str]
+) -> dict[str, object]:
+    """Body of a decide call for the version of the request that the given
+    (freshly loaded) ORM object holds - what the admin's review page would
+    echo back as expected_updated_at."""
+    return {
+        "field_decisions": decisions,
+        "expected_updated_at": request.updated_at.isoformat(),
+    }
 
 
 class TestSubmitOwnChangeRequest:
@@ -439,7 +452,9 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},  # missing "vorname"
+            json=_decide_payload(
+                request, {"nachname": "approved"}
+            ),  # missing "vorname"
             headers=_login(db_session, admin),
         )
 
@@ -455,7 +470,7 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=_login(db_session, vbn_admin),
         )
 
@@ -471,7 +486,7 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=_login(db_session, admin),
         )
 
@@ -494,7 +509,7 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "rejected"}},
+            json=_decide_payload(request, {"nachname": "rejected"}),
             headers=_login(db_session, admin),
         )
 
@@ -516,12 +531,9 @@ class TestDecideMemberChangeRequest:
 
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={
-                "field_decisions": {
-                    "nachname": "approved",
-                    "vorname": "rejected",
-                }
-            },
+            json=_decide_payload(
+                request, {"nachname": "approved", "vorname": "rejected"}
+            ),
             headers=_login(db_session, admin),
         )
 
@@ -541,7 +553,7 @@ class TestDecideMemberChangeRequest:
 
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"email": "approved"}},
+            json=_decide_payload(request, {"email": "approved"}),
             headers=_login(db_session, admin),
         )
 
@@ -579,7 +591,7 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=_login(db_session, admin),
         )
         assert resp.status_code == 200
@@ -613,7 +625,7 @@ class TestDecideMemberChangeRequest:
 
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=_login(db_session, admin),
         )
 
@@ -647,7 +659,9 @@ class TestDecideMemberChangeRequest:
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"vorname": "approved", "nachname": "approved"}},
+            json=_decide_payload(
+                request, {"vorname": "approved", "nachname": "approved"}
+            ),
             headers=_login(db_session, admin),
         )
 
@@ -663,17 +677,202 @@ class TestDecideMemberChangeRequest:
         headers = _login(db_session, admin)
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=headers,
         )
 
         resp = client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=headers,
         )
 
         assert resp.status_code == 409
+
+    def test_decision_for_a_version_the_member_has_since_overwritten_returns_409(
+        self, db_session, client
+    ):
+        """Regression: the member's resubmission overwrites the pending row
+        in place, so a decision made on the diff the admin loaded earlier must
+        not apply the newer values the admin never saw."""
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member22@test.at")
+        admin = _create_admin(db_session, email="admin22@test.at")
+        admin_headers = _login(db_session, admin)
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Harmlos"
+        )
+        reviewed = client.get(
+            f"/api/standesdb/member-change-requests/{request.id}",
+            headers=admin_headers,
+        ).json()
+
+        client.post(
+            "/api/standesdb/members/me/change-request",
+            json=_self_service_payload(member, nachname="Boesartig"),
+            headers=_login(db_session, member),
+        )
+        resp = client.post(
+            f"/api/standesdb/member-change-requests/{request.id}/decide",
+            json={
+                "field_decisions": {"nachname": "approved"},
+                "expected_updated_at": reviewed["updated_at"],
+            },
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 409
+        assert "geändert" in resp.json()["detail"]
+        db_session.expire_all()
+        assert member.nachname == "Mustermann"
+        assert request.status.value == "pending"
+
+    def test_decision_for_the_reloaded_version_applies_the_new_values(
+        self, db_session, client
+    ):
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member23@test.at")
+        admin = _create_admin(db_session, email="admin23@test.at")
+        admin_headers = _login(db_session, admin)
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Harmlos"
+        )
+        client.post(
+            "/api/standesdb/members/me/change-request",
+            json=_self_service_payload(member, nachname="Korrigiert"),
+            headers=_login(db_session, member),
+        )
+        reloaded = client.get(
+            f"/api/standesdb/member-change-requests/{request.id}",
+            headers=admin_headers,
+        ).json()
+
+        resp = client.post(
+            f"/api/standesdb/member-change-requests/{request.id}/decide",
+            json={
+                "field_decisions": {"nachname": "approved"},
+                "expected_updated_at": reloaded["updated_at"],
+            },
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 200
+        db_session.expire_all()
+        assert member.nachname == "Korrigiert"
+
+    def test_the_token_of_the_detail_response_is_accepted_as_it_is(
+        self, db_session, client
+    ):
+        """The review page echoes the updated_at string of the detail
+        response; the ISO round trip must not lose precision."""
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member24@test.at")
+        admin = _create_admin(db_session, email="admin24@test.at")
+        admin_headers = _login(db_session, admin)
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Geaendert"
+        )
+        detail = client.get(
+            f"/api/standesdb/member-change-requests/{request.id}",
+            headers=admin_headers,
+        ).json()
+
+        resp = client.post(
+            f"/api/standesdb/member-change-requests/{request.id}/decide",
+            json={
+                "field_decisions": {"nachname": "rejected"},
+                "expected_updated_at": detail["updated_at"],
+            },
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 200
+
+    def test_token_newer_than_the_stored_version_returns_409(self, db_session, client):
+        """Only the exact version the admin loaded is accepted: a token that
+        lies after the stored updated_at can never have been served."""
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member27@test.at")
+        admin = _create_admin(db_session, email="admin27@test.at")
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Geaendert"
+        )
+        payload = _decide_payload(request, {"nachname": "approved"})
+        payload["expected_updated_at"] = (
+            request.updated_at + timedelta(seconds=1)
+        ).isoformat()
+
+        resp = client.post(
+            f"/api/standesdb/member-change-requests/{request.id}/decide",
+            json=payload,
+            headers=_login(db_session, admin),
+        )
+
+        assert resp.status_code == 409
+        db_session.expire_all()
+        assert member.nachname == "Mustermann"
+        assert request.status.value == "pending"
+
+    def test_missing_or_malformed_token_returns_422(self, db_session, client):
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member25@test.at")
+        admin = _create_admin(db_session, email="admin25@test.at")
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Geaendert"
+        )
+        url = f"/api/standesdb/member-change-requests/{request.id}/decide"
+        headers = _login(db_session, admin)
+
+        missing = client.post(
+            url, json={"field_decisions": {"nachname": "approved"}}, headers=headers
+        )
+        malformed = client.post(
+            url,
+            json={
+                "field_decisions": {"nachname": "approved"},
+                "expected_updated_at": "yesterday",
+            },
+            headers=headers,
+        )
+
+        assert missing.status_code == 422
+        assert malformed.status_code == 422
+        db_session.expire_all()
+        assert member.nachname == "Mustermann"
+
+    def test_decision_locks_the_request_row(self, db_session, client):
+        """The member's resubmission is an UPDATE of the same row: holding a
+        row lock for the length of the decision makes it wait instead of
+        slipping in between the version check and the commit. Only the
+        request row is locked (not the joined member row)."""
+        _seed_base(db_session)
+        member = _create_member(db_session, email="member26@test.at")
+        admin = _create_admin(db_session, email="admin26@test.at")
+        request = self._submit_and_get_request(
+            db_session, client, member, nachname="Geaendert"
+        )
+        bind = db_session.get_bind()
+        statements: list[str] = []
+
+        def _capture(_conn, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement)
+
+        event.listen(bind, "before_cursor_execute", _capture)
+        try:
+            resp = client.post(
+                f"/api/standesdb/member-change-requests/{request.id}/decide",
+                json=_decide_payload(request, {"nachname": "approved"}),
+                headers=_login(db_session, admin),
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", _capture)
+
+        assert resp.status_code == 200
+        assert any(
+            "FROM member_change_requests" in sql
+            and "FOR UPDATE OF member_change_requests" in sql
+            for sql in statements
+        )
 
     def test_notifies_member_of_resolution(self, db_session, client, mock_arq_pool):
         _seed_base(db_session)
@@ -689,7 +888,7 @@ class TestDecideMemberChangeRequest:
 
         client.post(
             f"/api/standesdb/member-change-requests/{request.id}/decide",
-            json={"field_decisions": {"nachname": "approved"}},
+            json=_decide_payload(request, {"nachname": "approved"}),
             headers=_login(db_session, admin),
         )
 

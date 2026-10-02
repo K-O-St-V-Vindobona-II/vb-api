@@ -1,5 +1,4 @@
 import hashlib
-import io
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -7,7 +6,6 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
-from PIL import Image as PILImage
 
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
@@ -16,6 +14,7 @@ from app.core.storage import (
     StorageClient,
     generate_thumbnail,
 )
+from app.core.upload_images import inspect_upload_image
 from app.models.standesdb_image import StandesdbImage
 
 if TYPE_CHECKING:
@@ -199,13 +198,14 @@ def upload_image(
         )
 
     try:
-        pil_img = PILImage.open(io.BytesIO(content))
-        width, height = pil_img.size
+        uploaded = inspect_upload_image(content)
     except OSError, ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Datei ist kein gültiges Bild.",
         ) from None
+    content_type = uploaded.content_type
+    width, height = uploaded.width, uploaded.height
 
     sha256 = hashlib.sha256(content).hexdigest()
 

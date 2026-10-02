@@ -10,8 +10,10 @@ worker's log stream requires knowing arq's own convention.
 
 This filter makes it explicit — it prefixes each of arq's job-lifecycle
 log lines with `[scheduled]` or `[triggered]`, purely by checking whether
-that `ref` contains a colon, without touching arq's own timing/argument/
-result output or any job execution logic.
+that `ref` contains a colon, without touching arq's own timing/result
+output or any job execution logic. The one thing it does take out is the
+rendered argument list of the job-start line, because the arguments carry
+secrets and personal data (see `_without_job_arguments()`).
 
 The filter intentionally matches on the exact, literal message templates
 arq uses for those log calls (verified against the pinned arq version)
@@ -36,9 +38,12 @@ carries the distinction that arq's own log line discards.
 
 import logging
 
+_JOB_START_TEMPLATE = "%6.2fs → %s(%s)%s"
+_ARGUMENTS_PLACEHOLDER = "<arguments hidden>"
+
 _JOB_LIFECYCLE_TEMPLATES: frozenset[str] = frozenset(
     {
-        "%6.2fs → %s(%s)%s",
+        _JOB_START_TEMPLATE,
         "%6.2fs ← %s ● %s",
         "%6.2fs ↻ %s retrying job in %0.2fs",
         "%6.2fs ↻ %s cancelled, will be run again",
@@ -61,8 +66,20 @@ class TaskOriginLogFilter(logging.Filter):
         if not isinstance(ref, str):
             return True
         origin = "triggered" if ":" in ref else "scheduled"
+        if record.msg == _JOB_START_TEMPLATE:
+            record.args = _without_job_arguments(record.args)
         record.msg = f"[{origin}] {record.msg}"
         return True
+
+
+def _without_job_arguments(args: tuple[object, ...]) -> tuple[object, ...]:
+    """Replaces the rendered job arguments of a job-start line.
+
+    arq prints `function(repr(args))` at the start of every job, so a password
+    reset token, recipient addresses and member data diffs would land in the
+    worker's plain-text log (and in whatever collects container logs).
+    """
+    return (*args[:2], _ARGUMENTS_PLACEHOLDER, *args[3:])
 
 
 def describe_job_origin(job_id: str) -> str:

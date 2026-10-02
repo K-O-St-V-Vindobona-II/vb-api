@@ -1,6 +1,8 @@
 import contextlib
 import logging
 import smtplib
+import ssl
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -29,6 +31,11 @@ _jinja_env = Environment(
 )
 
 
+_LOG_REDACTION = "[redacted]"
+_SMTPS_PORT = 465
+CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
+
+
 def _build_from_header() -> tuple[str, str]:
     settings = get_settings()
     from_email = require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL")
@@ -36,28 +43,61 @@ def _build_from_header() -> tuple[str, str]:
     return from_email, f'"{from_name}" <{from_email}>'
 
 
+def _uses_smtp_login(smtp_user: str) -> bool:
+    return bool(smtp_user) and smtp_user.lower() != "null"
+
+
+@dataclass(frozen=True)
+class _Delivery:
+    smtp_user: str
+    smtp_password: str
+    from_email: str
+    recipients: str | list[str]
+    message: str
+
+
+def _login_and_send(server: smtplib.SMTP, delivery: _Delivery) -> None:
+    if _uses_smtp_login(delivery.smtp_user):
+        server.login(delivery.smtp_user, delivery.smtp_password)
+    server.sendmail(delivery.from_email, delivery.recipients, delivery.message)
+
+
 def _send_message(msg: MIMEMultipart, recipients: str | list[str]) -> None:
     settings = get_settings()
     smtp_host = require_setting(settings.smtp_host, "SMTP_HOST")
     smtp_port = require_setting(settings.smtp_port, "SMTP_PORT")
     smtp_user = settings.smtp_user
-    smtp_password = settings.smtp_password
     from_email = require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL")
+    timeout = settings.smtp_timeout_seconds
+    # Verifies the certificate chain and the host name; the library default
+    # for both connection types is an unverified context.
+    tls_context = ssl.create_default_context()
+    delivery = _Delivery(
+        smtp_user=smtp_user,
+        smtp_password=settings.smtp_password,
+        from_email=from_email,
+        recipients=recipients,
+        message=msg.as_string(),
+    )
 
-    if smtp_port == 465:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-            if smtp_user and smtp_user.lower() != "null":
-                server.login(smtp_user, smtp_password)
-            server.sendmail(from_email, recipients, msg.as_string())
-    else:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
+    if smtp_port == _SMTPS_PORT:
+        with smtplib.SMTP_SSL(
+            smtp_host, smtp_port, timeout=timeout, context=tls_context
+        ) as server:
+            _login_and_send(server, delivery)
+        return
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+        server.ehlo()
+        if server.has_extn("STARTTLS"):
+            server.starttls(context=tls_context)
             server.ehlo()
-            if server.has_extn("STARTTLS"):
-                server.starttls()
-                server.ehlo()
-            if smtp_user and smtp_user.lower() != "null":
-                server.login(smtp_user, smtp_password)
-            server.sendmail(from_email, recipients, msg.as_string())
+        elif _uses_smtp_login(smtp_user):
+            # A server that does not offer STARTTLS, or an attacker who strips
+            # the offer from the reply, must not receive the credentials.
+            msg_text = "SMTP server does not offer STARTTLS; not sending credentials."
+            raise RuntimeError(msg_text)
+        _login_and_send(server, delivery)
 
 
 def _log_sent_email(
@@ -159,6 +199,10 @@ def send_reset_email(to_email: str, token: str) -> None:
 
     template = _jinja_env.get_template("password_reset.html")
     html_content = template.render(reset_link=reset_link)
+    # The sent-mail log is readable by administrators, so it must never hold a
+    # working token: the stored copy carries a placeholder in its place.
+    logged_link = f"{frontend_url}?token={_LOG_REDACTION}&email={to_email}"
+    logged_html = template.render(reset_link=logged_link)
 
     text_content = (
         f"Hallo!\n\n"
@@ -179,9 +223,29 @@ def send_reset_email(to_email: str, token: str) -> None:
     _log_sent_email(
         to_email,
         msg["Subject"],
-        html_content,
+        logged_html,
         "password-reset",
         from_addr=from_header,
+    )
+
+
+def send_contact_form_email(name: str, email: str, message: str) -> None:
+    """Mail a public contact form submission to the club's fixed recipients.
+
+    The visitor's address is the reply-to, so answering the mail reaches them.
+    """
+    html_content = render_template(
+        "public_contact_form.html",
+        name=name,
+        email=email,
+        message=message,
+    )
+    send_to_recipients(
+        CONTACT_RECIPIENTS,
+        subject=f"Neue Kontaktaufnahme von {name}",
+        html_content=html_content,
+        template_key="public-contact-form",
+        reply_to=email,
     )
 
 
@@ -250,6 +314,18 @@ def _format_date_by_accuracy(value: date, accuracy: int) -> str:
     return f"{value.day}. {_MONTHS_DE[value.month]} {value.year}"
 
 
+def _as_date(value: object) -> date | None:
+    """A date, or the date behind an ISO string (jobs travel as JSON)."""
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _format_diff_value(
     key: str, value: object, diff: dict[str, dict[str, object]]
 ) -> str:
@@ -257,10 +333,12 @@ def _format_diff_value(
         return "-"
     if isinstance(value, list):
         return ", ".join(str(v) for v in value) or "-"
-    if isinstance(value, date) and key.endswith("datum"):
-        accuracy = _resolve_date_accuracy(key, diff)
-        return _format_date_by_accuracy(value, accuracy)
-    return str(value)
+    if not key.endswith("datum"):
+        return str(value)
+    parsed = _as_date(value)
+    if parsed is None:
+        return str(value)
+    return _format_date_by_accuracy(parsed, _resolve_date_accuracy(key, diff))
 
 
 def send_entry_changed_email(

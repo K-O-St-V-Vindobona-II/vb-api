@@ -1204,13 +1204,19 @@ def _decide_member_change_request_sync(
     data: MemberChangeRequestDecisionRequest,
     current_user: Member,
 ) -> tuple[str, dict[str, dict[str, object]], dict[str, str]] | None:
-    request = member_change_request_service.get_change_request_or_404(db, request_id)
+    request = member_change_request_service.get_change_request_or_404(
+        db, request_id, for_update=True
+    )
     _require_standesdb_admin(current_user, request.member.org_id)
 
     diff_snapshot = cast("dict[str, dict[str, object]]", dict(request.proposed_data))
     decisions_snapshot: dict[str, str] = dict(data.field_decisions)
     member = member_change_request_service.resolve_change_request(
-        db, request, decisions_snapshot, current_user
+        db,
+        request,
+        decisions_snapshot,
+        data.expected_updated_at,
+        current_user,
     )
 
     if not member.email:

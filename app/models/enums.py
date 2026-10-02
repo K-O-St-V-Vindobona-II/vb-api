@@ -35,6 +35,16 @@ class RoleGroup(StrEnum):
     CHC = "chc"
 
 
+class OauthProvider(StrEnum):
+    GOOGLE = "google"
+
+
+class RoleAssignmentAction(StrEnum):
+    GRANTED = "granted"
+    REVOKED = "revoked"
+    PERIOD_CHANGED = "period_changed"
+
+
 class SubjectMode(StrEnum):
     CONTAINS = "contains"
     EQUALS = "equals"

@@ -6,6 +6,8 @@ unconditionally on every response — no throwaway app needed here, unlike
 the exception handlers (see test_exception_handlers.py).
 """
 
+import pytest
+
 
 class TestSecurityHeaders:
     def test_sets_content_type_options(self, client):
@@ -25,3 +27,11 @@ class TestSecurityHeaders:
         assert resp.headers["Cache-Control"] == "no-store"
         assert resp.headers["Pragma"] == "no-cache"
         assert resp.headers["Expires"] == "0"
+
+
+class TestApiDocumentation:
+    """Swagger UI, ReDoc and the OpenAPI schema are a development aid only."""
+
+    @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+    def test_documentation_is_not_served_outside_development(self, client, path):
+        assert client.get(path).status_code == 404

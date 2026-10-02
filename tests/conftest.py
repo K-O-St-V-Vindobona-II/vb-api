@@ -144,7 +144,9 @@ def _block_all_emails():
     # rollback and leaks into later tests' counts.
     with (
         patch("app.core.mailer.send_reset_email"),
+        patch("app.core.mailer.send_contact_form_email"),
         patch("app.worker.send_reset_email"),
+        patch("app.worker.send_contact_form_email"),
         patch("app.worker.send_entry_changed_email"),
         patch("app.worker.send_member_change_request_submitted_email"),
         patch("app.worker.send_member_change_request_resolved_email"),

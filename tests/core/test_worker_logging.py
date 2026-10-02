@@ -39,6 +39,19 @@ class TestTaskOriginLogFilter:
 
         assert record.msg == "[scheduled] %6.2fs → %s(%s)%s"
 
+    def test_job_start_line_does_not_print_the_job_arguments(self) -> None:
+        ref = "6fddae81290645d3931536be32b01740:task_send_reset_email"
+        arguments = "'anna@example.org', 'reset-token-value'"
+        record = _make_record("%6.2fs → %s(%s)%s", (0.5, ref, arguments, ""))
+
+        TaskOriginLogFilter().filter(record)
+
+        line = record.getMessage()
+        assert "reset-token-value" not in line
+        assert "anna@example.org" not in line
+        assert line.startswith("[triggered]")
+        assert "task_send_reset_email(<arguments hidden>)" in line
+
     def test_tags_ad_hoc_job_end_line_as_triggered(self) -> None:
         # Ad-hoc enqueue_job() runs get a '<job_id>:<function_name>' ref
         # -- see the `ref = f'{job_id}:{function_name}'` branch.

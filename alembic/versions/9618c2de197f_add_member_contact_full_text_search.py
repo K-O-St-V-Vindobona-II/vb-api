@@ -52,10 +52,16 @@ def upgrade() -> None:
             f"ALTER TABLE {table} ADD COLUMN search_vector tsvector "
             f"GENERATED ALWAYS AS ({expr}) STORED"
         )
-        op.execute(
-            f"CREATE INDEX ix_{table}_search_vector "
-            f"ON {table} USING gin (search_vector)"
-        )
+
+    # The column itself needs one unavoidable table rewrite. The GIN build is
+    # kept out of that lock: CONCURRENTLY lets writes continue while the index
+    # is built, and it cannot run inside a transaction block.
+    with op.get_context().autocommit_block():
+        for table, _ in _TABLES:
+            op.execute(
+                f"CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_{table}_search_vector "
+                f"ON {table} USING gin (search_vector)"
+            )
 
 
 def downgrade() -> None:

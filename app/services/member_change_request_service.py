@@ -122,9 +122,16 @@ def get_pending_requests_for_admin(
 
 
 def get_change_request_or_404(
-    db: Session, request_id: uuid.UUID
+    db: Session, request_id: uuid.UUID, *, for_update: bool = False
 ) -> MemberChangeRequest:
-    request = db.get(MemberChangeRequest, request_id)
+    """Load one request. for_update locks the request row (not the joined
+    member row) until the transaction ends, so that the member's own
+    resubmission (an UPDATE of the same row) waits for a running decision."""
+    request = db.get(
+        MemberChangeRequest,
+        request_id,
+        with_for_update={"of": MemberChangeRequest} if for_update else None,
+    )
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -156,9 +163,9 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "couleurname": member.couleurname,
         "org_id": member.org_id,
         "state_id": member.state_id,
-        "gruender": member.gruender or False,
-        "entlassen": member.entlassen or False,
-        "verstorben": member.verstorben or False,
+        "gruender": member.gruender,
+        "entlassen": member.entlassen,
+        "verstorben": member.verstorben,
         "parent_id": member.parent_id,
         "grabadresse": member.grabadresse,
         "geburtsdatum": member.geburtsdatum,
@@ -195,8 +202,8 @@ def _build_current_full_request_dict(member: Member) -> dict[str, object]:
         "mitgliedschaften": member.mitgliedschaften,
         "verbandchargen": member.verbandchargen,
         "anmerkungen": member.anmerkungen,
-        "chroniclemail": member.chroniclemail or False,
-        "auth_locked": (member.auth_locked if member.auth_locked is not None else True),
+        "chroniclemail": member.chroniclemail,
+        "auth_locked": member.auth_locked,
         "roles_history": [
             {
                 "id": mr.role_id,
@@ -229,6 +236,7 @@ def resolve_change_request(
     db: Session,
     request: MemberChangeRequest,
     field_decisions: dict[str, str],
+    expected_updated_at: datetime,
     resolving_admin: Member,
 ) -> Member:
     """Atomically resolves a pending request: every proposed field must
@@ -237,11 +245,23 @@ def resolve_change_request(
     side-effect that already existed there, resets email_verified_at when
     the approved change touches the email field, and produces the usual
     MembersLog changelog entries, attributed to the resolving admin.
+
+    expected_updated_at is the version of the request the admin reviewed:
+    submit_change_request() overwrites the pending row in place, so without
+    this check a decision could apply values the admin never saw.
     """
     if request.status != MemberChangeRequestStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Antrag wurde bereits entschieden.",
+        )
+    if request.updated_at != expected_updated_at:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Der Antrag wurde inzwischen vom Mitglied geändert und muss "
+                "erneut geprüft werden."
+            ),
         )
     if set(field_decisions) != set(request.proposed_data):
         raise HTTPException(

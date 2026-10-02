@@ -24,8 +24,8 @@ class MemberRole(Base):
     )
 
     # No surrogate id - the primary key is the column combination itself.
-    # role_id stays untouched: roles.id is a string primary key, entirely
-    # outside this migration series' scope.
+    # role_id stays a string: roles.id is a natural key that the permission
+    # rules refer to by value.
     member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("members.id", ondelete="CASCADE", onupdate="CASCADE"),
         primary_key=True,

@@ -77,7 +77,7 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
     {
         "key": "public-contact-form",
         "name": "Kontaktformular (www.vindobona2.at)",
-        "source": "public_site.py → submit_contact_form()",
+        "source": "mailer.py → send_contact_form_email()",
         "file": "public_contact_form.html",
     },
 ]
@@ -88,6 +88,21 @@ def get_sent_email_detail(db: Session, email_id: uuid.UUID) -> SentEmail:
     if not email:
         raise HTTPException(status_code=404, detail="Email nicht gefunden")
     return email
+
+
+def _period_bounds_utc(year: int, month: int | None) -> tuple[datetime, datetime]:
+    """UTC instant bounds [start, end) of a local calendar month, or of the whole
+    local calendar year when no month is given."""
+    if month is None:
+        first_day, next_first_day = date(year, 1, 1), date(year + 1, 1, 1)
+    elif month == 12:
+        first_day, next_first_day = date(year, 12, 1), date(year + 1, 1, 1)
+    else:
+        first_day, next_first_day = date(year, month, 1), date(year, month + 1, 1)
+    return (
+        local_day_bounds_utc(first_day)[0],
+        local_day_bounds_utc(next_first_day)[0],
+    )
 
 
 def list_sent_emails(
@@ -101,12 +116,8 @@ def list_sent_emails(
 ) -> dict[str, list[SentEmailListItem] | int]:
     query = db.query(SentEmail)
 
-    if year and month:
-        start, _ = local_day_bounds_utc(date(year, month, 1))
-        if month == 12:
-            end, _ = local_day_bounds_utc(date(year + 1, 1, 1))
-        else:
-            end, _ = local_day_bounds_utc(date(year, month + 1, 1))
+    if year:
+        start, end = _period_bounds_utc(year, month)
         query = query.filter(
             SentEmail.created_at >= start,
             SentEmail.created_at < end,

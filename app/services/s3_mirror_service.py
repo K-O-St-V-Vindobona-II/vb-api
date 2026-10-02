@@ -1,6 +1,6 @@
 """Generic prefix mirror between two S3-compatible buckets that share the
 same key structure — used by scripts/downsync_prod.py to clone the
-production AWS bucket into local MinIO. Unlike the retired legacy
+production AWS bucket into local Garage. Unlike the retired
 downsync_from_prod_aws.py, no key remapping is needed here: source and
 dest are expected to organize objects identically, so this is a plain
 list-diff-copy-delete mirror.

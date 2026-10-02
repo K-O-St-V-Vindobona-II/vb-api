@@ -40,6 +40,7 @@ from app.models.public_site_settings import PublicSiteSettings  # noqa: F401
 from app.models.public_site_social_link import PublicSiteSocialLink  # noqa: F401
 from app.models.request_log import RequestLog  # noqa: F401
 from app.models.role import Role  # noqa: F401
+from app.models.role_assignment_event import RoleAssignmentEvent  # noqa: F401
 from app.models.scheduled_task_run import ScheduledTaskRun  # noqa: F401
 from app.models.sent_email import SentEmail  # noqa: F401
 from app.models.standesdb_image import StandesdbImage  # noqa: F401

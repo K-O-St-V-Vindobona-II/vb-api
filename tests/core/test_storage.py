@@ -227,7 +227,7 @@ class TestEnsureBucketExists:
         mock_create.assert_called_once_with(Bucket="us-east-bucket")
 
     def test_includes_location_constraint_for_non_default_region(self):
-        # AWS S3 (unlike MinIO) rejects create_bucket() without a matching
+        # AWS S3 rejects create_bucket() without a matching
         # CreateBucketConfiguration for any region other than us-east-1.
         storage = storage_module.StorageClient(
             endpoint_url="https://s3.amazonaws.com",
@@ -260,7 +260,7 @@ class TestGetStorageSingleton:
 
     A hardcoded "http://localhost:9000" fallback here would silently make
     production (where S3_ENDPOINT_URL is intentionally left unset to use
-    real AWS S3) try to talk to a local MinIO instance instead.
+    real AWS S3) try to talk to a local S3-compatible instance instead.
     """
 
     def test_defaults_to_none_endpoint_when_unset(self, monkeypatch):
@@ -279,7 +279,7 @@ class TestGetStorageSingleton:
             storage_module._storage = old_singleton
 
     def test_uses_explicit_endpoint_when_set(self, monkeypatch):
-        monkeypatch.setenv("S3_ENDPOINT_URL", "https://minio.dev.example.com")
+        monkeypatch.setenv("S3_ENDPOINT_URL", "https://storage.dev.example.com")
         monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
         old_singleton = storage_module._storage
         storage_module._storage = None
@@ -288,7 +288,7 @@ class TestGetStorageSingleton:
                 storage_module._get_storage_singleton()
                 assert (
                     mock_client.call_args.kwargs["endpoint_url"]
-                    == "https://minio.dev.example.com"
+                    == "https://storage.dev.example.com"
                 )
         finally:
             storage_module._storage = old_singleton
@@ -319,7 +319,7 @@ class TestGetStorageSingleton:
 
     def test_ensures_bucket_outside_production(self, monkeypatch):
         # Regression: a freshly provisioned non-prod stage's own storage
-        # (e.g. vb-deploy's per-stage MinIO) starts out with no bucket at
+        # (e.g. vb-deploy's per-stage Garage) starts out with no bucket at
         # all - the singleton must self-heal that on non-prod stages.
         monkeypatch.setenv("APP_ENVIRONMENT", "test")
         old_singleton = storage_module._storage

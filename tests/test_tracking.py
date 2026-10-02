@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import bcrypt
 
+from app.core.datetime_utils import local_today
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -79,9 +80,13 @@ def _login_unprivileged(db):
 
 
 def _insert_sent_email(
-    db, template_key: str, subject: str = "Test", to: str = "a@b.at"
+    db,
+    template_key: str,
+    subject: str = "Test",
+    to: str = "a@b.at",
+    created_at: datetime | None = None,
 ):
-    now = datetime.now(UTC)
+    now = created_at or datetime.now(UTC)
     e = SentEmail(
         mail_from="test@vb.at",
         to=to,
@@ -127,6 +132,17 @@ class TestEmailTemplates:
             assert t["last_sent"] is None
             assert t["source_location"]
             assert t["template_name"]
+
+    def test_contact_form_mail_source_points_to_the_mailer(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+
+        resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
+
+        entry = next(
+            t for t in resp.json() if t["template_key"] == "public-contact-form"
+        )
+        assert entry["source_location"] == "mailer.py → send_contact_form_email()"
 
     def test_counts_increase_with_data(self, client, db_session):
         _seed(db_session)
@@ -258,14 +274,38 @@ class TestSentEmailsList:
     def test_year_month_filter(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        now = datetime.now(UTC)
+        # The service filters by the calendar month of the app time zone, so the
+        # month to ask for must come from there too, not from UTC.
+        today = local_today()
         _insert_sent_email(db_session, "password-reset")
         resp = client.get(
-            f"/api/tracking/sent-emails?year={now.year}&month={now.month}",
+            f"/api/tracking/sent-emails?year={today.year}&month={today.month}",
             headers=headers,
         )
         data = resp.json()
         assert data["total"] >= 1
+
+    def test_month_follows_the_app_time_zone_at_the_month_boundary(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        # 22:30 UTC on 30 September is 00:30 on 1 October in Vienna.
+        _insert_sent_email(
+            db_session,
+            "password-reset",
+            created_at=datetime(2026, 9, 30, 22, 30, tzinfo=UTC),
+        )
+
+        october = client.get(
+            "/api/tracking/sent-emails?year=2026&month=10", headers=headers
+        ).json()
+        september = client.get(
+            "/api/tracking/sent-emails?year=2026&month=9", headers=headers
+        ).json()
+
+        assert october["total"] == 1
+        assert september["total"] == 0
 
 
 # --- Sent Email Detail ---
@@ -417,3 +457,98 @@ class TestClientUserAgentIdUuidDefault:
 
         assert isinstance(ua.id, uuid.UUID)
         assert ua.id.version == 7
+
+
+# --- Year filter without a month ---
+
+
+def _insert_sent_email_at(db, subject: str, created_at: datetime) -> SentEmail:
+    email = SentEmail(
+        mail_from="test@vb.at",
+        to="a@b.at",
+        subject=subject,
+        body="<p>x</p>",
+        headers="password-reset",
+        mailer="smtp",
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    db.add(email)
+    db.commit()
+    return email
+
+
+class TestSentEmailsYearFilter:
+    def _subjects(self, client, headers, query: str) -> set[str]:
+        resp = client.get(f"/api/tracking/sent-emails?{query}", headers=headers)
+        assert resp.status_code == 200
+        return {item["subject"] for item in resp.json()["items"]}
+
+    def test_year_alone_keeps_only_that_year(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email_at(db_session, "in-2024", datetime(2024, 6, 15, tzinfo=UTC))
+        _insert_sent_email_at(db_session, "in-2025", datetime(2025, 6, 15, tzinfo=UTC))
+        _insert_sent_email_at(db_session, "in-2026", datetime(2026, 6, 15, tzinfo=UTC))
+
+        assert self._subjects(client, headers, "year=2025") == {"in-2025"}
+
+    def test_year_alone_includes_both_edges_of_the_local_year(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        # Vienna is UTC+1 in winter: 23:30 UTC on 31 December is already 1 January.
+        _insert_sent_email_at(
+            db_session, "new-year-local", datetime(2024, 12, 31, 23, 30, tzinfo=UTC)
+        )
+        _insert_sent_email_at(
+            db_session, "first-minute", datetime(2025, 1, 1, 0, 0, tzinfo=UTC)
+        )
+        _insert_sent_email_at(
+            db_session, "last-minute", datetime(2025, 12, 31, 22, 59, tzinfo=UTC)
+        )
+        _insert_sent_email_at(
+            db_session, "next-year-local", datetime(2025, 12, 31, 23, 0, tzinfo=UTC)
+        )
+
+        assert self._subjects(client, headers, "year=2025") == {
+            "new-year-local",
+            "first-minute",
+            "last-minute",
+        }
+
+    def test_year_alone_includes_the_first_local_instant(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        # 00:00 on 1 January in Vienna (UTC+1) is exactly 23:00 UTC the day before.
+        _insert_sent_email_at(
+            db_session, "first-instant", datetime(2024, 12, 31, 23, 0, tzinfo=UTC)
+        )
+        _insert_sent_email_at(
+            db_session, "just-before", datetime(2024, 12, 31, 22, 59, tzinfo=UTC)
+        )
+
+        assert self._subjects(client, headers, "year=2025") == {"first-instant"}
+
+    def test_year_with_month_still_keeps_only_that_month(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email_at(db_session, "in-may", datetime(2025, 5, 15, tzinfo=UTC))
+        _insert_sent_email_at(db_session, "in-june", datetime(2025, 6, 15, tzinfo=UTC))
+
+        assert self._subjects(client, headers, "year=2025&month=6") == {"in-june"}
+
+    def test_december_with_month_stops_at_the_end_of_the_year(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email_at(db_session, "in-dec", datetime(2025, 12, 15, tzinfo=UTC))
+        _insert_sent_email_at(db_session, "in-jan", datetime(2026, 1, 15, tzinfo=UTC))
+
+        assert self._subjects(client, headers, "year=2025&month=12") == {"in-dec"}
+
+    def test_no_year_returns_every_mail(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email_at(db_session, "in-2024", datetime(2024, 6, 15, tzinfo=UTC))
+        _insert_sent_email_at(db_session, "in-2025", datetime(2025, 6, 15, tzinfo=UTC))
+
+        assert self._subjects(client, headers, "page=1") == {"in-2024", "in-2025"}

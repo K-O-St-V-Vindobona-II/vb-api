@@ -278,3 +278,18 @@ def get_category_or_404(
     if not cat:
         raise HTTPException(status_code=404, detail="Kategorie nicht gefunden.")
     return cat
+
+
+def update_transaction_and_build_response(
+    db: Session,
+    tx: P4xTransaction,
+    comment: str | None,
+    file_bytes: bytes | None,
+    delete_attachment: bool,  # noqa: FBT001
+) -> TransactionResponse:
+    """Apply a comment/attachment edit and return the refreshed transaction."""
+    p4x_partner_service.update_transaction_meta(
+        db, tx, comment, file_bytes, delete_attachment
+    )
+    db.refresh(tx)
+    return build_transaction_response(tx, db)

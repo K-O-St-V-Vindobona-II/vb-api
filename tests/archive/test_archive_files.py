@@ -3,8 +3,11 @@
 import os
 import uuid
 from datetime import UTC, date, datetime
+from unittest.mock import MagicMock
 
 import bcrypt
+import pytest
+from fastapi import HTTPException
 
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
@@ -165,6 +168,34 @@ def _valid_file_content(size_kb=3):
     return os.urandom(size_kb * 1024)
 
 
+class _FakeUploadFile:
+    """Stands in for fastapi.UploadFile: upload_file() only ever touches
+    .filename and .file.read(), so a full UploadFile is unnecessary."""
+
+    def __init__(self, filename, file_obj):
+        self.filename = filename
+        self.file = file_obj
+
+
+class _BoundedReadProbe:
+    """A minimal file-like object that raises if asked to read past the
+    given bound, so a regression that loads an upload whole into memory
+    before checking its size is caught without actually allocating an
+    oversized buffer in the test itself."""
+
+    def __init__(self, total_size, bound):
+        self._remaining = total_size
+        self._bound = bound
+
+    def read(self, size=-1):
+        if size is None or size < 0 or size > self._bound:
+            msg = f"requested {size} bytes, expected at most {self._bound}"
+            raise AssertionError(msg)
+        chunk = min(size, self._remaining)
+        self._remaining -= chunk
+        return os.urandom(chunk)
+
+
 class TestUpload:
     def test_upload_success(
         self,
@@ -267,11 +298,10 @@ class TestUpload:
         client,
         db_session,
     ):
-        """File > 6MB is rejected."""
+        """A file one kilobyte above the maximum is rejected."""
         _seed(db_session)
         headers, _ = _login_user(db_session, client)
-        # 6145 KB = above the 6144 KB maximum
-        content = os.urandom(6145 * 1024)
+        content = os.urandom((archive_service.UPLOAD_MAX_KB + 1) * 1024)
         resp = client.post(
             "/api/archive/upload",
             files={
@@ -281,6 +311,61 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+
+    def test_a_ten_megabyte_file_is_accepted(
+        self,
+        client,
+        db_session,
+    ):
+        """The upload limit is ten megabytes. The file travels through the
+        request body limit as well, which has to leave room for the multipart
+        framing around it."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        content = _valid_file_content(10 * 1024)
+        resp = client.post(
+            "/api/archive/upload",
+            files={
+                "file": ("ten-megabytes.jpg", content, "image/jpeg"),
+            },
+            data={"description": "Ten megabyte upload"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+
+    def test_announced_limit_is_ten_megabytes(
+        self,
+        client,
+        db_session,
+    ):
+        """The frontend shows and checks the limit it gets from this endpoint."""
+        _seed(db_session)
+        headers, _ = _login_user(db_session, client)
+        resp = client.get("/api/archive/upload/config", headers=headers)
+        assert resp.json()["maxfilesize"] == 10 * 1024
+
+    def test_upload_never_reads_more_than_the_limit_plus_one_byte(
+        self,
+        db_session,
+    ):
+        """The oversized-file check must reject a huge upload without first
+        buffering it whole in process memory: the read from the underlying
+        stream stays bounded even though the real upload is far larger."""
+        bound = archive_service.UPLOAD_MAX_KB * 1024 + 1
+        source = _BoundedReadProbe(total_size=300 * 1024 * 1024, bound=bound)
+        fake_file = _FakeUploadFile("huge.jpg", source)
+
+        with pytest.raises(HTTPException) as exc_info:
+            archive_service.upload_file(
+                db_session,
+                fake_file,
+                "Huge upload test",
+                uuid.uuid4(),
+                MagicMock(),
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "zu groß" in exc_info.value.detail
 
     def test_upload_description_too_short(
         self,

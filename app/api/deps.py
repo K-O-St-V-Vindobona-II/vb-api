@@ -15,11 +15,18 @@ from app.models.member import Member
 # It tells FastAPI (and the Swagger UI!) where a user can get a token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-_CREDENTIALS_EXCEPTION = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Anmeldedaten ungültig.",
-    headers={"WWW-Authenticate": "Bearer"},
-)
+
+def _credentials_exception() -> HTTPException:
+    """Build a new 401 for every rejection.
+
+    A single module-level instance would collect one traceback entry (and with
+    it every frame's locals) per raise for the life of the process.
+    """
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Anmeldedaten ungültig.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def _decode_token(token: str) -> tuple[str, str]:
@@ -28,9 +35,9 @@ def _decode_token(token: str) -> tuple[str, str]:
         email: str | None = payload.get("sub")
         token_id: str | None = payload.get("jti")
         if email is None or token_id is None:
-            raise _CREDENTIALS_EXCEPTION
+            raise _credentials_exception()
     except jwt.PyJWTError:
-        raise _CREDENTIALS_EXCEPTION from None
+        raise _credentials_exception() from None
     else:
         return email, token_id
 
@@ -38,7 +45,7 @@ def _decode_token(token: str) -> tuple[str, str]:
 def _get_session_record(db: Session, token_id: str) -> AuthSession:
     session_record = db.query(AuthSession).filter(AuthSession.jti == token_id).first()
     if not session_record:
-        raise _CREDENTIALS_EXCEPTION
+        raise _credentials_exception()
     return session_record
 
 
@@ -54,16 +61,7 @@ def _bump_lastsignal(db: Session, member_id: uuid.UUID, now: datetime) -> None:
 
 def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
     now = datetime.now(UTC)
-    last_used = session_record.last_used_at
-
-    if not last_used:
-        session_record.last_used_at = now
-        _bump_lastsignal(db, session_record.member_id, now)
-        db.commit()
-        return
-
-    last_used = _ensure_tz_aware(last_used)
-    idle_duration = now - last_used
+    idle_duration = now - _ensure_tz_aware(session_record.last_used_at)
 
     if idle_duration > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
         db.delete(session_record)
@@ -83,7 +81,7 @@ def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
 def _get_verified_user(db: Session, email: str) -> Member:
     user = db.query(Member).filter(Member.email == email).first()
     if user is None:
-        raise _CREDENTIALS_EXCEPTION
+        raise _credentials_exception()
     if user.auth_locked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is locked"

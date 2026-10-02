@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,8 +19,15 @@ class AuthSession(Base):
     )
     jti: Mapped[str] = mapped_column(unique=True, index=True)  # JWT-ID claim
     refresh_token_hash: Mapped[str | None]
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    # Both lifetime checks (idle timeout, absolute lifetime) compare against
+    # these columns and skip a comparison when the value is missing, so they
+    # must never be NULL: a session row without them would never expire.
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )

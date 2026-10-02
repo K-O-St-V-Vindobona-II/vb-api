@@ -36,11 +36,14 @@ def upgrade() -> None:
 
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
-    for table, column in _TRGM_COLUMNS:
-        op.execute(
-            f"CREATE INDEX ix_{table}_{column}_trgm "
-            f"ON {table} USING gin ({column} gin_trgm_ops)"
-        )
+    # Built without blocking writes to the archive tables (CONCURRENTLY cannot
+    # run inside a transaction block).
+    with op.get_context().autocommit_block():
+        for table, column in _TRGM_COLUMNS:
+            op.execute(
+                f"CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_{table}_{column}_trgm "
+                f"ON {table} USING gin ({column} gin_trgm_ops)"
+            )
 
 
 def downgrade() -> None:

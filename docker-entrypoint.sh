@@ -13,7 +13,27 @@ set -e
 
 if [ "${SKIP_MIGRATIONS:-false}" != "true" ]; then
     echo "Running database migrations..."
-    alembic upgrade head
+    if output=$(alembic upgrade head 2>&1); then
+        echo "$output"
+    else
+        echo "$output"
+        # "Can't locate revision" means the database is at a revision this
+        # image does not know, i.e. it is AHEAD of the image. That is what a
+        # rollback to an older image after a release with a migration looks
+        # like; refusing to start would make every such rollback fail while
+        # the worker (which skips migrations) keeps running. So the older code
+        # starts against the newer schema, which is safe only while each
+        # migration stays compatible with the previous release. Any other
+        # failure stops the container.
+        case "$output" in
+            *"Can't locate revision"*)
+                echo "WARNING: the database is ahead of this image; starting without migrating." >&2
+                ;;
+            *)
+                exit 1
+                ;;
+        esac
+    fi
 fi
 
 exec "$@"

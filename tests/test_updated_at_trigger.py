@@ -58,10 +58,11 @@ class TestUpdatedAtTrigger:
         )
         db_session.add(session)
         db_session.commit()
-        assert session.updated_at is None
+        inserted_at = session.updated_at
+        assert inserted_at is not None
 
         session.last_used_at = datetime.now(UTC)
         db_session.commit()
         db_session.refresh(session)
 
-        assert session.updated_at is not None
+        assert session.updated_at > inserted_at

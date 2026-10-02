@@ -34,6 +34,7 @@ from app.services.search_utils import build_prefix_tsquery_text
 if TYPE_CHECKING:
     import uuid
 
+    from sqlalchemy import CTE
     from sqlalchemy.orm import Session
 
     from app.models.member import Member
@@ -59,7 +60,7 @@ UPLOAD_EXTENSIONS = [
     "eps",
 ]
 UPLOAD_MIN_KB = 2
-UPLOAD_MAX_KB = 6144
+UPLOAD_MAX_KB = 10240
 UPLOAD_DESC_MIN = 5
 UPLOAD_DESC_MAX = 125
 
@@ -165,6 +166,63 @@ def _require_insight_or_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Keine Berechtigung für dieses Verzeichnis.",
         )
+
+
+def _trashed_subtree() -> CTE:
+    """Every trashed directory plus every directory below one.
+
+    delete_dir() never cascades deleted_at onto children, so a directory or
+    file can have deleted_at IS NULL while an ancestor sits in the trash;
+    such content is reachable only through the trash view of an admin.
+    """
+    trashed_base = select(ArchiveDir.id).where(ArchiveDir.deleted_at.isnot(None))
+    subtree = trashed_base.cte(name="archive_trashed_subtree", recursive=True)
+    return subtree.union(
+        select(ArchiveDir.id).join(subtree, ArchiveDir.archive_dir_id == subtree.c.id)
+    )
+
+
+def _trashed_dir_ids(db: Session) -> frozenset[uuid.UUID]:
+    return frozenset(db.scalars(select(_trashed_subtree().c.id)))
+
+
+def _require_readable_file(
+    db: Session,
+    file_obj: ArchiveFile,
+    user: Member,
+    *,
+    allow_unfiled_uploader: bool = False,
+) -> None:
+    """Access rule shared by every read of a single file.
+
+    An archiveAdmin may read everything, including the trash. Everyone else
+    sees neither a trashed file nor a file below a trashed directory (404,
+    as if it did not exist), and needs insight permission for the file's
+    directory. An unfiled upload has no directory to check: it stays with
+    archiveAdmin and, where the caller allows it, with the member who
+    uploaded it.
+    """
+    if is_archive_admin(user):
+        return
+    if file_obj.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Datei nicht gefunden.",
+        )
+    if file_obj.archive_dir_id is None:
+        if allow_unfiled_uploader and file_obj.store_item.created_by == user.id:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Keine Berechtigung für diese Datei.",
+        )
+    dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
+    if dir_obj is None or dir_obj.id in _trashed_dir_ids(db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Datei nicht gefunden.",
+        )
+    _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
 
 
 # --- File helpers ---
@@ -372,10 +430,15 @@ def get_dir_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Verzeichnis nicht gefunden.",
         )
+    admin = is_archive_admin(user)
+    if not admin and dir_obj.id in _trashed_dir_ids(db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Verzeichnis nicht gefunden.",
+        )
     perm_sets = _load_perm_sets(db)
     _require_insight_or_admin(user, db, dir_obj, perm_sets)
 
-    admin = is_archive_admin(user)
     content = _build_dir_detail_content(db, dir_obj, user, admin, perm_sets)
 
     own = _own_permissions(dir_obj, perm_sets)
@@ -684,20 +747,7 @@ def get_file_detail(
             detail="Datei nicht gefunden.",
         )
 
-    if file_obj.archive_dir_id is not None:
-        dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
-        if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
-    elif not is_archive_admin(user):
-        # archive_dir_id IS NULL means "unsorted upload" - no real
-        # ArchiveDir row to check can_insight() against. Admin-only
-        # everywhere else in this module (get_root_content(),
-        # search_archive(), create_comment()), so viewing one follows the
-        # same rule.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Keine Berechtigung für diese Datei.",
-        )
+    _require_readable_file(db, file_obj, user)
 
     admin = is_archive_admin(user)
     item = file_obj.store_item
@@ -805,10 +855,7 @@ def get_presigned_url(
             detail="Datei nicht gefunden.",
         )
 
-    if file_obj.archive_dir_id is not None:
-        dir_obj = db.get(ArchiveDir, file_obj.archive_dir_id)
-        if dir_obj:
-            _require_insight_or_admin(user, db, dir_obj, _load_perm_sets(db))
+    _require_readable_file(db, file_obj, user, allow_unfiled_uploader=True)
 
     item = file_obj.store_item
     sha256_hash, is_image = item.sha256_hash, item.is_image
@@ -934,16 +981,7 @@ def get_archive_stats(db: Session) -> dict[str, object]:
     scope as file_count - since many files can share one object but never
     the reverse, so unique_object_count must never exceed file_count.
     """
-    trashed_base = select(ArchiveDir.id).where(ArchiveDir.deleted_at.isnot(None))
-    trashed_subtree = trashed_base.cte(
-        name="archive_stats_trashed_subtree", recursive=True
-    )
-    trashed_subtree = trashed_subtree.union(
-        select(ArchiveDir.id).join(
-            trashed_subtree, ArchiveDir.archive_dir_id == trashed_subtree.c.id
-        )
-    )
-    under_trash = select(trashed_subtree.c.id)
+    under_trash = select(_trashed_subtree().c.id)
 
     active_file_exists = (
         db.query(ArchiveFile.id)
@@ -1028,7 +1066,9 @@ def upload_file(
             detail=f"Unerlaubtes Dateiformat: {ext}",
         )
 
-    content = file.file.read()
+    # Read one byte past the limit: enough to detect an oversized file
+    # without loading the whole upload into memory first.
+    content = file.file.read(UPLOAD_MAX_KB * 1024 + 1)
     size = len(content)
 
     if size < UPLOAD_MIN_KB * 1024:
@@ -1115,22 +1155,7 @@ def create_comment(
             detail="Datei nicht gefunden.",
         )
 
-    # archive_dir_id IS NULL means "unsorted upload" - no real ArchiveDir
-    # row to check can_insight() against. Those files are archiveAdmin-only
-    # everywhere else in this module (get_root_content(), search_archive()),
-    # so commenting on one follows the same rule.
-    parent = (
-        db.get(ArchiveDir, file_obj.archive_dir_id)
-        if file_obj.archive_dir_id is not None
-        else None
-    )
-    if parent is not None:
-        _require_insight_or_admin(user, db, parent, _load_perm_sets(db))
-    elif not is_archive_admin(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Keine Berechtigung für diese Datei.",
-        )
+    _require_readable_file(db, file_obj, user)
 
     now = _now()
     comment = ArchiveFileComment(
@@ -1186,13 +1211,15 @@ def _collect_dir_hits(
     hits: list[tuple[ArchiveDir, float]],
     admin: bool,  # noqa: FBT001
     perm_sets: _PermSets,
+    *,
+    trashed: frozenset[uuid.UUID],
 ) -> list[tuple[float, dict[str, object]]]:
     """Applies the same insight-permission check to a ranked list of dir
     hits and shapes each into the search result dict - shared between the
     exact (Stage 1) and fuzzy (Stage 2) search paths below."""
     collected: list[tuple[float, dict[str, object]]] = []
     for d, rank in hits:
-        if not admin and not can_insight(user, db, d, perm_sets):
+        if not admin and (d.id in trashed or not can_insight(user, db, d, perm_sets)):
             continue
         collected.append(
             (
@@ -1215,6 +1242,8 @@ def _collect_file_hits(
     hits: list[tuple[ArchiveFile, float]],
     admin: bool,  # noqa: FBT001
     perm_sets: _PermSets,
+    *,
+    trashed: frozenset[uuid.UUID],
 ) -> list[tuple[float, dict[str, object]]]:
     """Same as _collect_dir_hits(), for files - including the unsorted-
     upload (archive_dir_id IS NULL, no resolvable parent) admin-only
@@ -1233,7 +1262,9 @@ def _collect_file_hits(
         # (that would silently show unsorted uploads to every authenticated
         # user, admin or not).
         if not admin and (
-            parent is None or not can_insight(user, db, parent, perm_sets)
+            parent is None
+            or parent.id in trashed
+            or not can_insight(user, db, parent, perm_sets)
         ):
             continue
         item = f.store_item
@@ -1449,24 +1480,30 @@ def search_archive(
     """
     admin = is_archive_admin(user)
     perm_sets = _load_perm_sets(db)
+    trashed = frozenset() if admin else _trashed_dir_ids(db)
 
     tsquery_text = build_prefix_tsquery_text(db, query)
     ranked_results: list[tuple[float, dict[str, object]]] = []
     if tsquery_text:
         tsquery = func.to_tsquery("german", tsquery_text)
         ranked_results = _collect_dir_hits(
-            db, user, _search_dirs_exact(db, tsquery), admin, perm_sets
+            db, user, _search_dirs_exact(db, tsquery), admin, perm_sets, trashed=trashed
         )
         ranked_results += _collect_file_hits(
-            db, user, _search_files_exact(db, tsquery), admin, perm_sets
+            db,
+            user,
+            _search_files_exact(db, tsquery),
+            admin,
+            perm_sets,
+            trashed=trashed,
         )
 
     if not ranked_results and len(query.strip()) >= _FUZZY_MIN_QUERY_LENGTH:
         ranked_results = _collect_dir_hits(
-            db, user, _search_dirs_fuzzy(db, query), admin, perm_sets
+            db, user, _search_dirs_fuzzy(db, query), admin, perm_sets, trashed=trashed
         )
         ranked_results += _collect_file_hits(
-            db, user, _search_files_fuzzy(db, query), admin, perm_sets
+            db, user, _search_files_fuzzy(db, query), admin, perm_sets, trashed=trashed
         )
 
     ranked_results.sort(key=lambda entry: entry[0], reverse=True)

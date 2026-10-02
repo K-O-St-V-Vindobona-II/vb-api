@@ -1,14 +1,21 @@
+import logging
 import secrets
+import threading
+import time
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from typing import TYPE_CHECKING, NoReturn
 
 import jwt
 import requests
+from google.auth import transport as google_auth_transport
 from google.auth.exceptions import TransportError
+from google.auth.transport import Response as GoogleTransportResponse
 from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
 from requests.adapters import HTTPAdapter
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.security import (
@@ -20,23 +27,40 @@ from app.core.security import (
     generate_refresh_secret,
     get_password_hash,
     hash_refresh_secret,
+    hash_reset_token,
     verify_password,
     verify_refresh_secret,
 )
 from app.models.auth_session import AuthSession
+from app.models.enums import OauthProvider
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.models.password_reset import PasswordResetToken
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Mapping
 
     from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 _GOOGLE_CERTS_TIMEOUT_SECONDS = 5
+# Google publishes its signing certificates with a cache lifetime of hours;
+# five minutes keeps outbound traffic negligible and lets a rotated key take
+# effect quickly.
+_GOOGLE_CERTS_CACHE_SECONDS = 300
 _GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (
     "Google-Anmeldung ist gerade nicht erreichbar. Bitte versuch es später erneut."
 )
+_GOOGLE_ALREADY_LINKED_MESSAGE = (
+    "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
+)
+
+# Cost-12 hash of a random value that was discarded right after hashing.
+# Verified against when the e-mail address is unknown, so a login attempt costs
+# the same bcrypt time whether or not the account exists.
+_DUMMY_PASSWORD_HASH = "$2b$12$Sw3Wj/zUDN7QqY3Rqv.8AOty1Lf.suclJNg0HrIP5wSvtd7XmGfDm"  # noqa: S105 - hash of a discarded random value
 
 
 class _TimeoutHTTPAdapter(HTTPAdapter):
@@ -71,12 +95,51 @@ class _TimeoutHTTPAdapter(HTTPAdapter):
         )
 
 
-def _build_google_auth_request() -> google_auth_requests.Request:
+class _CertsCachingRequest(google_auth_transport.Request):
+    """google-auth transport that caches successful GET responses briefly.
+
+    id_token.verify_oauth2_token() downloads Google's signing certificates on
+    every call, before it even looks at the token. Without this cache every
+    request to the unauthenticated Google endpoints, including one carrying
+    garbage, costs one outbound HTTPS request. It also applies the short
+    default timeout itself: google-auth's own transport passes 120 seconds
+    explicitly, which the adapter's "no timeout given" default never replaces.
+    """
+
+    def __init__(self, session: requests.Session) -> None:
+        self._transport = google_auth_requests.Request(session=session)
+        self._cache: dict[str, tuple[float, GoogleTransportResponse]] = {}
+        self._lock = threading.Lock()
+
+    def __call__(
+        self,
+        url: str,
+        method: str = "GET",
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: int | None = None,
+        **kwargs: object,
+    ) -> GoogleTransportResponse:
+        timeout = _GOOGLE_CERTS_TIMEOUT_SECONDS if timeout is None else timeout
+        if method != "GET":
+            return self._transport(url, method, body, headers, timeout, **kwargs)
+        with self._lock:
+            cached = self._cache.get(url)
+        if cached and time.monotonic() - cached[0] < _GOOGLE_CERTS_CACHE_SECONDS:
+            return cached[1]
+        response = self._transport(url, method, body, headers, timeout, **kwargs)
+        if response.status == HTTPStatus.OK:
+            with self._lock:
+                self._cache[url] = (time.monotonic(), response)
+        return response
+
+
+def _build_google_auth_request() -> _CertsCachingRequest:
     session = requests.Session()
     adapter = _TimeoutHTTPAdapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return google_auth_requests.Request(session=session)
+    return _CertsCachingRequest(session=session)
 
 
 # Module-level singleton, reused across calls for connection pooling instead
@@ -104,17 +167,30 @@ def authenticate_user(
     email: str,
     password: str,
 ) -> tuple[Member | None, str]:
+    """Check e-mail and password; the reason is meant for server-side logging.
+
+    Exactly one bcrypt comparison runs for every attempt, so unknown, locked and
+    known accounts cannot be told apart by their response time.
+    """
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
     )
+    stored_hash = (member.auth_password if member else None) or _DUMMY_PASSWORD_HASH
+    password_ok = verify_password(password, stored_hash)
 
     if not member:
-        return None, "unknown_email"
+        return _rejected("unknown_email")
     if member.auth_locked:
-        return None, "account_locked"
-    if not member.auth_password or not verify_password(password, member.auth_password):
-        return None, "wrong_password"
+        return _rejected("account_locked")
+    if not member.auth_password or not password_ok:
+        return _rejected("wrong_password")
     return member, "ok"
+
+
+def _rejected(reason: str) -> tuple[None, str]:
+    """Log a failed login without the submitted address and return the reason."""
+    logger.info("Login rejected: %s", reason)
+    return None, reason
 
 
 def process_forgot_password(
@@ -126,6 +202,9 @@ def process_forgot_password(
     reset-email task from — kept a plain sync function (only touches the
     DB) so the router can dispatch it via run_in_threadpool rather than
     running it directly on the event loop.
+
+    Only a digest of the token is stored; the token itself exists solely in
+    the returned value and, from there, in the e-mail.
     """
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
@@ -136,15 +215,9 @@ def process_forgot_password(
 
     token = secrets.token_urlsafe(32)
     db.query(PasswordResetToken).filter(
-        func.lower(PasswordResetToken.email) == func.lower(email)
+        PasswordResetToken.member_id == member.id
     ).delete()
-
-    reset_entry = PasswordResetToken(
-        email=member.email,
-        token=token,
-        created_at=datetime.now(UTC),
-    )
-    db.add(reset_entry)
+    db.add(PasswordResetToken(member_id=member.id, token_hash=hash_reset_token(token)))
     db.commit()
 
     return (member.email, token) if member.email else None
@@ -156,40 +229,29 @@ def execute_password_reset(
     token: str,
     new_password: str,
 ) -> None:
-    reset_entry = (
-        db.query(PasswordResetToken)
-        .filter(
-            func.lower(PasswordResetToken.email) == func.lower(email),
-            PasswordResetToken.token == token,
-        )
-        .first()
-    )
-
-    if not reset_entry:
-        msg = "Ungültiger Token oder E-Mail-Adresse."
-        raise ValueError(msg)
-
-    created_at = reset_entry.created_at
-    if not created_at:
-        msg = "Token hat kein Erstellungsdatum."
-        raise ValueError(msg)
-    # Handle legacy tokens stored before timezone-aware datetimes
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-
-    token_age = datetime.now(UTC) - created_at
-
-    if token_age > timedelta(minutes=20):
-        db.delete(reset_entry)
-        db.commit()
-        msg = "Der Reset-Token ist abgelaufen."
-        raise ValueError(msg)
-
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
     )
-    if not member:
-        msg = "Benutzerkonto nicht gefunden."
+    reset_entry = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.member_id == member.id,
+            PasswordResetToken.token_hash == hash_reset_token(token),
+        )
+        .first()
+        if member
+        else None
+    )
+
+    # An unknown address and a wrong token get the same answer.
+    if not member or not reset_entry:
+        msg = "Ungültiger Token oder E-Mail-Adresse."
+        raise ValueError(msg)
+
+    if datetime.now(UTC) - reset_entry.created_at > timedelta(minutes=20):
+        db.delete(reset_entry)
+        db.commit()
+        msg = "Der Reset-Token ist abgelaufen."
         raise ValueError(msg)
 
     member.auth_password = get_password_hash(new_password)
@@ -216,8 +278,6 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
         jti=session_id,
         refresh_token_hash=hash_refresh_secret(refresh_secret),
         last_used_at=now,
-        created_at=now,
-        updated_at=now,
     )
     db.add(db_token)
     member.auth_lastlogin = now
@@ -226,9 +286,7 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     return access_token, session_id, refresh_secret
 
 
-def _ensure_tz_aware(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
+def _ensure_tz_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -257,13 +315,11 @@ def _validate_session_expiry(
     now: datetime,
 ) -> None:
     last_used = _ensure_tz_aware(session.last_used_at)
-    if last_used and (now - last_used) > timedelta(
-        minutes=SESSION_IDLE_TIMEOUT_MINUTES
-    ):
+    if (now - last_used) > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
         _invalidate_session(db, session, "Session expired due to inactivity")
 
     created = _ensure_tz_aware(session.created_at)
-    if created and (now - created) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
+    if (now - created) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
         _invalidate_session(db, session, "Session expired")
 
 
@@ -328,10 +384,10 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     binding = (
         db.query(MembersOauth2Binding)
         .filter(
-            MembersOauth2Binding.provider == "google",
+            MembersOauth2Binding.provider == OauthProvider.GOOGLE,
             MembersOauth2Binding.remote_id == google_id,
         )
-        .first()
+        .one_or_none()
     )
 
     if binding:
@@ -350,6 +406,27 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
 
     # Unlinked Google account triggers special frontend linking flow
     raise AccountNotLinkedError
+
+
+def _insert_google_binding(
+    db: Session, member_id: uuid.UUID, google_id: str, google_name: str
+) -> None:
+    """Add the binding inside a savepoint. The unique constraints decide a race
+    between two concurrent link requests: the loser's savepoint is rolled back
+    and it gets the same answer as if the check before had found the binding.
+    """
+    try:
+        with db.begin_nested():
+            db.add(
+                MembersOauth2Binding(
+                    member_id=member_id,
+                    provider=OauthProvider.GOOGLE,
+                    remote_id=google_id,
+                    remote_name=google_name,
+                )
+            )
+    except IntegrityError:
+        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE) from None
 
 
 def link_google_account(
@@ -382,6 +459,9 @@ def link_google_account(
         raise ValueError(msg) from None
 
     google_id = id_info.get("sub")
+    if not google_id:
+        msg = "Der Google-Token ist ungültig oder abgelaufen."
+        raise ValueError(msg)
     google_name = id_info.get("name", "Unknown")
 
     # 3. Check if this Google account is already linked to ANOTHER user
@@ -389,7 +469,7 @@ def link_google_account(
     existing_binding = (
         db.query(MembersOauth2Binding)
         .filter(
-            MembersOauth2Binding.provider == "google",
+            MembersOauth2Binding.provider == OauthProvider.GOOGLE,
             (MembersOauth2Binding.remote_id == google_id)
             | (MembersOauth2Binding.member_id == member.id),
         )
@@ -406,21 +486,11 @@ def link_google_account(
             existing_binding.lastuse_at = datetime.now(UTC)
             db.flush()
             return member
-        msg = "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
-        raise ValueError(msg)
+        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE)
 
     # 4. Create the binding in the database. Not committed here either -
     # same reasoning, create_user_session()'s commit covers this too.
-    new_binding = MembersOauth2Binding(
-        member_id=member.id,
-        provider="google",
-        remote_id=google_id,
-        remote_name=google_name,
-        bound_at=datetime.now(UTC),
-        lastuse_at=datetime.now(UTC),
-    )
-    db.add(new_binding)
-    db.flush()
+    _insert_google_binding(db, member.id, google_id, google_name)
 
     return member
 
@@ -458,6 +528,6 @@ def unlink_google_account(db: Session, member_id: uuid.UUID) -> None:
     """
     db.query(MembersOauth2Binding).filter(
         MembersOauth2Binding.member_id == member_id,
-        MembersOauth2Binding.provider == "google",
+        MembersOauth2Binding.provider == OauthProvider.GOOGLE,
     ).delete()
     db.commit()

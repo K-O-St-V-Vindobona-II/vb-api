@@ -122,7 +122,13 @@ def test_no_recipients_skips_send(capsys, db_session) -> None:
         patch.object(trigger_chronicles, "send_to_recipients") as mock_send,
         patch(
             "sys.argv",
-            ["trigger_chronicles.py", "--date", "2026-07-14", "--send"],
+            [
+                "trigger_chronicles.py",
+                "--date",
+                "2026-07-14",
+                "--send",
+                "--all-members",
+            ],
         ),
     ):
         trigger_chronicles.main()

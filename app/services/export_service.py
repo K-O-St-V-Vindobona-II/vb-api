@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     import uuid
     from datetime import date
 
+    from openpyxl.worksheet.worksheet import Worksheet
     from sqlalchemy.orm import Session
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -94,6 +95,19 @@ def format_fuzzy_date(
 
 def format_bool(val: bool | int | None) -> str:  # noqa: FBT001
     return "ja" if val else "nein"
+
+
+def _write_row(ws: Worksheet, row_idx: int, values: list[str]) -> None:
+    """Writes one row of plain text cells.
+
+    openpyxl turns any string that starts with "=" into a formula, and the
+    values here come from member and contact records. Forcing the cell type
+    to string keeps such a value as text, so opening the workbook can never
+    run a formula (for example HYPERLINK) taken from a database field.
+    """
+    for col_idx, val in enumerate(values, 1):
+        cell = ws.cell(row=row_idx, column=col_idx, value=val)
+        cell.data_type = "s"
 
 
 def get_export_config(db: Session) -> dict[str, object]:
@@ -335,8 +349,7 @@ def generate_excel_full(  # noqa: C901
             format_bool(m.gruender),
             get_badges_str(m),
         ]
-        for col_idx, val in enumerate(vals, 1):
-            ws_members.cell(row=row_idx, column=col_idx, value=val)
+        _write_row(ws_members, row_idx, vals)
 
     ws_contacts = wb.create_sheet("Kontakte")
 
@@ -382,8 +395,7 @@ def generate_excel_full(  # noqa: C901
             c.anmerkungen or "",
             c.org_id or "",
         ]
-        for col_idx, val in enumerate(vals, 1):
-            ws_contacts.cell(row=row_idx, column=col_idx, value=val)
+        _write_row(ws_contacts, row_idx, vals)
 
     buf = BytesIO()
     wb.save(buf)

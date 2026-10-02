@@ -49,7 +49,16 @@ _FLEXIBLE_DATE_COLUMNS: list[tuple[str, str, bool]] = [
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """Upgrade schema.
+
+    Each conversion rewrites its table under an ACCESS EXCLUSIVE lock, which is
+    acceptable for tables of this size. Do not replace it with a shadow column
+    (add a DATE column, copy, drop the old column, rename): dropping a column
+    also drops every primary key, CHECK constraint and index that contains it
+    (members_roles_pkey, p4x_fees_pkey, the two date-order CHECKs and the
+    booking/valuation indexes of p4x_transactions), while ALTER COLUMN TYPE
+    rebuilds them.
+    """
     op.execute("SET LOCAL lock_timeout = '5s'")
 
     for table, column, nullable in _FLEXIBLE_DATE_COLUMNS:

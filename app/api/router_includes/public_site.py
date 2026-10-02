@@ -1,9 +1,10 @@
 from typing import Annotated
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.core.mailer import render_template, send_to_recipients
+from app.core.arq_pool import get_arq_pool
 from app.core.rate_limit import limiter
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
@@ -31,8 +32,6 @@ from app.services import (
 # Deliberately NOT auth-guarded anywhere in this router — these endpoints back
 # the public www.vindobona2.at marketing site, which has no login at all.
 public_site_router = APIRouter()
-
-CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
 
 
 @public_site_router.get("/gallery")
@@ -91,27 +90,21 @@ def get_site_content(
 
 @public_site_router.post("/contact", status_code=202)
 @limiter.limit("5/minute")  # type: ignore[reportUntypedFunctionDecorator]
-def submit_contact_form(
+async def submit_contact_form(
     request: Request,  # noqa: ARG001
     data: ContactFormRequest,
+    arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
 ) -> StatusResponse:
     """Contact form submission from the public site.
+
+    The mail is queued for the worker (with retries) and the route answers at
+    once, so a slow or unreachable mail server never holds a request thread.
 
     Rate limit: 5/min per IP. Spam protection is a honeypot field
     (`website`, validated empty in the schema) rather than reCAPTCHA - no
     external dependency, no key provisioning needed.
     """
-    html_content = render_template(
-        "public_contact_form.html",
-        name=data.name,
-        email=data.email,
-        message=data.message,
-    )
-    send_to_recipients(
-        CONTACT_RECIPIENTS,
-        subject=f"Neue Kontaktaufnahme von {data.name}",
-        html_content=html_content,
-        template_key="public-contact-form",
-        reply_to=data.email,
+    await arq_pool.enqueue_job(
+        "task_send_contact_form_email", data.name, data.email, data.message
     )
     return StatusResponse(status="ok")

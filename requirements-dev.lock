@@ -110,7 +110,7 @@ packaging==26.2
     #   gunicorn
     #   limits
     #   pytest
-pillow==12.2.0
+pillow==12.3.0
     # via
     #   -r requirements.txt
     #   weasyprint
