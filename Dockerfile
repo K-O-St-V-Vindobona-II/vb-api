@@ -23,7 +23,7 @@ FROM python:3.14-slim AS builder
 WORKDIR /build
 
 COPY requirements.lock .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.lock
 
 
 FROM base AS dev
@@ -35,8 +35,10 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
+# The same pins as CI (requirements-dev.lock), so a tool cannot behave
+# differently in the dev container than in the pipeline.
+COPY requirements-dev.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements-dev.lock
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header"]
 

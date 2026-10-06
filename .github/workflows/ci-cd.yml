@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install dependencies
-        run: uv pip install --system -r requirements-dev.lock
+        run: uv pip install --system --require-hashes -r requirements-dev.lock
       - name: Check code style (Ruff)
         run: ruff check --output-format github .
       - name: Check formatting (Ruff)
@@ -79,7 +79,7 @@ jobs:
             libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 \
             libharfbuzz-subset0
       - name: Install Python dependencies
-        run: uv pip install --system -r requirements-dev.lock
+        run: uv pip install --system --require-hashes -r requirements-dev.lock
       - name: Run Pyright (Strict Type Checking)
         run: pyright
       - name: Run Database Migrations
@@ -98,6 +98,27 @@ jobs:
         with:
           languages: python
       - uses: github/codeql-action/analyze@v4
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: uv pip install --system --require-hashes -r requirements-dev.lock
+      # The locks pin every version, so a published advisory for a pinned
+      # version fails this job. The weekly schedule reports advisories that
+      # appear after the last change. To accept one with a written reason
+      # while no fixed version exists, add `--ignore-vuln <ID>` to the command.
+      - name: Audit the locked dependencies for known vulnerabilities
+        run: |
+          pip-audit -r requirements.lock --no-deps --disable-pip --progress-spinner off
+          pip-audit -r requirements-dev.lock --no-deps --disable-pip --progress-spinner off
 
   smoke-test-readonly:
     name: Read-Only Rootfs Smoke Test
@@ -210,7 +231,7 @@ jobs:
 
   release-image:
     name: Build & Push Image
-    needs: [lint, quality, security, smoke-test-readonly]
+    needs: [lint, quality, security, dependency-audit, smoke-test-readonly]
     runs-on: ubuntu-latest
     if: |
       github.ref == 'refs/heads/main' &&

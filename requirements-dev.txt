@@ -5,3 +5,4 @@ httpx2
 moto[s3]
 ruff
 pyright
+pip-audit
