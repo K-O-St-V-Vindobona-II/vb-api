@@ -76,7 +76,8 @@ jobs:
       - name: Install system dependencies (for Cairo/PDF)
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2
+            libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 \
+            libharfbuzz-subset0
       - name: Install Python dependencies
         run: uv pip install --system -r requirements-dev.lock
       - name: Run Pyright (Strict Type Checking)

@@ -6,7 +6,7 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
-anyio==4.14.1
+anyio==4.14.2
     # via
     #   httpx2
     #   starlette
@@ -40,7 +40,7 @@ click==8.4.2
     #   uvicorn
 coverage==7.14.3
     # via pytest-cov
-cryptography==49.0.0
+cryptography==50.0.2
     # via
     #   google-auth
     #   moto
@@ -70,11 +70,11 @@ h11==0.16.0
     #   uvicorn
 hiredis==3.4.1
     # via redis
-httpcore2==2.5.0
+httpcore2==2.13.1
     # via httpx2
 httptools==0.8.0
     # via uvicorn
-httpx2==2.5.0
+httpx2==2.13.1
     # via -r requirements-dev.txt
 idna==3.18
     # via
@@ -122,7 +122,7 @@ psycopg2-binary==2.9.12
     # via -r requirements.txt
 py-partiql-parser==0.6.3
     # via moto
-pyasn1==0.6.3
+pyasn1==0.6.4
     # via pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
@@ -140,7 +140,7 @@ pydyf==0.12.1
     # via weasyprint
 pygments==2.20.0
     # via pytest
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via
     #   -r requirements.txt
     #   redis
@@ -215,7 +215,7 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   botocore
     #   requests
@@ -226,7 +226,7 @@ uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn
-weasyprint==69.0
+weasyprint==70.0
     # via -r requirements.txt
 webencodings==0.5.1
     # via
@@ -235,7 +235,7 @@ webencodings==0.5.1
     #   tinyhtml5
 websockets==16.0
     # via uvicorn
-werkzeug==3.1.8
+werkzeug==3.1.9
     # via moto
 wrapt==2.2.2
     # via deprecated

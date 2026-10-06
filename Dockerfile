@@ -10,6 +10,7 @@ WORKDIR /app
 # and restore into that server across a major-version upgrade.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 \
+    libharfbuzz-subset0 \
     curl ca-certificates gnupg postgresql-common \
     && sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get install -y --no-install-recommends postgresql-client-18 \
