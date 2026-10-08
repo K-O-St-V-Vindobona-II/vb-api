@@ -6,12 +6,15 @@ token, the database session), so a shared instance grows for the life of the
 process with every unauthenticated request.
 """
 
+import uuid
+
 import jwt
 import pytest
 from fastapi import HTTPException, status
 
 from app.api import deps
 from app.core.security import ALGORITHM, SECRET_KEY
+from app.models.auth_session import AuthSession
 
 REPEATS = 25
 
@@ -30,7 +33,8 @@ def _unknown_session(db):
 
 
 def _unknown_member(db):
-    deps._get_verified_user(db, "nobody@vindobona.at")
+    session = AuthSession(member_id=uuid.uuid4(), jti="unknown-member")
+    deps._get_verified_user(db, "nobody@vindobona.at", session)
 
 
 REJECTIONS = [_garbled_token, _token_without_jti, _unknown_session, _unknown_member]

@@ -78,9 +78,11 @@ def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
         db.commit()
 
 
-def _get_verified_user(db: Session, email: str) -> Member:
+def _get_verified_user(db: Session, email: str, session_record: AuthSession) -> Member:
     user = db.query(Member).filter(Member.email == email).first()
-    if user is None:
+    # The e-mail address is mutable and can later belong to someone else, so
+    # the session's own member id decides, not the address in the token.
+    if user is None or user.id != session_record.member_id:
         raise _credentials_exception()
     if user.auth_locked:
         raise HTTPException(
@@ -101,4 +103,4 @@ def get_current_user(
     email, token_id = _decode_token(token)
     session_record = _get_session_record(db, token_id)
     _enforce_idle_timeout(db, session_record)
-    return _get_verified_user(db, email)
+    return _get_verified_user(db, email, session_record)

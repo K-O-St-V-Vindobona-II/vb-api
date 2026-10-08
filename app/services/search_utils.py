@@ -40,3 +40,13 @@ def build_prefix_tsquery_text(db: Session, query: str) -> str:
     safe_query_text = cast(func.websearch_to_tsquery("german", query), Text)
     prefixed_text = func.regexp_replace(safe_query_text, r"'(\w+)'", r"'\1':*", "g")
     return db.execute(select(cast(prefixed_text, Text))).scalar() or ""
+
+
+def escape_like(term: str) -> str:
+    """Escape the LIKE wildcards of user input.
+
+    "%" and "_" typed by a user are text to search for, not patterns: without
+    this a search for "100%" matches "100 Euro" and "%" matches everything.
+    Use it together with `ilike(pattern, escape="\\")`.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

@@ -40,7 +40,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements-dev.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements-dev.lock
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header"]
+# --forwarded-allow-ips '*': see the note at the end of the prod stage.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header", "--forwarded-allow-ips", "*"]
 
 
 FROM base AS prod
@@ -92,7 +93,18 @@ CMD ["gunicorn", "main:app", \
      "--graceful-timeout", "30", \
      "--worker-tmp-dir", "/tmp", \
      "--access-logfile", "-", \
+     "--forwarded-allow-ips", "*", \
      "--no-control-socket"]
+# --forwarded-allow-ips '*': the rate limiter keys on the client address that
+# the server resolves from X-Forwarded-For, and the server applies that header
+# only for peers on this list. The reverse proxy reaches the container through
+# the port the pod publishes on the host's loopback interface, and under
+# rootless networking the container sees such a connection as coming from the
+# host's own public address, not from 127.0.0.1 - a list of loopback addresses
+# never matches, the header is ignored and every visitor shares one limit.
+# Trusting any peer is safe only while that port stays published on the
+# loopback interface alone (nothing but processes of the host can connect) and
+# the proxy replaces the header instead of appending to a client-supplied one.
 # --no-control-socket: this feature (gunicorn >= 25.1.0) is for gunicornc,
 # a CLI tool for runtime worker management - unused here (Podman/systemd
 # own the container lifecycle instead). Without this flag, gunicorn tries

@@ -2,6 +2,7 @@
 tree in few queries."""
 
 import signal
+from itertools import pairwise
 
 import pytest
 from fastapi import HTTPException
@@ -115,3 +116,113 @@ class TestTreeQueries:
         large_count = counter.count
 
         assert small_count == large_count
+
+    def test_statement_count_does_not_grow_with_several_generations(
+        self, db_session, count_queries
+    ):
+        small_root, _, _ = _family(db_session, "Qs", 3, 2)
+        with count_queries() as counter:
+            standesdb_service.get_member_detail(db_session, small_root.id)
+        small_count = counter.count
+
+        large_root, _, _ = _family(db_session, "Ql", 12, 2)
+        with count_queries() as counter:
+            standesdb_service.get_member_detail(db_session, large_root.id)
+        large_count = counter.count
+
+        assert small_count == large_count
+
+
+def _family(db_session, prefix, children, grandchildren):
+    """A root with `children` children, each with `grandchildren` children."""
+    root = _members(db_session, 1, f"{prefix}R")[0]
+    kids = _members(db_session, children, f"{prefix}K")
+    for kid in kids:
+        kid.parent_id = root.id
+    db_session.commit()
+    grand = {}
+    for index, kid in enumerate(kids):
+        grand[kid.id] = _members(db_session, grandchildren, f"{prefix}G{index}x")
+        for member in grand[kid.id]:
+            member.parent_id = kid.id
+    db_session.commit()
+    db_session.expire_all()
+    return root, kids, grand
+
+
+class TestTreeShape:
+    def test_every_generation_hangs_under_its_own_parent(self, db_session):
+        root, kids, grand = _family(db_session, "Sh", 3, 2)
+
+        tree = standesdb_service.get_member_detail(db_session, root.id).tree
+
+        assert {child["id"] for child in tree["children"]} == {k.id for k in kids}
+        for child in tree["children"]:
+            assert {g["id"] for g in child["children"]} == {
+                g.id for g in grand[child["id"]]
+            }
+            assert all(g["children"] == [] for g in child["children"])
+
+    def test_siblings_are_ordered_by_id(self, db_session):
+        root, kids, grand = _family(db_session, "Or", 4, 3)
+        # An update moves a row to the end of the table: without an explicit
+        # order the oldest member would now come last.
+        kids[0].couleurname = "Updated"
+        grand[kids[1].id][0].couleurname = "Updated"
+        db_session.commit()
+        db_session.expire_all()
+
+        tree = standesdb_service.get_member_detail(db_session, root.id).tree
+
+        child_ids = [child["id"] for child in tree["children"]]
+        assert child_ids == sorted(child_ids)
+        for child in tree["children"]:
+            grandchild_ids = [g["id"] for g in child["children"]]
+            assert grandchild_ids == sorted(grandchild_ids)
+
+    def test_a_member_without_children_has_an_empty_tree(self, db_session):
+        lone = _members(db_session, 1, "Lone")[0]
+
+        tree = standesdb_service.get_member_detail(db_session, lone.id).tree
+
+        assert tree["children"] == []
+        assert [entry["id"] for entry in tree["ancestry"]] == [lone.id]
+
+    def test_the_ancestry_runs_from_the_top_down(self, db_session, chain):
+        a, b, c = chain
+
+        tree = standesdb_service.get_member_detail(db_session, c.id).tree
+
+        assert [entry["id"] for entry in tree["ancestry"]] == [a.id, b.id, c.id]
+
+
+class TestTreeDepth:
+    DEPTH = standesdb_service._MAX_TREE_DEPTH
+
+    def _long_chain(self, db_session):
+        members = _members(db_session, self.DEPTH + 5, "Deep")
+        for parent, child in pairwise(members):
+            child.parent_id = parent.id
+        db_session.commit()
+        db_session.expire_all()
+        return members
+
+    def test_descendants_are_followed_up_to_the_depth_limit(self, db_session):
+        members = self._long_chain(db_session)
+
+        tree = standesdb_service.get_member_detail(db_session, members[0].id).tree
+
+        levels = 0
+        node = tree
+        while node["children"]:
+            node = node["children"][0]
+            levels += 1
+        assert levels == self.DEPTH
+
+    def test_ancestors_are_followed_up_to_the_depth_limit(self, db_session):
+        members = self._long_chain(db_session)
+
+        tree = standesdb_service.get_member_detail(db_session, members[-1].id).tree
+
+        assert len(tree["ancestry"]) == self.DEPTH
+        assert tree["ancestry"][-1]["id"] == members[-1].id

@@ -53,6 +53,7 @@ _GOOGLE_CERTS_CACHE_SECONDS = 300
 _GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (
     "Google-Anmeldung ist gerade nicht erreichbar. Bitte versuch es später erneut."
 )
+_GOOGLE_NOT_CONFIGURED_MESSAGE = "Google Login ist auf dem Server nicht konfiguriert."
 _GOOGLE_ALREADY_LINKED_MESSAGE = (
     "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
 )
@@ -328,7 +329,17 @@ def refresh_session(
     session_id: str,
     refresh_secret: str,
 ) -> tuple[str, str]:
-    session = db.query(AuthSession).filter(AuthSession.jti == session_id).first()
+    # FOR UPDATE serialises concurrent refreshes of the same session: the
+    # second request waits for the first to commit, then sees the rotated
+    # hash and is rejected as reuse. Without the lock both requests pass the
+    # check and each is handed a valid-looking secret, of which only the last
+    # write survives.
+    session = (
+        db.query(AuthSession)
+        .filter(AuthSession.jti == session_id)
+        .with_for_update()
+        .first()
+    )
     if not session:
         msg = "Invalid session"
         raise ValueError(msg)
@@ -356,15 +367,17 @@ def refresh_session(
     return access_token, new_secret
 
 
-def authenticate_google_user(db: Session, credential_token: str) -> Member:
-    """
-    Verifies a Google token and returns the bound Member.
-    Throws AccountNotLinkedError if the token is valid but not bound.
-    """
+def _verify_google_credential(
+    credential_token: str, invalid_message: str
+) -> tuple[str, Mapping[str, object]]:
+    """Verifies a Google ID token for this application and returns its subject
+    and claims. Every path that accepts a Google token goes through here, so
+    the audience is checked everywhere or nowhere: without a configured client
+    id nothing is verified (the library skips the audience check when it is
+    None, which would accept a token issued to any other application)."""
     client_id = get_settings().google_client_id
     if not client_id:
-        msg = "Google Login ist auf dem Server nicht konfiguriert."
-        raise ValueError(msg)
+        raise ValueError(_GOOGLE_NOT_CONFIGURED_MESSAGE)
 
     try:
         id_info = id_token.verify_oauth2_token(
@@ -375,10 +388,22 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     except TransportError as e:
         raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
     except ValueError:
-        msg = "Ungültiger Google-Token."
-        raise ValueError(msg) from None
+        raise ValueError(invalid_message) from None
 
-    google_id = id_info.get("sub")
+    subject = id_info.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise ValueError(invalid_message)
+    return subject, id_info
+
+
+def authenticate_google_user(db: Session, credential_token: str) -> Member:
+    """
+    Verifies a Google token and returns the bound Member.
+    Throws AccountNotLinkedError if the token is valid but not bound.
+    """
+    google_id, _ = _verify_google_credential(
+        credential_token, "Ungültiger Google-Token."
+    )
 
     # Check if we already know this Google account
     binding = (
@@ -445,24 +470,11 @@ def link_google_account(
         raise ValueError(msg)
 
     # 2. Verify Google Token again
-    client_id = get_settings().google_client_id
-    try:
-        id_info = id_token.verify_oauth2_token(
-            credential_token,
-            _google_auth_request,
-            client_id,
-        )
-    except TransportError as e:
-        raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
-    except ValueError:
-        msg = "Der Google-Token ist ungültig oder abgelaufen."
-        raise ValueError(msg) from None
-
-    google_id = id_info.get("sub")
-    if not google_id:
-        msg = "Der Google-Token ist ungültig oder abgelaufen."
-        raise ValueError(msg)
-    google_name = id_info.get("name", "Unknown")
+    google_id, id_info = _verify_google_credential(
+        credential_token, "Der Google-Token ist ungültig oder abgelaufen."
+    )
+    name = id_info.get("name")
+    google_name = name if isinstance(name, str) else "Unknown"
 
     # 3. Check if this Google account is already linked to ANOTHER user
     # OR if this local member already has a binding.

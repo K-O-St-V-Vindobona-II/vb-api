@@ -21,6 +21,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_transaction import P4xTransaction
 from app.services import p4x_account_service
+from app.services.search_utils import escape_like
 
 # ---------------------------------------------------------------------------
 # Category filter engine
@@ -54,8 +55,11 @@ def _apply_category_filter_criteria(
             P4xTransaction.p4x_account_id == category_filter.p4x_account_id
         )
 
-    if category_filter.iban and len(category_filter.iban):
-        query = query.filter(P4xTransaction.iban == category_filter.iban)
+    if category_filter.iban:
+        # The bank delivers an IBAN without blanks in capitals; a filter saved
+        # as "at61 1904 ..." must still find those transactions.
+        iban = "".join(category_filter.iban.split()).upper()
+        query = query.filter(P4xTransaction.iban == iban)
 
     if category_filter.min_amount is not None:
         query = query.filter(P4xTransaction.amount >= category_filter.min_amount)
@@ -64,14 +68,17 @@ def _apply_category_filter_criteria(
         query = query.filter(P4xTransaction.amount <= category_filter.max_amount)
 
     if category_filter.subject is not None:
-        subject = category_filter.subject
+        # "%" and "_" typed into a filter are text, not wildcards.
+        subject = escape_like(category_filter.subject)
         subject_pattern = {
             "equals": subject,
             "contains": f"%{subject}%",
             "starts": f"{subject}%",
         }.get(category_filter.subject_mode)
         if subject_pattern is not None:
-            query = query.filter(P4xTransaction.subject.ilike(subject_pattern))
+            query = query.filter(
+                P4xTransaction.subject.ilike(subject_pattern, escape="\\")
+            )
 
     return query
 

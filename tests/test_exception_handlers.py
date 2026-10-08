@@ -11,14 +11,36 @@ also swallow real bugs in unrelated routes.
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from main import _unhandled_exception_handler, _validation_error_handler
+from main import app as real_app
+
+SECURITY_HEADER_NAMES = (
+    "X-Content-Type-Options",
+    "X-Frame-Options",
+    "Referrer-Policy",
+    "Cache-Control",
+    "Pragma",
+    "Expires",
+)
 
 
 class _Payload(BaseModel):
     name: str
     age: int
+
+
+class _Checked(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def _must_be_short(cls, value: str) -> str:
+        if len(value) > 3:
+            msg = "code is too long"
+            raise ValueError(msg)
+        return value
 
 
 def _build_test_app() -> FastAPI:
@@ -29,6 +51,10 @@ def _build_test_app() -> FastAPI:
     @app.get("/raise-validation-error")
     def raise_validation_error() -> None:
         _Payload(name="Test", age="not-a-number")
+
+    @app.get("/raise-validation-error-with-context")
+    def raise_validation_error_with_context() -> None:
+        _Checked(code="far-too-long-secret-input")
 
     @app.get("/raise-generic-error")
     def raise_generic_error() -> None:
@@ -70,3 +96,66 @@ class TestUnhandledExceptionHandler:
         client = TestClient(_build_test_app(), raise_server_exceptions=False)
         resp = client.get("/raise-generic-error")
         assert resp.headers["content-type"] == "application/json"
+
+
+class TestValidationErrorIsNotEchoed:
+    def test_the_offending_input_is_left_out(self) -> None:
+        client = TestClient(_build_test_app(), raise_server_exceptions=False)
+
+        resp = client.get("/raise-validation-error")
+
+        assert "not-a-number" not in resp.text
+        assert all("input" not in item for item in resp.json()["detail"])
+
+    def test_context_and_documentation_link_are_left_out(self) -> None:
+        client = TestClient(_build_test_app(), raise_server_exceptions=False)
+
+        resp = client.get("/raise-validation-error-with-context")
+
+        assert resp.status_code == 422
+        assert "far-too-long-secret-input" not in resp.text
+        for item in resp.json()["detail"]:
+            assert not {"input", "ctx", "url"} & set(item)
+
+    def test_location_message_and_type_stay_for_the_frontend(self) -> None:
+        client = TestClient(_build_test_app(), raise_server_exceptions=False)
+
+        resp = client.get("/raise-validation-error-with-context")
+
+        (item,) = resp.json()["detail"]
+        assert item["loc"] == ["code"]
+        assert item["msg"] == "Value error, code is too long"
+        assert item["type"] == "value_error"
+
+
+class TestServerErrorKeepsTheSecurityHeaders:
+    def test_a_500_carries_every_header_of_a_normal_response(self) -> None:
+        normal = TestClient(real_app).get("/")
+        failing = TestClient(_build_test_app(), raise_server_exceptions=False).get(
+            "/raise-generic-error"
+        )
+
+        expected = {name: normal.headers[name] for name in SECURITY_HEADER_NAMES}
+        actual = {name: failing.headers.get(name) for name in SECURITY_HEADER_NAMES}
+        assert actual == expected
+
+    def test_the_headers_have_their_documented_values(self) -> None:
+        failing = TestClient(_build_test_app(), raise_server_exceptions=False).get(
+            "/raise-generic-error"
+        )
+
+        assert {name: failing.headers[name] for name in SECURITY_HEADER_NAMES} == {
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+
+    def test_the_body_stays_the_generic_german_message(self) -> None:
+        failing = TestClient(_build_test_app(), raise_server_exceptions=False).get(
+            "/raise-generic-error"
+        )
+
+        assert failing.json() == {"detail": "Ein unerwarteter Fehler ist aufgetreten."}

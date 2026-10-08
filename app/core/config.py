@@ -1,3 +1,4 @@
+import re
 import sys
 import uuid  # noqa: TC003 -- pydantic-settings resolves field types eagerly
 from functools import lru_cache
@@ -10,6 +11,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # (vb-intern/vite.env-check.ts, vb-www/vite.env-check.ts) — not shared code,
 # since backend and frontends deploy and release independently.
 _VALID_ENVIRONMENTS = frozenset({"development", "test", "qa", "production"})
+
+# Values shipped in the public example files; a deployment that still carries
+# one of them holds a signing key that everybody can read.
+_PLACEHOLDER_SECRET_MARKERS = ("change-me", "changeme", "replace-me", "your-secret")
+
+# scheme://host[:port] only: no wildcard, no path, no trailing slash. The
+# browser compares the Origin header literally, so anything else either never
+# matches or (wildcard) would let every site read credentialed responses.
+_ORIGIN_PATTERN = re.compile(r"https?://[^/\s*]+")
 
 
 def _fail(message: str) -> NoReturn:
@@ -32,24 +42,35 @@ class Settings(BaseSettings):
         default=None, validation_alias="APP_ENVIRONMENT"
     )
     cors_origins: str | None = Field(default=None, validation_alias="CORS_ORIGINS")
-    secret_key: str | None = Field(default=None, validation_alias="SECRET_KEY")
-    database_url: str | None = Field(default=None, validation_alias="DATABASE_URL")
+    # Secret-bearing fields are excluded from repr()/str() so that logging or
+    # printing the settings object can never leak them.
+    secret_key: str | None = Field(
+        default=None, validation_alias="SECRET_KEY", repr=False
+    )
+    database_url: str | None = Field(
+        default=None, validation_alias="DATABASE_URL", repr=False
+    )
     # Required unconditionally: both the web container (enqueues ad-hoc
     # background tasks) and the ARQ worker container (runs cron jobs and
     # dequeues tasks) depend on Valkey for their core functionality.
-    valkey_url: str | None = Field(default=None, validation_alias="VALKEY_URL")
+    valkey_url: str | None = Field(
+        default=None, validation_alias="VALKEY_URL", repr=False
+    )
 
     # Tier 3 (session/auth) — optional with defaults, no boot-time validation.
     session_lifetime_minutes: int = Field(
-        default=15, validation_alias="SESSION_LIFETIME_MINUTES"
+        default=15, ge=1, le=1440, validation_alias="SESSION_LIFETIME_MINUTES"
     )
     session_idle_timeout_minutes: int = Field(
-        default=120, validation_alias="SESSION_IDLE_TIMEOUT_MINUTES"
+        default=120, ge=1, le=10080, validation_alias="SESSION_IDLE_TIMEOUT_MINUTES"
     )
     refresh_token_lifetime_days: int = Field(
-        default=7, validation_alias="REFRESH_TOKEN_LIFETIME_DAYS"
+        default=7, ge=1, le=90, validation_alias="REFRESH_TOKEN_LIFETIME_DAYS"
     )
-    password_min_length: int = Field(default=8, validation_alias="PASSWORD_MIN_LENGTH")
+    # Upper bound: bcrypt only uses the first 72 bytes of a password.
+    password_min_length: int = Field(
+        default=8, ge=8, le=72, validation_alias="PASSWORD_MIN_LENGTH"
+    )
 
     # Tier 2 (feature-required — checked at first use via require_setting(),
     # not at boot: a process that never sends email, offers Google Login,
@@ -57,7 +78,9 @@ class Settings(BaseSettings):
     # to configure these; a real empty-string default for the S3 keys would
     # instead fail silently deep inside boto3 on first actual use).
     smtp_host: str | None = Field(default=None, validation_alias="SMTP_HOST")
-    smtp_port: int | None = Field(default=None, validation_alias="SMTP_PORT")
+    smtp_port: int | None = Field(
+        default=None, ge=1, le=65535, validation_alias="SMTP_PORT"
+    )
     smtp_from_email: str | None = Field(
         default=None, validation_alias="SMTP_FROM_EMAIL"
     )
@@ -70,8 +93,12 @@ class Settings(BaseSettings):
     google_client_id: str | None = Field(
         default=None, validation_alias="GOOGLE_CLIENT_ID"
     )
-    s3_access_key: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY")
-    s3_secret_key: str | None = Field(default=None, validation_alias="S3_SECRET_KEY")
+    s3_access_key: str | None = Field(
+        default=None, validation_alias="S3_ACCESS_KEY", repr=False
+    )
+    s3_secret_key: str | None = Field(
+        default=None, validation_alias="S3_SECRET_KEY", repr=False
+    )
     # Prod AWS S3 credentials for the non-prod downsync job/script
     # (app/services/downsync_service.py) — deliberately separate from the
     # s3_* fields above, which target this stage's own bucket/endpoint.
@@ -79,10 +106,10 @@ class Settings(BaseSettings):
     # bucket only (s3:GetObject/s3:ListBucket) — the downsync path never
     # writes through this credential, only through the s3_* one above.
     aws_prod_access_key_id: str | None = Field(
-        default=None, validation_alias="AWS_ACCESS_KEY_ID"
+        default=None, validation_alias="AWS_ACCESS_KEY_ID", repr=False
     )
     aws_prod_secret_access_key: str | None = Field(
-        default=None, validation_alias="AWS_SECRET_ACCESS_KEY"
+        default=None, validation_alias="AWS_SECRET_ACCESS_KEY", repr=False
     )
     aws_prod_bucket: str | None = Field(default=None, validation_alias="AWS_BUCKET")
     # Tier 3: has a sensible default, unlike the three prod AWS fields above.
@@ -93,7 +120,9 @@ class Settings(BaseSettings):
     # sentinel meaning "no SMTP auth", checked via `.lower() != "null"`.
     smtp_from_name: str = Field(default="Vindobona", validation_alias="SMTP_FROM_NAME")
     smtp_user: str = Field(default="null", validation_alias="SMTP_USER")
-    smtp_password: str = Field(default="null", validation_alias="SMTP_PASSWORD")
+    smtp_password: str = Field(
+        default="null", validation_alias="SMTP_PASSWORD", repr=False
+    )
 
     # Tier 3 (S3 path prefixes) — optional with defaults, no boot-time validation.
     s3_path_standesdb_images: str = Field(
@@ -129,23 +158,30 @@ class Settings(BaseSettings):
         default=None, validation_alias="S3_PUBLIC_ENDPOINT_URL"
     )
     s3_region: str = Field(default="us-east-1", validation_alias="S3_REGION")
+    # 604800 s (7 days) is the longest lifetime SigV4 allows for a presigned URL.
     s3_presigned_expiry: int = Field(
-        default=900, validation_alias="S3_PRESIGNED_EXPIRY"
+        default=900, ge=1, le=604800, validation_alias="S3_PRESIGNED_EXPIRY"
     )
 
     # Tier 3 (backup schedule / tracking / dev-only) — optional with
     # defaults, no boot-time validation.
     backup_enabled: bool = Field(default=True, validation_alias="BACKUP_ENABLED")
-    backup_hour: int = Field(default=3, validation_alias="BACKUP_HOUR")
+    backup_hour: int = Field(default=3, ge=0, le=23, validation_alias="BACKUP_HOUR")
     backup_retention_days: int = Field(
-        default=29, validation_alias="BACKUP_RETENTION_DAYS"
+        default=29, ge=1, validation_alias="BACKUP_RETENTION_DAYS"
     )
     tracking_retention_months: int = Field(
-        default=6, validation_alias="TRACKING_RETENTION_MONTHS"
+        default=6, ge=1, validation_alias="TRACKING_RETENTION_MONTHS"
     )
     dev_superuser_id: uuid.UUID | None = Field(
         default=None, validation_alias="DEV_SUPERUSER_ID"
     )
+
+    # Tier 3 (break-glass administrators) - optional, empty by default.
+    # Comma-separated e-mail addresses whose member holds the systemAdmin
+    # permission regardless of roles. Matched exactly (case-sensitive, like
+    # the unique index on members.email), so keep it to a very short list.
+    system_admin_emails: str = Field(default="", validation_alias="SYSTEM_ADMIN_EMAILS")
 
     # Tier 3 (timezone) — optional with default, no boot-time validation.
     # Wall-clock timezone for human-facing output (cron schedule, email
@@ -198,12 +234,33 @@ class Settings(BaseSettings):
             )
         if not self.cors_origins_list:
             _fail("CORS_ORIGINS is set but contains no valid origins.")
+        malformed = [
+            origin
+            for origin in self.cors_origins_list
+            if not _ORIGIN_PATTERN.fullmatch(origin)
+        ]
+        if malformed:
+            _fail(
+                f"CORS_ORIGINS contains malformed origins {malformed}. "
+                "Use scheme://host[:port] without wildcard, path or trailing slash."
+            )
 
     def _validate_secret_key(self) -> None:
         if not self.secret_key:
             _fail("SECRET_KEY is not set.")
         if len(self.secret_key) < 32:
             _fail("SECRET_KEY must be at least 32 characters long.")
+        lowered = self.secret_key.lower()
+        if any(marker in lowered for marker in _PLACEHOLDER_SECRET_MARKERS):
+            _fail("SECRET_KEY still holds a placeholder value from an example file.")
+
+    @property
+    def system_admin_email_set(self) -> frozenset[str]:
+        return frozenset(
+            email.strip()
+            for email in self.system_admin_emails.split(",")
+            if email.strip()
+        )
 
     @property
     def cors_origins_list(self) -> list[str]:

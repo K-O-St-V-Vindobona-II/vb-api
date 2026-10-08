@@ -15,7 +15,7 @@ script below lists two ways to run it:
 ## `check_s3_integrity.py`
 
 Read-only consistency check between the database and S3. Reports two things:
-1. **Completeness** — every `sha256_hash` referenced by a `StandesdbImage` or `ArchiveStoreItem` row must exist as an object in S3; missing ones are printed and cause a non-zero exit code.
+1. **Completeness** — every `sha256_hash` referenced by a `StandesdbImage` or `ArchiveStoreItem` row must exist as an object in S3; missing ones are printed and the exit code is 1. If the check itself cannot finish (database or storage error), the error goes to stderr and the exit code is 2, so a broken run is never read as missing files.
 2. **Orphans** — S3 objects under the image/store prefixes that are referenced by no DB row at all (active or soft-deleted), listed with size/content-type/last-modified for manual review.
 
 Both checks compare against a bulk `list_objects_v2` listing of each prefix
@@ -306,7 +306,7 @@ verwendet. Für jedes Script unten sind zwei Aufrufwege beschrieben:
 ## `check_s3_integrity.py`
 
 Read-only-Konsistenzprüfung zwischen Datenbank und S3. Meldet zwei Dinge:
-1. **Vollständigkeit** — jeder von einer `StandesdbImage`- oder `ArchiveStoreItem`-Zeile referenzierte `sha256_hash` muss als Objekt in S3 existieren; fehlende werden ausgegeben und führen zu einem Exit-Code ungleich 0.
+1. **Vollständigkeit** — jeder von einer `StandesdbImage`- oder `ArchiveStoreItem`-Zeile referenzierte `sha256_hash` muss als Objekt in S3 existieren; fehlende werden ausgegeben, der Exit-Code ist 1. Kann die Prüfung selbst nicht abgeschlossen werden (Datenbank- oder Speicherfehler), geht der Fehler auf stderr und der Exit-Code ist 2, damit ein abgebrochener Lauf nie als fehlende Dateien gelesen wird.
 2. **Waisen** — S3-Objekte unter den Image-/Store-Präfixen, die von keiner DB-Zeile referenziert werden (weder aktiv noch soft-deleted), aufgelistet mit Größe/Content-Type/Änderungsdatum zur manuellen Prüfung.
 
 Beide Prüfungen vergleichen gegen ein gebündeltes `list_objects_v2`-Listing

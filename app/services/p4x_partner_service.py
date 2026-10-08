@@ -20,6 +20,7 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.schemas.p4x import PartnerSearchResult
+from app.services.search_utils import escape_like
 
 # ---------------------------------------------------------------------------
 # Partner search
@@ -30,15 +31,15 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     if len(term) < 3:
         return []
 
-    pattern = f"%{term}%"
+    pattern = f"%{escape_like(term)}%"
     results: list[PartnerSearchResult] = []
 
     members = (
         db.query(Member)
         .filter(
-            (Member.vorname.ilike(pattern))
-            | (Member.nachname.ilike(pattern))
-            | (Member.couleurname.ilike(pattern)),
+            (Member.vorname.ilike(pattern, escape="\\"))
+            | (Member.nachname.ilike(pattern, escape="\\"))
+            | (Member.couleurname.ilike(pattern, escape="\\")),
         )
         .all()
     )
@@ -54,7 +55,8 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         db.query(Contact)
         .filter(
             Contact.deleted_at.is_(None),
-            (Contact.name.ilike(pattern)) | (Contact.couleurname.ilike(pattern)),
+            (Contact.name.ilike(pattern, escape="\\"))
+            | (Contact.couleurname.ilike(pattern, escape="\\")),
         )
         .all()
     )
@@ -66,7 +68,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     specials = (
         db.query(P4xSpecialcontact)
         .filter(
-            P4xSpecialcontact.cn.ilike(pattern),
+            P4xSpecialcontact.cn.ilike(pattern, escape="\\"),
         )
         .all()
     )
@@ -79,7 +81,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         db.query(P4xAccount)
         .filter(
             P4xAccount.deleted_at.is_(None),
-            P4xAccount.label.ilike(pattern),
+            P4xAccount.label.ilike(pattern, escape="\\"),
         )
         .all()
     )

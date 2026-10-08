@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import logging
 import secrets
 import uuid
@@ -22,6 +23,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = _settings.session_lifetime_minutes
 SESSION_IDLE_TIMEOUT_MINUTES = _settings.session_idle_timeout_minutes
 REFRESH_TOKEN_LIFETIME_DAYS = _settings.refresh_token_lifetime_days
 
+# bcrypt only ever uses the first 72 bytes of its input (release 5 raises for
+# longer values, earlier releases truncated silently).
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
@@ -29,7 +34,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             return False
         if hashed_password.startswith("$2y$"):
             hashed_password = hashed_password.replace("$2y$", "$2b$", 1)
-        password_bytes = plain_password.encode("utf-8")
+        # Existing hashes were created while over-long passwords were still
+        # truncated silently, so compare on the same 72-byte prefix instead of
+        # failing the login (and logging a stack trace) for such accounts.
+        password_bytes = plain_password.encode("utf-8")[:BCRYPT_MAX_PASSWORD_BYTES]
         hash_bytes = hashed_password.encode("utf-8")
         return bcrypt.checkpw(password_bytes, hash_bytes)
     except ValueError:
@@ -72,7 +80,8 @@ def hash_refresh_secret(secret: str) -> str:
 
 
 def verify_refresh_secret(plain: str, hashed: str) -> bool:
-    return hashlib.sha256(plain.encode()).hexdigest() == hashed
+    digest = hashlib.sha256(plain.encode()).hexdigest()
+    return hmac.compare_digest(digest.encode(), hashed.encode())
 
 
 def hash_reset_token(token: str) -> str:
