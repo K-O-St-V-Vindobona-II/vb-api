@@ -5,6 +5,7 @@ tests/test_storage_integrity_service.py — these tests only exercise the
 CLI wrapper's own logic (formatting, control flow, exit codes).
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -94,3 +95,27 @@ def test_main_exits_one_when_files_missing() -> None:
         check_s3_integrity.main()
 
     assert exc_info.value.code == 1
+
+
+@pytest.mark.parametrize(
+    ("last_modified", "expected"),
+    [
+        (datetime(2026, 7, 14, 22, 30, tzinfo=UTC), "2026-07-15 00:30 CEST"),
+        (datetime(2026, 1, 15, 22, 30, tzinfo=UTC), "2026-01-15 23:30 CET"),
+    ],
+)
+def test_last_modified_is_shown_in_the_application_time_zone(
+    capsys, last_modified, expected
+) -> None:
+    storage = MagicMock()
+    storage.head.return_value = {
+        "size": 10,
+        "content_type": "image/png",
+        "last_modified": last_modified,
+    }
+
+    check_s3_integrity.print_report(
+        "Archive", storage, IntegrityReport(missing=[], orphans=["k"])
+    )
+
+    assert expected in capsys.readouterr().out

@@ -136,6 +136,7 @@ def _make_p4x_category_filter(session: Session) -> uuid.UUID:
         name="uuidv7-test",
         p4x_account_id=_make_p4x_account(session),
         subject_mode="contains",
+        subject="uuidv7-test",
         p4x_category_id=_make_p4x_category(session),
     )
     session.add(category_filter)
@@ -236,6 +237,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "name": "'uuidv7-test'",
         "p4x_account_id": f"'{_make_p4x_account(s)}'",
         "subject_mode": "'contains'",
+        "subject": "'uuidv7-test'",
         "p4x_category_id": f"'{_make_p4x_category(s)}'",
     },
     "p4x_partners": lambda s: {"member_id": f"'{_make_member(s)}'"},

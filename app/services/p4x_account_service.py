@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 if TYPE_CHECKING:
     import uuid
 
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import InstrumentedAttribute, Session
 
     from app.schemas.p4x import AccountSaveRequest
 
@@ -33,11 +33,21 @@ PAGINATION_SIZE = 100
 # ---------------------------------------------------------------------------
 
 
+def _iban_without_blanks(column: InstrumentedAttribute[str]) -> ColumnElement[str]:
+    return func.replace(column, " ", "")
+
+
+def _normalized_iban(iban: str) -> str:
+    """The IBAN without blanks: "AT61 1904 ..." and "AT611904 ..." are one
+    account (the database index on the same expression enforces it)."""
+    return iban.replace(" ", "")
+
+
 def create_account(db: Session, data: AccountSaveRequest) -> P4xAccount:
     existing = (
         db.query(P4xAccount)
         .filter(
-            P4xAccount.iban == data.iban,
+            _iban_without_blanks(P4xAccount.iban) == _normalized_iban(data.iban),
             P4xAccount.deleted_at.is_(None),
         )
         .first()
@@ -72,7 +82,7 @@ def update_account(
     dup = (
         db.query(P4xAccount)
         .filter(
-            P4xAccount.iban == data.iban,
+            _iban_without_blanks(P4xAccount.iban) == _normalized_iban(data.iban),
             P4xAccount.id != account.id,
             P4xAccount.deleted_at.is_(None),
         )

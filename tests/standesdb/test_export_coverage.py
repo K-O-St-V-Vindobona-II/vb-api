@@ -314,7 +314,7 @@ class TestClassifyBadges:
         )
         db_session.commit()
 
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(m)
         assert len(jubelbaender) == 1
         assert jubelbaender[0]["name"] == "Fuxenband"
         assert len(ehrenzeichen) == 1
@@ -323,7 +323,7 @@ class TestClassifyBadges:
     def test_empty_badges_returns_empty_lists(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="NoBadge", nachname="Test")
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(m)
         assert jubelbaender == []
         assert ehrenzeichen == []
 

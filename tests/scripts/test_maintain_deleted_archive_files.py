@@ -57,6 +57,7 @@ def _candidate(
     archive_store_item_id: uuid.UUID | None = None,
     active_sibling_count: int = 0,
     other_deleted_sibling_count: int = 0,
+    deleted_at: datetime = datetime(2026, 7, 20, 14, 32, 10, tzinfo=UTC),
 ) -> PurgeCandidate:
     name, _, extension = filename.rpartition(".")
     return PurgeCandidate(
@@ -65,7 +66,7 @@ def _candidate(
         name=name,
         extension=extension,
         description="Gruppenfoto",
-        deleted_at=datetime(2026, 7, 20, 14, 32, 10, tzinfo=UTC),
+        deleted_at=deleted_at,
         size=100,
         sha256_hash="a" * 64,
         archive_dir_id=_uid(archive_dir_id) if archive_dir_id is not None else None,
@@ -1181,3 +1182,27 @@ class TestUrlpathCommand:
             _run_main(["urlpath", _fake_uuid(7)])
 
         assert "DELETED DIRECTORY:" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("deleted_at", "expected"),
+    [
+        (datetime(2026, 7, 14, 22, 30, tzinfo=UTC), "2026-07-15 00:30:00 CEST"),
+        (datetime(2026, 1, 15, 22, 30, tzinfo=UTC), "2026-01-15 23:30:00 CET"),
+    ],
+)
+def test_list_shows_the_deletion_time_in_the_application_time_zone(
+    capsys, deleted_at, expected
+) -> None:
+    with (
+        patch.object(maintain_script, "SessionLocal", return_value=MagicMock()),
+        patch.object(
+            maintain_script,
+            "list_deleted_files",
+            return_value=[_candidate(deleted_at=deleted_at)],
+        ),
+        pytest.raises(SystemExit),
+    ):
+        _run_main(["list"])
+
+    assert expected in capsys.readouterr().out

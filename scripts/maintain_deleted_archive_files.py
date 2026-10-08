@@ -116,6 +116,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
+from app.core.datetime_utils import get_app_timezone
 from app.core.storage import StorageClient, get_storage
 from app.db.database import SessionLocal
 from app.services.archive_maintenance_service import (
@@ -218,7 +219,9 @@ def _print_candidates(candidates: list[PurgeCandidate], *, short: bool = False) 
         )
         for c in files:
             hash_short = (c.sha256_hash or "")[:16]
-            deleted_at = c.deleted_at.strftime("%Y-%m-%d %H:%M:%S")
+            deleted_at = c.deleted_at.astimezone(get_app_timezone()).strftime(
+                "%Y-%m-%d %H:%M:%S %Z"
+            )
             name = _truncate(c.name, _FILENAME_WIDTH)
             extension = _truncate(c.extension, _FILEEXT_WIDTH)
             description = _truncate(c.description or "", _DESCRIPTION_WIDTH)

@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
+from app.core.datetime_utils import get_app_timezone
 from app.core.storage import StorageClient, get_storage
 from app.db.database import SessionLocal
 from app.services.storage_integrity_service import (
@@ -43,7 +44,11 @@ def _print_orphan_details(storage: StorageClient, orphans: list[str]) -> None:
     for key in orphans:
         meta = storage.head(key)
         size = _human_size(meta["size"])
-        last_modified = meta["last_modified"].strftime("%Y-%m-%d %H:%M")
+        last_modified = (
+            meta["last_modified"]
+            .astimezone(get_app_timezone())
+            .strftime("%Y-%m-%d %H:%M %Z")
+        )
         print(f"{key:<60} {size:>10} {meta['content_type']:<30} {last_modified}")
 
 

@@ -237,6 +237,7 @@ class TestP4xCategoryFilter:
             name="final-cutover-guard",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
         )
         db_session.add(f)
@@ -295,6 +296,7 @@ class TestP4xCategoryFilterHit:
             name="test_filter",
             p4x_account_id=account.id,
             subject_mode="equals",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),

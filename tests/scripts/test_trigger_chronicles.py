@@ -6,8 +6,9 @@ wrapper's own control flow (dry-run vs --send, --to override, empty-result
 short-circuits).
 """
 
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import scripts.trigger_chronicles as trigger_chronicles
 from app.models.member import Member
@@ -162,3 +163,26 @@ def test_no_anniversaries_skips_send(capsys, db_session) -> None:
     mock_send.assert_not_called()
     out = capsys.readouterr().out
     assert "No anniversaries in this window" in out
+
+
+class TestDefaultReferenceDate:
+    """The reference date is the day of the application time zone, the same
+    day the weekly job computes its anniversary week from."""
+
+    def test_shortly_after_midnight_in_vienna_it_is_the_new_day(self) -> None:
+        # 00:30 in Vienna is still the previous day in UTC.
+        vienna_night = datetime(2026, 7, 15, 0, 30, tzinfo=ZoneInfo("Europe/Vienna"))
+
+        with (
+            patch("app.core.datetime_utils.local_now", return_value=vienna_night),
+            patch("sys.argv", ["trigger_chronicles.py"]),
+        ):
+            args = trigger_chronicles._parse_args()
+
+        assert args.date == date(2026, 7, 15)
+
+    def test_an_explicit_date_wins(self) -> None:
+        with patch("sys.argv", ["trigger_chronicles.py", "--date", "2026-03-31"]):
+            args = trigger_chronicles._parse_args()
+
+        assert args.date == date(2026, 3, 31)

@@ -469,7 +469,7 @@ def _serialize_log_value(val: object) -> str | None:
 # Änderungshistorie — they aren't part of any edit form and aren't
 # meaningful change history for a user. Filtered both at write time
 # (defense in depth, in case a future diff includes one) and at read time
-# (to also suppress legacy rows already sitting in the DB, e.g.
+# (to also suppress rows already sitting in the DB from earlier write paths, e.g.
 # auth_lastsignal rows from a since-changed write path that bulk-updated
 # the column directly, bypassing this diff mechanism entirely).
 #

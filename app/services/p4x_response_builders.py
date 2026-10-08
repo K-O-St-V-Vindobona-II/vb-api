@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 
 from app.models.member import Member
 from app.models.p4x_account import P4xAccount
@@ -23,41 +24,48 @@ from app.services import p4x_account_service, p4x_category_service, p4x_partner_
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Sequence
 
     from sqlalchemy.orm import Session
 
 
-def build_transaction_response(
+def _filter_hit_counts(db: Session, filter_ids: set[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """Number of hits of each filter, in one query."""
+    if not filter_ids:
+        return {}
+    rows = (
+        db.query(P4xCategoryFilterHit.p4x_category_filter_id, func.count())
+        .filter(P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids))
+        .group_by(P4xCategoryFilterHit.p4x_category_filter_id)
+        .all()
+    )
+    return {row[0]: row[1] for row in rows}
+
+
+def _partner_ref(
+    partner_type: str | None,
+    partner_id: uuid.UUID | None,
+    entities: dict[tuple[str, uuid.UUID], p4x_partner_service.PartnerEntity],
+) -> PartnerRef | None:
+    if not partner_type or not partner_id:
+        return None
+    entity = entities.get((partner_type, partner_id))
+    if entity is None:
+        return None
+    return PartnerRef(type=partner_type, id=partner_id, cn=getattr(entity, "cn", ""))
+
+
+def _build_transaction_response(
     tx: P4xTransaction,
-    db: Session,
+    entities: dict[tuple[str, uuid.UUID], p4x_partner_service.PartnerEntity],
+    hit_counts: dict[uuid.UUID, int],
 ) -> TransactionResponse:
     partner = None
     if tx.partner and tx.partner.deleted_at is None:
-        entity = p4x_partner_service.find_partner_entity(
-            db,
-            tx.partner.partner_type,
-            tx.partner.partner_id,
-        )
-        if entity:
-            partner = PartnerRef(
-                type=tx.partner.partner_type,
-                id=tx.partner.partner_id,
-                cn=getattr(entity, "cn", ""),
-            )
-
-    delegating_partner = None
-    if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity(
-            db,
-            tx.delegating_partner_type,
-            tx.delegating_partner_id,
-        )
-        if entity:
-            delegating_partner = PartnerRef(
-                type=tx.delegating_partner_type,
-                id=tx.delegating_partner_id,
-                cn=getattr(entity, "cn", ""),
-            )
+        partner = _partner_ref(tx.partner.partner_type, tx.partner.partner_id, entities)
+    delegating_partner = _partner_ref(
+        tx.delegating_partner_type, tx.delegating_partner_id, entities
+    )
 
     directs = [
         CategoryDirectResponse(
@@ -69,31 +77,22 @@ def build_transaction_response(
         if d.deleted_at is None
     ]
 
-    filters = []
-    for h in tx.category_filter_hits or []:
-        cf = h.category_filter
-        hit_count = (
-            db.query(P4xCategoryFilterHit)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id == cf.id,
-            )
-            .count()
+    filters = [
+        CategoryFilterShortResponse(
+            id=cf.id,
+            name=cf.name,
+            p4x_account_id=cf.p4x_account_id,
+            p4x_account_label=cf.account.label if cf.account else None,
+            iban=cf.iban,
+            min_amount=cf.min_amount,
+            max_amount=cf.max_amount,
+            subject=cf.subject,
+            subject_mode=cf.subject_mode,
+            p4x_category_id=cf.p4x_category_id,
+            hitCount=hit_counts.get(cf.id, 0),
         )
-        filters.append(
-            CategoryFilterShortResponse(
-                id=cf.id,
-                name=cf.name,
-                p4x_account_id=cf.p4x_account_id,
-                p4x_account_label=cf.account.label if cf.account else None,
-                iban=cf.iban,
-                min_amount=cf.min_amount,
-                max_amount=cf.max_amount,
-                subject=cf.subject,
-                subject_mode=cf.subject_mode,
-                p4x_category_id=cf.p4x_category_id,
-                hitCount=hit_count,
-            )
-        )
+        for cf in (h.category_filter for h in tx.category_filter_hits or [])
+    ]
 
     return TransactionResponse(
         id=tx.id,
@@ -112,6 +111,31 @@ def build_transaction_response(
         p4x_category_directs=directs,
         p4x_category_filters=filters,
     )
+
+
+def build_transaction_responses(
+    txs: Sequence[P4xTransaction],
+    db: Session,
+) -> list[TransactionResponse]:
+    """Responses for a list of transactions with a constant number of
+    queries: the partners are looked up once per partner type and the hit
+    counts of all filters in one grouped query, instead of per transaction."""
+    entities = p4x_partner_service.find_partner_entities(
+        db,
+        [ref for tx in txs for ref in p4x_partner_service.transaction_partner_refs(tx)],
+    )
+    hit_counts = _filter_hit_counts(
+        db,
+        {h.p4x_category_filter_id for tx in txs for h in tx.category_filter_hits or []},
+    )
+    return [_build_transaction_response(tx, entities, hit_counts) for tx in txs]
+
+
+def build_transaction_response(
+    tx: P4xTransaction,
+    db: Session,
+) -> TransactionResponse:
+    return build_transaction_responses([tx], db)[0]
 
 
 def build_account_response(

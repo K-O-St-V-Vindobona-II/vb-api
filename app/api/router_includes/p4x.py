@@ -100,17 +100,15 @@ def get_dashboard(
         ],
         warnings_partner=WarningsResponse(
             count=partner_count,
-            preview=[
-                p4x_response_builders.build_transaction_response(tx, db)
-                for tx in partner_items
-            ],
+            preview=p4x_response_builders.build_transaction_responses(
+                partner_items, db
+            ),
         ),
         warnings_category=WarningsResponse(
             count=category_count,
-            preview=[
-                p4x_response_builders.build_transaction_response(tx, db)
-                for tx in category_items
-            ],
+            preview=p4x_response_builders.build_transaction_responses(
+                category_items, db
+            ),
         ),
         categories=[
             CategoryResponse(
@@ -143,10 +141,7 @@ def get_warnings_partner_list(
     end = start + p4x_account_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db)
-            for tx in page_items
-        ],
+        items=p4x_response_builders.build_transaction_responses(page_items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
@@ -165,10 +160,7 @@ def get_warnings_category_list(
     end = start + p4x_account_service.PAGINATION_SIZE
     page_items = items[start:end]
     return PaginatedTransactions(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db)
-            for tx in page_items
-        ],
+        items=p4x_response_builders.build_transaction_responses(page_items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
@@ -295,9 +287,7 @@ def get_transactions_by_month(
         last_of_month = date(year, month + 1, 1) - timedelta(days=1)
 
     return TransactionsByMonthResponse(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db) for tx in items
-        ],
+        items=p4x_response_builders.build_transaction_responses(items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
@@ -328,9 +318,7 @@ def get_transactions_by_partner(
         page,
     )
     return PaginatedTransactions(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db) for tx in items
-        ],
+        items=p4x_response_builders.build_transaction_responses(items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
@@ -357,9 +345,7 @@ def get_transactions_by_category(
         page,
     )
     return PaginatedTransactions(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db) for tx in items
-        ],
+        items=p4x_response_builders.build_transaction_responses(items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
@@ -755,9 +741,7 @@ def get_transactions_by_filter(
         page,
     )
     return PaginatedTransactions(
-        items=[
-            p4x_response_builders.build_transaction_response(tx, db) for tx in items
-        ],
+        items=p4x_response_builders.build_transaction_responses(items, db),
         total=total,
         page=page,
         per_page=p4x_account_service.PAGINATION_SIZE,
