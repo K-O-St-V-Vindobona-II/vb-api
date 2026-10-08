@@ -805,12 +805,7 @@ def list_member_images(
 ) -> ImageListResponse:
     """List all profile images for a member, plus which one (if any) is the default. No
     special permission - any authenticated member."""
-    member = db.get(Member, member_id)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Mitglied nicht gefunden.",
-        )
+    member = standesdb_service.get_visible_member_or_404(db, member_id)
     images = image_service.get_images_for_owner(db, "member", member_id)
     return ImageListResponse.model_validate(
         {
@@ -847,6 +842,7 @@ def download_member_image(
 ) -> Response:
     """Download a member's profile image file (original or thumbnail). No special
     permission - any authenticated member."""
+    standesdb_service.get_visible_member_or_404(db, member_id)
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     return image_service.serve_download(img, storage)
 
@@ -862,6 +858,7 @@ def member_image_url(
 ) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for a member's profile image (original
     or thumbnail via thumb=true). No special permission - any authenticated member."""
+    standesdb_service.get_visible_member_or_404(db, member_id)
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     url = image_service.get_presigned_url(
         img,

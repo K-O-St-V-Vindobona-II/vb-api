@@ -6,6 +6,7 @@
 import io
 import uuid
 from datetime import UTC, date, datetime
+from urllib.parse import unquote
 
 import bcrypt
 from openpyxl import load_workbook
@@ -305,3 +306,50 @@ class TestExportFeeMemberEndpoint:
         resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
 
         assert resp.status_code == 403
+
+
+class TestExportFilenameEncoding:
+    """The download name holds any character of a member's name: a name outside
+    Latin-1 must not turn the export into a server error, and control characters
+    must not reach the header."""
+
+    def _member_named(self, db_session, last_name: str) -> Member:
+        member = _create_fee_member(db_session)
+        member.nachname = last_name
+        db_session.commit()
+        return member
+
+    def test_a_name_outside_latin_1_gives_an_export_instead_of_a_server_error(
+        self, db_session, client
+    ):
+        _seed_base(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        member = self._member_named(db_session, "Řehoř")
+
+        resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
+
+        assert resp.status_code == 200
+        disposition = resp.headers["content-disposition"]
+        assert 'filename="Beitragskonto_Robert Rehor' in disposition
+        assert "Řehoř" in unquote(disposition)
+
+    def test_a_line_break_in_the_name_cannot_split_the_header(self, db_session, client):
+        _seed_base(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        member = self._member_named(db_session, "Evil\r\nSet-Cookie: x=y")
+
+        resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
+
+        assert resp.status_code == 200
+        assert "set-cookie" not in resp.headers
+        assert "\n" not in resp.headers["content-disposition"]
+
+    def test_the_own_statement_uses_the_same_encoding(self, db_session, client):
+        _seed_base(db_session)
+        member = self._member_named(db_session, "Řehoř")
+        headers = _login(db_session, member)
+
+        resp = client.get("/api/p4x/fee-members/me/export", headers=headers)
+
+        assert resp.status_code == 200
+        assert "Řehoř" in unquote(resp.headers["content-disposition"])

@@ -186,9 +186,9 @@ def list_sent_emails(
     _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    year: int | None = None,
-    month: int | None = None,
-    search: str | None = None,
+    year: Annotated[int | None, Query(ge=2000, le=2100)] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    search: Annotated[str | None, Query(max_length=200)] = None,
 ) -> PaginatedResponse[SentEmailListItem]:
     """List sent emails with optional year/month and text search filters (paginated)."""
     return PaginatedResponse[SentEmailListItem].model_validate(

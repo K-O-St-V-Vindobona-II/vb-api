@@ -65,10 +65,9 @@ max-complexity = 8
 # (see conftest.py's _reset_settings_cache fixture), so direct env
 # manipulation is the whole testing strategy, not a violation of it.
 "tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603", "TID251"]
-# alembic/env.py runs as Alembic's own CLI entry point, outside the
-# FastAPI app process — it reads DATABASE_URL directly rather than via
-# app.core.config.get_settings().
-"alembic/**" = ["F401", "UP035", "ANN", "PLR0915", "TID251"]
+# Migration files need no annotations and keep the typing imports of older
+# revisions; env.py follows the same rules as the application.
+"alembic/**" = ["F401", "UP035", "ANN", "PLR0915"]
 "scripts/**" = ["T201", "FBT", "PLR0915"]
 # Declarative models use `from __future__ import annotations`, so SQLAlchemy
 # resolves `Mapped[...]` annotations at mapper-configure time by evaluating
@@ -138,7 +137,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "def __repr__",
     "raise NotImplementedError",
-    "pass",
+    "^\\s*pass$",
 ]
 
 [tool.pyright]

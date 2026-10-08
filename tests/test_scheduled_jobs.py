@@ -9,6 +9,7 @@ instrumentation-specific tests below request the fixture explicitly to
 assert on its call args instead.
 """
 
+import smtplib
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import ANY, MagicMock, patch
 
@@ -16,6 +17,7 @@ import pytest
 
 from app.core.datetime_utils import local_today
 from app.core.scheduler import (
+    MailRun,
     _compute_target_date,
     _parse_month_day,
     _parse_year,
@@ -765,6 +767,123 @@ class TestBirthdayMails:
         )
 
 
+class TestBirthdayMailDeliveryFailures:
+    def _add_birthday_member(self, db, email: str, name: str) -> None:
+        tomorrow = local_today() + timedelta(days=1)
+        db.add(
+            Member(
+                email=email,
+                vorname=name,
+                nachname="User",
+                couleurname=name,
+                org_id="vbw",
+                state_id="fu",
+                geburtsdatum=date(1990, tomorrow.month, tomorrow.day),
+                geburtsdatum_accuracy=3,
+                entlassen=False,
+                verstorben=False,
+                zustellungen="adresse_privat",
+            )
+        )
+
+    def _run_job(self, db_session, deliver):
+        with (
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler.send_to_recipients", side_effect=deliver
+            ) as mock_send,
+        ):
+            job_birthday_mails()
+        return mock_send
+
+    def test_one_refused_mail_does_not_stop_the_others(
+        self, db_session, mock_record_job_run
+    ):
+        _seed_base(db_session)
+        self._add_birthday_member(db_session, "a@vbw.at", "Anton")
+        self._add_birthday_member(db_session, "b@vbw.at", "Berta")
+        db_session.commit()
+
+        def deliver(*, to_emails, **_kwargs):
+            if to_emails == ["a@vbw.at"]:
+                raise smtplib.SMTPRecipientsRefused({"a@vbw.at": (550, b"no")})
+
+        mock_send = self._run_job(db_session, deliver)
+
+        assert mock_send.call_count == 2
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails",
+            ANY,
+            exit_code=1,
+            output="1 birthday mail(s) sent. 1 failed: Anton User v/o Anton.",
+        )
+
+    def test_a_dropped_connection_is_a_delivery_failure_too(
+        self, db_session, mock_record_job_run
+    ):
+        _seed_base(db_session)
+        self._add_birthday_member(db_session, "a@vbw.at", "Anton")
+        self._add_birthday_member(db_session, "b@vbw.at", "Berta")
+        db_session.commit()
+
+        mock_send = self._run_job(db_session, ConnectionRefusedError("no route"))
+
+        assert mock_send.call_count == 2
+        output = mock_record_job_run.call_args.kwargs["output"]
+        assert mock_record_job_run.call_args.kwargs["exit_code"] == 1
+        assert output.startswith("0 birthday mail(s) sent. 2 failed: ")
+        assert "Anton User v/o Anton" in output
+        assert "Berta User v/o Berta" in output
+
+    def test_all_mails_sent_records_exit_code_zero(
+        self, db_session, mock_record_job_run
+    ):
+        _seed_base(db_session)
+        self._add_birthday_member(db_session, "a@vbw.at", "Anton")
+        self._add_birthday_member(db_session, "b@vbw.at", "Berta")
+        db_session.commit()
+
+        self._run_job(db_session, None)
+
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails", ANY, exit_code=0, output="2 birthday mail(s) sent."
+        )
+
+    def test_any_other_error_still_ends_the_job(self, db_session, mock_record_job_run):
+        _seed_base(db_session)
+        self._add_birthday_member(db_session, "a@vbw.at", "Anton")
+        self._add_birthday_member(db_session, "b@vbw.at", "Berta")
+        db_session.commit()
+
+        mock_send = self._run_job(db_session, RuntimeError("settings missing"))
+
+        assert mock_send.call_count == 1
+        mock_record_job_run.assert_called_once_with(
+            "birthday_mails", ANY, exit_code=1, output="settings missing"
+        )
+
+
+class TestMailRun:
+    def test_summary_lists_the_failures(self):
+        run = MailRun(sent=2, failed=["A", "B"])
+
+        assert run.exit_code == 1
+        assert run.summary("mail(s)") == "2 mail(s) sent. 2 failed: A, B."
+
+    def test_a_clean_run_has_exit_code_zero(self):
+        run = MailRun(sent=3)
+
+        assert run.exit_code == 0
+        assert run.summary("mail(s)") == "3 mail(s) sent."
+
+    def test_runs_do_not_share_their_list_of_failures(self):
+        first = MailRun()
+        first.failed.append("A")
+
+        assert MailRun().failed == []
+
+
 class TestJobCleanup:
     def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
         with (
@@ -1082,13 +1201,79 @@ class TestDebtorReminder:
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
             patch("app.core.scheduler._validate_latest_booking", return_value=True),
-            patch("app.core.scheduler._send_debtor_reminders") as mock_send_reminders,
+            patch(
+                "app.core.scheduler._send_debtor_reminders", return_value=MailRun()
+            ) as mock_send_reminders,
         ):
             job_debtor_reminder()
 
         mock_send_reminders.assert_called_once()
         mock_record_job_run.assert_called_once_with(
             "debtor_reminder", ANY, exit_code=0, output=ANY
+        )
+
+    def test_one_refused_reminder_does_not_stop_the_others(self, db_session):
+        _seed_base(db_session)
+        debtors = [
+            Member(
+                email=f"schuldner-{name}@vbw.at",
+                vorname=name,
+                nachname="Schuldner",
+                couleurname=name,
+                org_id="vbw",
+                state_id="up",
+                entlassen=False,
+                verstorben=False,
+            )
+            for name in ("Anton", "Berta")
+        ]
+        db_session.add_all(debtors)
+        db_session.commit()
+
+        disconnected = smtplib.SMTPServerDisconnected()
+
+        def deliver(*, to_emails, **_kwargs):
+            if to_emails == ["schuldner-Anton@vbw.at"]:
+                raise disconnected
+
+        with (
+            patch("app.core.scheduler.fee_for_month", return_value=15.0),
+            patch(
+                "app.core.scheduler.calculate_fee_balance",
+                return_value={"end_balance": -400.0},
+            ),
+            patch(
+                "app.core.scheduler.send_to_recipients", side_effect=deliver
+            ) as mock_send,
+        ):
+            run = _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+
+        assert mock_send.call_count == 2
+        assert run.sent == 1
+        assert run.failed == ["Anton Schuldner v/o Anton"]
+
+    def test_failed_reminders_record_exit_code_one_with_a_summary(
+        self, db_session, mock_record_job_run
+    ):
+        today = date(2026, 7, 15)
+        target = _compute_target_date(today).strftime("%Y-%m-%d")
+        with (
+            patch("app.core.scheduler.local_today", return_value=today),
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch("app.core.scheduler._validate_latest_booking", return_value=True),
+            patch(
+                "app.core.scheduler._send_debtor_reminders",
+                return_value=MailRun(sent=1, failed=["Anton"]),
+            ),
+        ):
+            job_debtor_reminder()
+
+        mock_record_job_run.assert_called_once_with(
+            "debtor_reminder",
+            ANY,
+            exit_code=1,
+            output=f"Target date {target}: 1 reminder(s) sent. 1 failed: Anton.",
         )
 
     def test_send_reminders_failure_records_exit_code_one(

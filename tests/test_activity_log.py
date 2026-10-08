@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 import bcrypt
+import pytest
 
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -186,3 +187,32 @@ class TestGetActivityEntry:
         headers = _login_unprivileged(db_session)
         resp = client.get(f"/api/tracking/activity/{uuid.uuid4()}", headers=headers)
         assert resp.status_code == 403
+
+
+class TestActivityLogYearAndMonth:
+    @pytest.mark.parametrize(
+        ("year", "month"),
+        [(99999, 6), (1999, 6), (2101, 6), (-1, 6), (2026, 0), (2026, 13)],
+    )
+    def test_out_of_range_year_or_month_is_a_validation_error(
+        self, client, db_session, year, month
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+
+        resp = client.get(
+            f"/api/tracking/activity?year={year}&month={month}", headers=headers
+        )
+
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize(("year", "month"), [(2000, 1), (2026, 6), (2100, 12)])
+    def test_the_edges_of_the_range_are_accepted(self, client, db_session, year, month):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+
+        resp = client.get(
+            f"/api/tracking/activity?year={year}&month={month}", headers=headers
+        )
+
+        assert resp.status_code == 200

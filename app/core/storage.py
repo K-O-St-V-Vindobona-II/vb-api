@@ -13,7 +13,9 @@ from app.core.config import get_settings, require_setting
 if TYPE_CHECKING:
     from datetime import datetime
 
-PILImage.MAX_IMAGE_PIXELS = 100_000_000
+# Pillow warns above this many pixels and raises above twice as many: this is
+# a hard cap of 100 million pixels.
+PILImage.MAX_IMAGE_PIXELS = 50_000_000
 
 MAX_PRESIGNED_EXPIRY = 86400
 MIN_PRESIGNED_EXPIRY = 60
@@ -38,6 +40,24 @@ class ObjectMetadata(TypedDict):
     last_modified: datetime
 
 
+# An object store that accepts a connection and never answers must not hold a
+# request thread for minutes: botocore's defaults are 60 s to connect and five
+# attempts. total_max_attempts counts the first request too (max_attempts would
+# count only the retries after it).
+_CLIENT_CONFIG = Config(
+    signature_version="s3v4",
+    connect_timeout=5,
+    read_timeout=60,
+    retries={"total_max_attempts": 3, "mode": "standard"},
+)
+
+_MISSING_CODES = frozenset({"404", "NoSuchKey", "NoSuchBucket", "NotFound"})
+
+
+def _is_missing(exc: ClientError) -> bool:
+    return exc.response.get("Error", {}).get("Code") in _MISSING_CODES
+
+
 class StorageClient:
     def __init__(
         self,
@@ -60,7 +80,7 @@ class StorageClient:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
-            config=Config(signature_version="s3v4"),
+            config=_CLIENT_CONFIG,
         )
 
         public_url = public_endpoint_url or endpoint_url
@@ -71,7 +91,7 @@ class StorageClient:
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 region_name=region,
-                config=Config(signature_version="s3v4"),
+                config=_CLIENT_CONFIG,
             )
         else:
             self._public_client = self._client
@@ -121,8 +141,10 @@ class StorageClient:
                 Bucket=self._bucket,
                 Key=key,
             )
-        except ClientError:
-            return False
+        except ClientError as exc:
+            if _is_missing(exc):
+                return False
+            raise
         return True
 
     def head(self, key: str) -> ObjectMetadata:
@@ -193,7 +215,9 @@ class StorageClient:
         """
         try:
             self._client.head_bucket(Bucket=self._bucket)
-        except ClientError:
+        except ClientError as exc:
+            if not _is_missing(exc):
+                raise
             create_kwargs: dict[str, object] = {"Bucket": self._bucket}
             if self._region != "us-east-1":
                 create_kwargs["CreateBucketConfiguration"] = {

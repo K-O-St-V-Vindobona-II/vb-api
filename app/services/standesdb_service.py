@@ -317,6 +317,18 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
     ]
 
 
+def get_visible_member_or_404(db: Session, member_id: uuid.UUID) -> Member:
+    """Load a member whose data may be shown. A dismissed member counts as
+    absent, in line with the detail page, which shows nothing but a stub."""
+    member = db.get(Member, member_id)
+    if not member or member.entlassen:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mitglied nicht gefunden.",
+        )
+    return member
+
+
 def get_member_detail(
     db: Session, member_id: uuid.UUID
 ) -> MemberDetailResponse | MemberDismissedResponse:
@@ -526,7 +538,14 @@ def apply_member_input(  # noqa: C901
     member: Member,
     data: MemberSaveRequest,
     current_user: Member,
+    *,
+    commit: bool = True,
 ) -> dict[str, dict[str, object]]:
+    """Apply a full member save and return the diff of changed fields.
+
+    With commit=False the changes are flushed but the transaction stays open,
+    so a caller that holds a row lock keeps it until its own commit.
+    """
     now = datetime.now(UTC)
     is_new = sa_inspect(member).transient
 
@@ -591,8 +610,9 @@ def apply_member_input(  # noqa: C901
             modified_at=now,
         )
 
-    db.commit()
-    db.refresh(member)
+    if commit:
+        db.commit()
+        db.refresh(member)
 
     return diff
 

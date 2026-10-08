@@ -1,19 +1,28 @@
 import base64
 import io
-import re
 import uuid
 import zipfile
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.auth_guards import require_permission
 from app.api.deps import get_current_user
 from app.core.datetime_utils import local_today
+from app.core.http_headers import attachment_disposition
 from app.db.database import get_db
 from app.models.member import Member
 from app.models.p4x_fee import P4xFee
@@ -133,7 +142,7 @@ def get_dashboard(
 def get_warnings_partner_list(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a partner assignment, paginated. Requires p4xView."""
     items, total = p4x_account_service.get_warnings_partner(db)
@@ -152,7 +161,7 @@ def get_warnings_partner_list(
 def get_warnings_category_list(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a category assignment, paginated. Requires p4xView."""
     items, total = p4x_account_service.get_warnings_category(db)
@@ -262,11 +271,11 @@ def import_transactions(
 )
 def get_transactions_by_month(
     account_id: uuid.UUID,
-    year: int,
-    month: int,
+    year: Annotated[int, Path(ge=2000, le=2100)],
+    month: Annotated[int, Path(ge=1, le=12)],
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> TransactionsByMonthResponse:
     """List transactions for a specific month, paginated, with the account's start/end
     balance for that month attached. Requires p4xView."""
@@ -305,7 +314,7 @@ def get_transactions_by_partner(
     partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific partner (member or contact, see
     partner_type), paginated. Requires p4xView."""
@@ -333,7 +342,7 @@ def get_transactions_by_category(
     category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific category, paginated.
     Requires p4xView."""
@@ -399,7 +408,7 @@ def get_transaction_attachment(
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": attachment_disposition(filename)},
     )
 
 
@@ -729,7 +738,7 @@ def get_transactions_by_filter(
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> PaginatedTransactions:
     """List transactions currently matched by a specific category filter rule,
     paginated. Requires p4xAdmin."""
@@ -914,12 +923,11 @@ def export_own_fee_member(
     if full.balance is None:
         raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(full)
-    safe_name = re.sub(r'[\\/:*?"<>|]', "_", current_user.cn)
-    filename = f"Beitragskonto_{safe_name}_{local_today()}.xlsx"
+    filename = f"Beitragskonto_{current_user.cn}_{local_today()}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": attachment_disposition(filename)},
     )
 
 
@@ -951,12 +959,11 @@ def export_fee_member(
         raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(response)
 
-    safe_name = re.sub(r'[\\/:*?"<>|]', "_", member.cn)
-    filename = f"Beitragskonto_{safe_name}_{local_today()}.xlsx"
+    filename = f"Beitragskonto_{member.cn}_{local_today()}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": attachment_disposition(filename)},
     )
 
 
@@ -1049,6 +1056,6 @@ def download_summary(
         content=zip_buffer.getvalue(),
         media_type="application/zip",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": attachment_disposition(filename),
         },
     )

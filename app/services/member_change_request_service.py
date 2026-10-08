@@ -296,7 +296,10 @@ def resolve_change_request(
     merged = MemberSaveRequest.model_validate(current_full)
     validate_member_org(merged, resolving_admin)
     validate_member_uniqueness(db, merged, exclude_id=member.id)
-    apply_member_input(db, member, merged, current_user=resolving_admin)
+    # One transaction for the member changes and the resolution: committing in
+    # between would release the request row lock before the status is written,
+    # and a second decision would still find the request pending.
+    apply_member_input(db, member, merged, current_user=resolving_admin, commit=False)
 
     request.status = MemberChangeRequestStatus.RESOLVED
     request.field_decisions = field_decisions

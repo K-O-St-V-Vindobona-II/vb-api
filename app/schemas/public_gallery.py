@@ -8,6 +8,8 @@ from app.schemas.base import StrictInputModel
 MAX_CAPTION_LENGTH = 150
 MAX_CONTACT_MESSAGE_LENGTH = 4000
 MAX_CONTACT_NAME_LENGTH = 100
+_FIRST_PRINTABLE = 0x20
+_DELETE = 0x7F
 
 
 class GalleryImagePublicResponse(BaseModel):
@@ -54,6 +56,15 @@ class ContactFormRequest(StrictInputModel):
     # Honeypot field: must stay empty. Real users never see or fill it
     # (hidden via CSS in the SPA); bots that blindly fill every field trip it.
     website: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def name_is_a_single_line(cls, v: str) -> str:
+        """The name goes into the subject line of the notification mail."""
+        if any(ord(char) < _FIRST_PRINTABLE or ord(char) == _DELETE for char in v):
+            msg = "The name must not contain control characters."
+            raise ValueError(msg)
+        return v
 
     @field_validator("website")
     @classmethod

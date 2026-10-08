@@ -53,7 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --no-create-home app
 
 COPY --from=builder /install /usr/local
-COPY --chown=app:app . .
+# The code stays owned by root and is only readable for the application user,
+# so a process that runs as that user cannot rewrite it, whatever the runtime
+# options of the container are.
+COPY . .
 
 RUN chmod +x docker-entrypoint.sh
 

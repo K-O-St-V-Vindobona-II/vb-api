@@ -3,15 +3,17 @@ import logging
 import resource
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
+from app.core.config import get_settings
 from app.db.database import SessionLocal
 from app.services import activity_log_service
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from pydantic import JsonValue
     from starlette.requests import Request
@@ -19,6 +21,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SKIP_LOG_HEADER = "x-skip-request-log"
+
+# The audit table stores at most 64 Ki characters of a response (see
+# activity_log_service.cap_stored_size); a body that is larger than this is not
+# stored at all, so it is streamed on instead of being collected in memory.
+_MAX_CAPTURED_BODY_BYTES = 256 * 1024
 
 
 async def _extract_request_input(request: Request) -> JsonValue:
@@ -96,10 +103,47 @@ def _persist_log(
             response_content=response_content,
             memory_usage=memory_usage,
         )
-    except Exception:  # must never break the actual response
+    except SQLAlchemyError, ValueError, TypeError:
+        # A failed audit write (database error, or a payload the JSON column
+        # rejects) must never break the actual response.
         logger.exception("Activity logging failed")
     finally:
         db.close()
+
+
+async def _capture_body(
+    body_iterator: AsyncIterator[bytes],
+) -> tuple[list[bytes], AsyncIterator[bytes] | None]:
+    """Read chunks until the body is complete or larger than the capture limit.
+
+    Returns the chunks read so far and, when the limit was reached first, the
+    iterator with the rest of the body (None when the body was read completely).
+    """
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in body_iterator:
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > _MAX_CAPTURED_BODY_BYTES:
+            return chunks, body_iterator
+    return chunks, None
+
+
+async def _replay(
+    chunks: list[bytes], rest: AsyncIterator[bytes]
+) -> AsyncIterator[bytes]:
+    for chunk in chunks:
+        yield chunk
+    async for chunk in rest:
+        yield chunk
+
+
+def _is_test_client(request: Request) -> bool:
+    return (
+        get_settings().app_environment == "test"
+        and request.client is not None
+        and request.client.host == "testclient"
+    )
 
 
 class ActivityLoggingMiddleware(BaseHTTPMiddleware):
@@ -117,28 +161,39 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
         # pure passthrough here keeps the hundreds of unrelated tests using
         # it free of this middleware's DB side effects (it has its own
         # dedicated dispatch()-level tests instead).
-        if request.client and request.client.host == "testclient":
+        if _is_test_client(request):
             return await call_next(request)
 
         request_input = await _extract_request_input(request)
         response = await call_next(request)
 
-        response_body = b""
-        async for chunk in response.body_iterator:  # type: ignore[attr-defined]
-            response_body += chunk
+        chunks, rest = await _capture_body(
+            response.body_iterator  # type: ignore[attr-defined]
+        )
+        response_body = b"".join(chunks)
 
         skip_header_present = _SKIP_LOG_HEADER in response.headers
-        rebuilt = Response(
-            content=response_body,
-            status_code=response.status_code,
-            headers={
-                key: value
-                for key, value in response.headers.items()
-                if key.lower() != _SKIP_LOG_HEADER
-            },
-            media_type=response.media_type,
-            background=response.background,
-        )
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() != _SKIP_LOG_HEADER
+        }
+        if rest is None:
+            rebuilt: Response = Response(
+                content=response_body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type,
+                background=response.background,
+            )
+        else:
+            rebuilt = StreamingResponse(
+                _replay(chunks, rest),
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type,
+                background=response.background,
+            )
 
         if activity_log_service.should_skip(
             request.url.path, skip_header_present=skip_header_present
@@ -155,7 +210,7 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
             request_path=request.url.path,
             request_input=request_input,
             response_status=response.status_code,
-            response_content=_try_parse_json(response_body),
+            response_content=None if rest else _try_parse_json(response_body),
             memory_usage=_memory_usage_bytes(),
             user_agent_string=request.headers.get("user-agent"),
         )

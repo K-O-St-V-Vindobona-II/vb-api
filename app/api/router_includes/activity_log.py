@@ -22,7 +22,7 @@ _VIEW = Depends(require_permission("systemAdmin"))
 
 @activity_log_router.get("")
 def list_days_with_activity(
-    year: Annotated[int, Query()],
+    year: Annotated[int, Query(ge=2000, le=2100)],
     month: Annotated[int, Query(ge=1, le=12)],
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, _VIEW],

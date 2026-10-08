@@ -1,16 +1,28 @@
+# Version control and local tooling
+.git
+.gitignore
+.github
+.pre-commit-config.yaml
+
+# Secrets and shell history must never become part of an image layer
+.env
+.env.*
+.bash_history
+
+# Local environments, caches and test artifacts
+.venv
+venv
+.local
+.cache
 __pycache__
 *.pyc
 .pytest_cache
+.ruff_cache
 .coverage
 coverage.xml
 htmlcov
-.git
-.gitignore
-.local
-.cache
-.ruff_cache
-.sqlite_history
-.env.example
+
+# Not needed at runtime
 tests
 Dockerfile
 *.md

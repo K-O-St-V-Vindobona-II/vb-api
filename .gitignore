@@ -3,12 +3,6 @@
 .env.*
 !.env.example
 
-# SQLite Databases
-*.sqlite
-*.sqlite3
-*.db
-*.db-journal
-
 # Python Byte-compiled / Optimized / DLL files
 __pycache__/
 *.py[cod]
