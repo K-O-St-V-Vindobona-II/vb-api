@@ -258,3 +258,14 @@ class TestScheduledTaskRunUuidDefault:
 
         assert isinstance(run.id, uuid.UUID)
         assert run.id.version == 7
+
+
+class TestListJobRunsUnknownJob:
+    def test_history_of_an_unknown_job_is_an_empty_page(self, db_session):
+        result = list_job_runs(db_session, "nonsense", page=2, page_size=10)
+
+        assert result == {"items": [], "total": 0, "page": 2, "page_size": 10}
+
+    @pytest.mark.parametrize("job_id", ["", "CLEANUP", "cleanup ", "cleanup;--"])
+    def test_near_misses_of_a_real_id_are_unknown_too(self, db_session, job_id):
+        assert list_job_runs(db_session, job_id, page=1, page_size=25)["total"] == 0

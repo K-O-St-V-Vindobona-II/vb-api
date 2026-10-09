@@ -24,6 +24,16 @@ _REQUIRED_SETTINGS = {
 DDL_ONLY_REVISION_RANGE = "9e5abc37f6b8:b7e4a2c91d35"
 
 
+_SOCIAL_SORT = "ALTER TABLE public_site_social_links ALTER COLUMN sort_order"
+_LOG_TIME = "ALTER TABLE contacts_logs ALTER COLUMN modified_at"
+# (statement that makes the database differ from the models, statement that undoes it)
+_SCHEMA_DRIFTS = [
+    (f"{_SOCIAL_SORT} TYPE bigint", f"{_SOCIAL_SORT} TYPE integer"),
+    (f"{_LOG_TIME} SET DEFAULT '2000-01-01'", f"{_LOG_TIME} SET DEFAULT now()"),
+]
+_DRIFT_IDS = ["column type", "server default"]
+
+
 def _run(command: list[str], database_url: str) -> subprocess.CompletedProcess[str]:
     # Fixed interpreter and literal arguments from this file: S603 does not apply.
     return subprocess.run(  # noqa: S603
@@ -98,6 +108,36 @@ class TestEnv:
         assert exit_code == 0, _failure(result, url)
         stdout = result.stdout
         assert "ENABLED" in stdout
+
+    def test_autogenerate_proposes_nothing_for_a_migrated_database(self):
+        # Without the filter for indexes that exist only in migrations, and
+        # with the comparison of types and defaults switched off, the tool
+        # would propose to drop every search index (or miss a changed default).
+        url = os.environ["DATABASE_URL"]
+
+        result = _run([sys.executable, "-m", "alembic", "check"], url)
+
+        exit_code = result.returncode
+        assert exit_code == 0, _failure(result, url)
+        stdout = result.stdout
+        assert "No new upgrade operations detected" in stdout
+
+    @pytest.mark.parametrize(("drift", "undo"), _SCHEMA_DRIFTS, ids=_DRIFT_IDS)
+    def test_autogenerate_notices_a_changed_type_or_default(self, drift, undo):
+        url = os.environ["DATABASE_URL"]
+        engine = create_engine(url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(drift))
+
+            result = _run([sys.executable, "-m", "alembic", "check"], url)
+        finally:
+            with engine.begin() as connection:
+                connection.execute(text(undo))
+            engine.dispose()
+
+        assert result.returncode != 0, _failure(result, url)
+        assert "New upgrade operations detected" in result.stderr + result.stdout
 
     def test_env_py_does_not_read_the_environment_itself(self):
         source = (ROOT / "alembic" / "env.py").read_text()

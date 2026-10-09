@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import AboutTabSlot
-from app.schemas.base import StrictInputModel
+from app.schemas.base import TrimmedInputModel
 
 # [text](url) - the only "formatting" allowed in about-tab body text. Only
 # http(s) links are accepted; this is defense-in-depth on top of the
@@ -64,7 +64,7 @@ class AboutTabAdminResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AboutTabUpdateRequest(StrictInputModel):
+class AboutTabUpdateRequest(TrimmedInputModel):
     title: str = Field(min_length=1, max_length=100)
     body: str = Field(min_length=1, max_length=6000)
 
@@ -88,7 +88,7 @@ class SiteSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class SiteSettingsUpdateRequest(StrictInputModel):
+class SiteSettingsUpdateRequest(TrimmedInputModel):
     about_video_heading: str = Field(min_length=1, max_length=200)
     # Admin pastes a normal YouTube link (watch/share/embed/shorts) - this
     # gets normalized to the bare 11-character video id by the validator
@@ -140,7 +140,7 @@ class ProgrammHintResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class ProgrammHintRequest(StrictInputModel):
+class ProgrammHintRequest(TrimmedInputModel):
     """Shared body shape for both creating and editing a hint."""
 
     text: str = Field(min_length=1, max_length=300)
@@ -157,7 +157,7 @@ class QuoteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class QuoteRequest(StrictInputModel):
+class QuoteRequest(TrimmedInputModel):
     """Shared body shape for both creating and editing a quote."""
 
     quote: str = Field(min_length=1, max_length=500)
@@ -188,7 +188,7 @@ class SocialLinkAdminResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class SocialLinkCreateRequest(StrictInputModel):
+class SocialLinkCreateRequest(TrimmedInputModel):
     # platform is a stable lookup slug, only settable at creation - see
     # PublicSiteSocialLink's docstring for why it's a free slug, not a
     # fixed CHECK-enum.
@@ -203,7 +203,7 @@ class SocialLinkCreateRequest(StrictInputModel):
         return _require_http_url(v)
 
 
-class SocialLinkUpdateRequest(StrictInputModel):
+class SocialLinkUpdateRequest(TrimmedInputModel):
     label: str = Field(min_length=1, max_length=60)
     url: str = Field(min_length=1, max_length=500)
     is_enabled: bool = True

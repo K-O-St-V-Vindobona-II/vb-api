@@ -8,6 +8,7 @@ import app.db.base
 from alembic import context
 from app.core.config import get_settings
 from app.db.database import Base
+from app.db.migration_filters import include_object
 from app.db.migration_lock import MIGRATION_LOCK_KEY
 
 config = context.config
@@ -46,6 +47,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

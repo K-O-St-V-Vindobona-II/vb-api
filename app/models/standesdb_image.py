@@ -65,12 +65,14 @@ class StandesdbImage(Base):
     width: Mapped[int | None]
     sha256_hash: Mapped[str] = mapped_column(String(64))
     description: Mapped[str | None]
-    default: Mapped[bool] = mapped_column(default=False)
+    default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

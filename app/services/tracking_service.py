@@ -7,6 +7,7 @@ from sqlalchemy import desc, func
 from app.core.datetime_utils import local_day_bounds_utc
 from app.models.sent_email import SentEmail
 from app.schemas.tracking import EmailTemplateStats, SentEmailListItem
+from app.services.search_utils import escape_like
 
 if TYPE_CHECKING:
     import uuid
@@ -124,9 +125,10 @@ def list_sent_emails(
         )
 
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{escape_like(search)}%"
         query = query.filter(
-            SentEmail.subject.ilike(pattern) | SentEmail.to.ilike(pattern)
+            SentEmail.subject.ilike(pattern, escape="\\")
+            | SentEmail.to.ilike(pattern, escape="\\")
         )
 
     total = query.count()

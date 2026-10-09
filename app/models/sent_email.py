@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import DateTime, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,9 +22,7 @@ class SentEmail(Base):
     headers: Mapped[str | None]
     attachments: Mapped[str | None]
     mailer: Mapped[str | None]
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

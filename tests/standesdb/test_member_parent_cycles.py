@@ -6,6 +6,7 @@ from itertools import pairwise
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 
 from app.models.member import Member
 from app.models.org import Org
@@ -73,7 +74,12 @@ class TestParentValidation:
 class TestExistingCycle:
     def test_detail_of_a_member_in_a_cycle_returns(self, db_session, chain):
         a, _, c = chain
-        a.parent_id = c.id  # a cycle that got into the data
+        # A cycle that got into the data before the database refused them: the
+        # trigger has to be off to store one.
+        db_session.execute(
+            text("ALTER TABLE members DISABLE TRIGGER members_parent_cycle")
+        )
+        a.parent_id = c.id
         db_session.commit()
         db_session.expire_all()
 

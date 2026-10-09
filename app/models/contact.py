@@ -11,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     String,
     Text,
     Uuid,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -34,6 +36,15 @@ class Contact(Base):
             "datum_accuracy IS NULL OR datum_accuracy BETWEEN 0 AND 3",
             name="contacts_datum_accuracy_check",
         ),
+        # A name is unique among the contacts that are not deleted, without
+        # regard to case (the rule validate_contact_uniqueness applies). A
+        # soft-deleted contact keeps its row and must not block the name.
+        Index(
+            "contacts_name_active_key",
+            func.lower(text("name")),
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -48,7 +59,7 @@ class Contact(Base):
         )
     )
     anrede: Mapped[str | None]
-    name: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String)
     couleurname: Mapped[str | None]
     org_id: Mapped[str | None] = mapped_column(
         ForeignKey("orgs.id", ondelete="RESTRICT", onupdate="CASCADE"),
@@ -89,7 +100,9 @@ class Contact(Base):
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

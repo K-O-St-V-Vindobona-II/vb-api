@@ -42,7 +42,9 @@ class ArchiveDir(Base):
         index=True,
     )
     recursive_permissions: Mapped[bool | None] = mapped_column(default=False)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration

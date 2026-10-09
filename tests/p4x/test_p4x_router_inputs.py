@@ -4,9 +4,12 @@ character of a member's name."""
 
 import base64
 import uuid
+from typing import get_args
 
 import pytest
 
+from app.schemas.p4x import PartnerType
+from app.services.p4x_partner_service import _PARTNER_MODELS
 from tests.p4x.test_p4x_router_http_coverage import (
     _create_account,
     _create_admin,
@@ -65,6 +68,31 @@ class TestPageParameter:
         assert response.status_code == 422
         assert "page" in str(response.json()["detail"])
 
+    @pytest.mark.parametrize("route", ROUTE_NAMES)
+    @pytest.mark.parametrize("page", ["100001", "99999999999999999999"])
+    def test_a_page_beyond_the_integer_range_is_a_validation_error(
+        self, client, account, admin_headers, route, page
+    ):
+        url = _list_routes(account.id)[route]
+
+        response = client.get(f"{url}?page={page}", headers=admin_headers)
+
+        assert response.status_code == 422
+        assert "page" in str(response.json()["detail"])
+
+    @pytest.mark.parametrize(
+        "route", ["warnings-partner", "warnings-category", "by-month"]
+    )
+    def test_the_last_allowed_page_is_an_empty_page(
+        self, client, account, admin_headers, route
+    ):
+        url = _list_routes(account.id)[route]
+
+        response = client.get(f"{url}?page=100000", headers=admin_headers)
+
+        assert response.status_code == 200
+        assert response.json()["items"] == []
+
     @pytest.mark.parametrize(
         "route", ["warnings-partner", "warnings-category", "by-month"]
     )
@@ -85,6 +113,38 @@ class TestPageParameter:
         url = _list_routes(account.id)[route]
 
         response = client.get(f"{url}?page=50", headers=admin_headers)
+
+        assert response.status_code == 200
+        assert response.json()["items"] == []
+
+
+class TestPartnerTypePath:
+    def test_the_accepted_types_are_exactly_the_ones_the_service_knows(self) -> None:
+        assert set(get_args(PartnerType)) == set(_PARTNER_MODELS)
+
+    @pytest.mark.parametrize("partner_type", ["nonsense", "Member", "", "members"])
+    def test_an_unknown_partner_type_is_a_validation_error(
+        self, client, account, admin_headers, partner_type
+    ):
+        response = client.get(
+            f"/api/p4x/accounts/{account.id}/transactions/by-partner/"
+            f"{partner_type or '%20'}/{uuid.uuid4()}",
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize(
+        "partner_type", ["member", "contact", "account", "special"]
+    )
+    def test_every_known_partner_type_is_accepted(
+        self, client, account, admin_headers, partner_type
+    ):
+        response = client.get(
+            f"/api/p4x/accounts/{account.id}/transactions/by-partner/"
+            f"{partner_type}/{uuid.uuid4()}",
+            headers=admin_headers,
+        )
 
         assert response.status_code == 200
         assert response.json()["items"] == []

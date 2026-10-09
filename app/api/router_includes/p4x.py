@@ -52,6 +52,7 @@ from app.schemas.p4x import (
     ImportResult,
     PaginatedTransactions,
     PartnerSearchResult,
+    PartnerType,
     SetPartnerRequest,
     SummaryOrderRequest,
     SumUpBalanceResponse,
@@ -73,6 +74,11 @@ from app.services import (
 p4x_router = APIRouter()
 
 PREVIEW_LIMIT = 10
+
+# A page below 1 gives a negative OFFSET and a huge one overflows it; both end
+# in a database error. A page holds 100 rows, so this bound is far above real
+# data.
+PageParam = Annotated[int, Query(ge=1, le=100_000)]
 # Largest import file and transaction attachment, in bytes.
 MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 
@@ -142,7 +148,7 @@ def get_dashboard(
 def get_warnings_partner_list(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a partner assignment, paginated. Requires p4xView."""
     items, total = p4x_account_service.get_warnings_partner(db)
@@ -161,7 +167,7 @@ def get_warnings_partner_list(
 def get_warnings_category_list(
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a category assignment, paginated. Requires p4xView."""
     items, total = p4x_account_service.get_warnings_category(db)
@@ -275,7 +281,7 @@ def get_transactions_by_month(
     month: Annotated[int, Path(ge=1, le=12)],
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> TransactionsByMonthResponse:
     """List transactions for a specific month, paginated, with the account's start/end
     balance for that month attached. Requires p4xView."""
@@ -310,11 +316,11 @@ def get_transactions_by_month(
 )
 def get_transactions_by_partner(
     account_id: uuid.UUID,
-    partner_type: str,
+    partner_type: PartnerType,
     partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific partner (member or contact, see
     partner_type), paginated. Requires p4xView."""
@@ -342,7 +348,7 @@ def get_transactions_by_category(
     category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xView"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific category, paginated.
     Requires p4xView."""
@@ -738,7 +744,7 @@ def get_transactions_by_filter(
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
     _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
-    page: Annotated[int, Query(ge=1)] = 1,
+    page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions currently matched by a specific category filter rule,
     paginated. Requires p4xAdmin."""

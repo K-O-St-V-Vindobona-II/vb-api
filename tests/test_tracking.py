@@ -271,6 +271,49 @@ class TestSentEmailsList:
         assert data["total"] == 1
         assert "Passwort" in data["items"][0]["subject"]
 
+    def test_search_treats_percent_and_underscore_as_text(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        for subject in ("Rabatt 100% heute", "Rabatt 100 Euro", "a_b", "axb"):
+            _insert_sent_email(db_session, "password-reset", subject=subject)
+
+        def found(search: str) -> list[str]:
+            resp = client.get(
+                "/api/tracking/sent-emails", params={"search": search}, headers=headers
+            )
+            assert resp.status_code == 200
+            return sorted(item["subject"] for item in resp.json()["items"])
+
+        assert found("%") == ["Rabatt 100% heute"]
+        assert found("100%") == ["Rabatt 100% heute"]
+        assert found("a_b") == ["a_b"]
+        assert found("_") == ["a_b"]
+        assert found("100") == ["Rabatt 100 Euro", "Rabatt 100% heute"]
+
+    def test_search_treats_a_backslash_as_text(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email(db_session, "password-reset", subject="pfad\\datei")
+        _insert_sent_email(db_session, "password-reset", subject="pfadxdatei")
+
+        resp = client.get(
+            "/api/tracking/sent-emails", params={"search": "\\"}, headers=headers
+        )
+
+        assert [i["subject"] for i in resp.json()["items"]] == ["pfad\\datei"]
+
+    def test_search_in_the_recipient_address_is_literal_too(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session)
+        _insert_sent_email(db_session, "password-reset", to="max_m@x.at")
+        _insert_sent_email(db_session, "password-reset", to="maxxm@x.at")
+
+        resp = client.get(
+            "/api/tracking/sent-emails", params={"search": "max_m"}, headers=headers
+        )
+
+        assert [i["to"] for i in resp.json()["items"]] == ["max_m@x.at"]
+
     def test_year_month_filter(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)

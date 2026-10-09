@@ -181,7 +181,9 @@ def upload_image(
     created_by: uuid.UUID | None,
     storage: StorageClient,
 ) -> StandesdbImage:
-    content = file.file.read()
+    # Read one byte past the limit: enough to detect an oversized file without
+    # loading the whole upload into memory first.
+    content = file.file.read(MAX_FILE_SIZE + 1)
     file_size = len(content)
 
     if file_size > MAX_FILE_SIZE:

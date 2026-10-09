@@ -595,6 +595,127 @@ class TestUpdateDir:
 
 
 # ------------------------------------------------------------------ #
+# Permission pairs must name an existing organisation and state
+# ------------------------------------------------------------------ #
+
+
+class TestUnknownPermissionPairs:
+    @pytest.mark.parametrize("pair", ["zzz_zz", "zzz_fu", "vbw_zz"])
+    def test_create_dir_rejects_unknown_pair_without_leaving_a_row(
+        self, client, db_session, pair
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Rejected",
+                "permissions": ["vbw_fu", pair],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert pair in resp.json()["detail"]
+        assert "vbw_fu" not in resp.json()["detail"]
+        db_session.expire_all()
+        assert db_session.query(ArchiveDir).filter_by(name="Rejected").count() == 0
+
+    def test_create_dir_lists_every_unknown_pair(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Rejected",
+                "permissions": ["zzz_zz", "vbw_fu", "vbw_yy"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Unbekannte Berechtigung: zzz_zz, vbw_yy"
+
+    def test_update_dir_rejects_unknown_pair_and_keeps_the_directory(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Keep", perms=["vbw_fu"])
+        resp = client.put(
+            f"/api/archive/dirs/{d.id}",
+            json={
+                "name": "Renamed",
+                "permissions": ["zzz_zz"],
+                "recursive_permissions": True,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        db_session.expire_all()
+        kept = db_session.get(ArchiveDir, d.id)
+        assert kept.name == "Keep"
+        assert kept.recursive_permissions is False
+        stored = db_session.query(ArchivePermission).filter_by(archive_dir_id=d.id)
+        assert [(p.org_id, p.state_id) for p in stored] == [("vbw", "fu")]
+
+    def test_update_dir_replaces_the_stored_pairs(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Replace", perms=["vbw_fu", "vbn_fu"])
+        resp = client.put(
+            f"/api/archive/dirs/{d.id}",
+            json={
+                "name": "Replace",
+                "permissions": ["vbn_bi"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        db_session.expire_all()
+        stored = db_session.query(ArchivePermission).filter_by(archive_dir_id=d.id)
+        assert [(p.org_id, p.state_id) for p in stored] == [("vbn", "bi")]
+
+    def test_duplicate_pairs_are_stored_once(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Dedup",
+                "permissions": ["vbw_fu", "vbw_fu", "vbn_bi"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code in (200, 201)
+        created = db_session.query(ArchiveDir).filter_by(name="Dedup").one()
+        stored = db_session.query(ArchivePermission).filter_by(
+            archive_dir_id=created.id
+        )
+        assert sorted((p.org_id, p.state_id) for p in stored) == [
+            ("vbn", "bi"),
+            ("vbw", "fu"),
+        ]
+
+    def test_trailing_newline_pair_is_rejected_over_http(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Newline",
+                "permissions": ["vbw_fu\n"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert db_session.query(ArchivePermission).count() == 0
+
+
+# ------------------------------------------------------------------ #
 # Move/Receive validation (lines 508, 521, 523, 546, 580)
 # ------------------------------------------------------------------ #
 
@@ -1496,6 +1617,34 @@ class TestArchiveSchemaValidators:
         req = DirSaveRequest(name="ValidName", permissions=["vbw_bi"])
         assert req.permissions == ["vbw_bi"]
 
+    def test_dir_save_permission_with_trailing_newline_rejected(self):
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["vbw_bi\n"])
+
+    def test_dir_save_permission_with_surrounding_text_rejected(self):
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["xvbw_bi"])
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["vbw_bix"])
+
+    def test_dir_save_permissions_deduplicated_in_order(self):
+        req = DirSaveRequest(
+            name="ValidName", permissions=["vbn_bi", "vbw_fu", "vbn_bi", "vbw_fu"]
+        )
+        assert req.permissions == ["vbn_bi", "vbw_fu"]
+
+    def test_dir_save_permission_count_limit(self):
+        at_limit = [
+            f"{a}{b}{c}_bi" for a in "ab" for b in "abcde" for c in "abcdefghij"
+        ]
+        assert len(at_limit) == 100
+        assert (
+            len(DirSaveRequest(name="ValidName", permissions=at_limit).permissions)
+            == 100
+        )
+        with pytest.raises(Exception, match="at most 100"):
+            DirSaveRequest(name="ValidName", permissions=[*at_limit, "zzz_bi"])
+
     def test_dir_receive_invalid_type(self):
         with pytest.raises(Exception, match=r"dir.*file"):
             DirReceiveRequest(type="invalid", ids=[uuid.uuid4()])
@@ -1509,6 +1658,15 @@ class TestArchiveSchemaValidators:
             type="file", ids=[uuid.uuid4(), uuid.uuid4()], action="move"
         )
         assert req.type == "file"
+
+    def test_dir_receive_id_count_limit(self):
+        at_limit = [uuid.uuid4() for _ in range(200)]
+        assert len(DirReceiveRequest(type="dir", ids=at_limit).ids) == 200
+        with pytest.raises(Exception, match="at most 200"):
+            DirReceiveRequest(type="dir", ids=[*at_limit, uuid.uuid4()])
+
+    def test_dir_receive_defaults_to_move(self):
+        assert DirReceiveRequest(type="dir", ids=[uuid.uuid4()]).action == "move"
 
     def test_file_update_description_too_long(self):
         with pytest.raises(Exception, match="128 Zeichen"):

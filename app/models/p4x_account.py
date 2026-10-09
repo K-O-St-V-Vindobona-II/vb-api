@@ -59,8 +59,8 @@ class P4xAccount(Base):
     label: Mapped[str | None]
     init_date: Mapped[datetime.date | None] = mapped_column(Date)
     init_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
-    created_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime(timezone=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)

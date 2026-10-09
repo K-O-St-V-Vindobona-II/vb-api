@@ -225,6 +225,9 @@ class TestDateChecksIgnoreTheSessionDateStyle:
     def holder(self, db_session):
         db_session.add(Role(id="datestyle-probe"))
         member = _member(db_session, "datestyle@vindobona.at")
+        # Load the row (with its creation time) before the style changes: the
+        # driver cannot parse a timestamp sent in the German style.
+        db_session.refresh(member)
         db_session.execute(text("SET LOCAL datestyle = 'German, DMY'"))
         return member
 

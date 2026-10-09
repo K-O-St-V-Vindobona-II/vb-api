@@ -76,6 +76,38 @@ class TestRedact:
         assert redact(None) is None
         assert redact(42) == 42
 
+    def test_masks_the_google_sign_in_credential(self) -> None:
+        assert redact({"credential": "eyJ.google.idtoken"}) == {"credential": "***"}
+        assert redact({"Credential": "eyJ.google.idtoken"}) == {"Credential": "***"}
+
+    def test_masks_presigned_urls_at_any_depth(self) -> None:
+        signed = "https://s3.example/b/k?X-Amz-Algorithm=AWS4&X-Amz-Signature=abc123"
+        payload = {
+            "url": signed,
+            "items": [{"link": signed.lower()}, [signed]],
+            "nested": {"deep": {"link": signed.upper()}},
+        }
+        assert redact(payload) == {
+            "url": "***",
+            "items": [{"link": "***"}, ["***"]],
+            "nested": {"deep": {"link": "***"}},
+        }
+
+    def test_keeps_plain_urls_and_text(self) -> None:
+        payload = {
+            "url": "https://verbindung.example/x?signature=1",
+            "text": "x-amz is only a word here",
+            "header": "the x-amz-signature header carries a value",
+            "items": ["https://s3.example/b/k?X-Amz-Expires=900"],
+        }
+        assert redact(payload) == payload
+
+    def test_does_not_mutate_its_input(self) -> None:
+        signed = "https://s3.example/k?X-Amz-Signature=abc"
+        payload = {"credential": "tok", "url": signed}
+        redact(payload)
+        assert payload == {"credential": "tok", "url": signed}
+
 
 class TestCapStoredSize:
     def test_passes_through_small_values(self) -> None:
@@ -109,6 +141,27 @@ class TestRecordRequest:
         assert entry.client_ip == "203.0.113.5"
         assert entry.request_input == {"password": "***", "email": "a@b.at"}
         assert entry.client_user_agent_id is not None
+
+    def test_google_credential_and_signed_links_never_reach_the_table(
+        self, db_session
+    ) -> None:
+        record_request(
+            db_session,
+            client_ip="203.0.113.5",
+            client_ips=["203.0.113.5"],
+            auth_header=None,
+            user_agent_string="pytest-agent",
+            request_method="POST",
+            request_path="/api/auth/google",
+            request_input={"credential": "eyJ.google.idtoken"},
+            response_status=200,
+            response_content={"url": "https://s3.example/k?X-Amz-Signature=abc123"},
+            memory_usage=1024,
+        )
+
+        entry = db_session.query(RequestLog).one()
+        assert entry.request_input == {"credential": "***"}
+        assert entry.response_content == {"url": "***"}
 
     def test_resolves_member_id_from_bearer_token(self, db_session) -> None:
         member = _create_member(db_session, email="found@vbw.at")

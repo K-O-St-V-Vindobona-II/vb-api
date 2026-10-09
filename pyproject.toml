@@ -102,12 +102,6 @@ max-complexity = 8
 "scripts/check_s3_integrity.py" = ["TID251"]
 "scripts/trigger_chronicles.py" = ["TID251"]
 "scripts/maintain_deleted_archive_files.py" = ["TID251"]
-# Different reason from the SessionLocal exceptions above: this file
-# spreads the *entire* current environment (`{**os.environ, "PGPASSWORD":
-# ...}`) to build a pg_dump/pg_restore subprocess env — a legitimate use
-# of the whole os.environ mapping, not a single named config value that
-# belongs in Settings.
-"app/services/backup_service.py" = ["TID251"]
 
 [tool.ruff.format]
 quote-style = "double"

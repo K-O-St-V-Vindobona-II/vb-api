@@ -38,7 +38,9 @@ class PublicSiteSocialLink(Base):
     platform: Mapped[str] = mapped_column(Text)
     label: Mapped[str] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
-    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     sort_order: Mapped[int] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

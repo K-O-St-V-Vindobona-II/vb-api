@@ -411,17 +411,20 @@ def get_warnings_category(
         .all()
     )
 
-    warnings: list[P4xTransaction] = []
-    for tx in all_tx:
-        if tx.id in tx_with_directs:
-            continue
-        filter_count = (
-            db.query(P4xCategoryFilterHit)
-            .filter(P4xCategoryFilterHit.p4x_transaction_id == tx.id)
-            .count()
-        )
-        if filter_count != 1:
-            warnings.append(tx)
+    # One grouped query for the hit count of every transaction, instead of one
+    # COUNT query per transaction.
+    hit_counts: dict[uuid.UUID, int] = {
+        row[0]: row[1]
+        for row in db.query(P4xCategoryFilterHit.p4x_transaction_id, func.count())
+        .group_by(P4xCategoryFilterHit.p4x_transaction_id)
+        .all()
+    }
+
+    warnings = [
+        tx
+        for tx in all_tx
+        if tx.id not in tx_with_directs and hit_counts.get(tx.id, 0) != 1
+    ]
 
     total = len(warnings)
     warnings.sort(key=lambda t: t.booking or date.min, reverse=True)

@@ -491,6 +491,7 @@ def create_dir(
     desc_raw = data.get("description")
     perms_raw = data.get("permissions", [])
     perms = list(perms_raw) if isinstance(perms_raw, list) else []
+    pairs = _parse_permissions(db, [str(p) for p in perms])
     dir_obj = ArchiveDir(
         name=str(data["name"]),
         description=str(desc_raw) if desc_raw is not None else None,
@@ -501,7 +502,7 @@ def create_dir(
     )
     db.add(dir_obj)
     db.flush()
-    _sync_permissions(db, dir_obj, [str(p) for p in perms])
+    _sync_permissions(db, dir_obj, pairs)
     db.commit()
     return dir_obj
 
@@ -519,13 +520,14 @@ def update_dir(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Verzeichnis nicht gefunden.",
         )
+    perms_raw = data.get("permissions", [])
+    perms = list(perms_raw) if isinstance(perms_raw, list) else []
+    pairs = _parse_permissions(db, [str(p) for p in perms])
     dir_obj.name = str(data["name"])
     desc_raw = data.get("description")
     dir_obj.description = str(desc_raw) if desc_raw is not None else None
     dir_obj.recursive_permissions = bool(data.get("recursive_permissions", False))
-    perms_raw = data.get("permissions", [])
-    perms = list(perms_raw) if isinstance(perms_raw, list) else []
-    _sync_permissions(db, dir_obj, [str(p) for p in perms])
+    _sync_permissions(db, dir_obj, pairs)
     db.commit()
     return dir_obj
 
@@ -698,24 +700,44 @@ def _is_descendant(
     return False
 
 
+def _parse_permissions(db: Session, perms: list[str]) -> list[tuple[str, str]]:
+    """Split `org_state` permission strings into (org id, state id) pairs.
+
+    A well-formed pair that names no existing organisation or state would
+    violate the foreign keys of archive_permissions on insert, so it is
+    refused up front with a 422 that lists every offending pair.
+    """
+    perm_sets = _load_perm_sets(db)
+    pairs: list[tuple[str, str]] = []
+    unknown: list[str] = []
+    for perm in perms:
+        org_id, _, state_id = perm.partition("_")
+        if org_id in perm_sets.orgs and state_id in perm_sets.states:
+            pairs.append((org_id, state_id))
+            continue
+        unknown.append(perm)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unbekannte Berechtigung: {', '.join(unknown)}",
+        )
+    return pairs
+
+
 def _sync_permissions(
     db: Session,
     dir_obj: ArchiveDir,
-    perms: list[str],
+    pairs: list[tuple[str, str]],
 ) -> None:
     db.query(ArchivePermission).filter(
         ArchivePermission.archive_dir_id == dir_obj.id
     ).delete()
-    for p in perms:
-        parts = p.split("_", 1)
-        if len(parts) == 2:
-            db.add(
-                ArchivePermission(
-                    archive_dir_id=dir_obj.id,
-                    org_id=parts[0],
-                    state_id=parts[1],
-                )
+    for org_id, state_id in pairs:
+        db.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id, org_id=org_id, state_id=state_id
             )
+        )
     db.flush()
 
 

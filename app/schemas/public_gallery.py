@@ -40,7 +40,7 @@ class GalleryImageUpdateRequest(StrictInputModel):
     caption: str | None = None
     is_published: bool = True
 
-    @field_validator("caption", mode="before")
+    @field_validator("caption")
     @classmethod
     def caption_max_length(cls, v: str | None) -> str | None:
         if v and len(v) > MAX_CAPTION_LENGTH:

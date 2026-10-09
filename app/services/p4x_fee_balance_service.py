@@ -67,6 +67,22 @@ def get_all_fees(db: Session) -> list[P4xFee]:
     return db.query(P4xFee).order_by(P4xFee.start).all()
 
 
+def _fee_step_function(db: Session) -> tuple[list[date], list[Decimal]]:
+    """Start dates and amounts of every fee, oldest first: one query for a
+    whole balance instead of one per month."""
+    fees = get_all_fees(db)
+    return [f.start for f in fees], [f.fee for f in fees]
+
+
+def _fee_at(
+    month_starts: list[date], month_fees: list[Decimal], month: date
+) -> Decimal:
+    """Fee in force in `month`: the latest one that started on or before its
+    first day, zero before the first fee (same rule as fee_for_month)."""
+    index = bisect_right(month_starts, month.replace(day=1)) - 1
+    return month_fees[index] if index >= 0 else Decimal(0)
+
+
 def fee_for_month(db: Session, target_date: date) -> Decimal:
     """Returns the fee applicable for a given month (latest start <= target)."""
     first_of_month = target_date.replace(day=1)
@@ -535,18 +551,13 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     # Calculate start_balance
     start_balance = member.p4x_init_balance or Decimal(0)
 
+    month_starts, month_fees = _fee_step_function(db)
     if not member.p4x_freed:
         prev_month_date = start_date.replace(day=1) - timedelta(days=1)
         n_months = _count_months(init_date, prev_month_date)
-        for i in range(n_months):
-            if init_date.month + i % 12 <= 12:
-                year = init_date.year + (init_date.month - 1 + i) // 12
-                month = (init_date.month - 1 + i) % 12 + 1
-            else:
-                year = init_date.year + (init_date.month - 1 + i) // 12
-                month = (init_date.month - 1 + i) % 12 + 1
-            current = date(year, month, 10)
-            start_balance -= fee_for_month(db, current)
+        start_balance -= _sum_fees_for_period(
+            month_starts, month_fees, init_date, n_months
+        )
 
     start_balance += _get_fee_payments_sum(
         db,
@@ -561,18 +572,14 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
 
     if not member.p4x_freed:
         n_months = _count_months(start_date, end_date)
-        for i in range(n_months):
-            year = start_date.year + (start_date.month - 1 + i) // 12
-            month = (start_date.month - 1 + i) % 12 + 1
-            current = date(year, month, 10)
-            fee_amount = fee_for_month(db, current)
-            progress.append(
-                {
-                    "type": "fee",
-                    "booking": str(current),
-                    "amount": -fee_amount,
-                }
-            )
+        progress.extend(
+            {
+                "type": "fee",
+                "booking": str(month.replace(day=10)),
+                "amount": -_fee_at(month_starts, month_fees, month),
+            }
+            for month in _months_from(start_date, n_months)
+        )
 
     progress.extend(
         _get_fee_payments_list(db, member, start_date, end_date),
@@ -668,6 +675,18 @@ def _end_of_month(target: date) -> date:
     return date(target.year, target.month + 1, 1) - timedelta(days=1)
 
 
+def _months_from(first_month: date, n_months: int) -> list[date]:
+    """The first day of `n_months` consecutive months, starting at `first_month`."""
+    return [
+        date(
+            first_month.year + (first_month.month - 1 + i) // 12,
+            (first_month.month - 1 + i) % 12 + 1,
+            1,
+        )
+        for i in range(n_months)
+    ]
+
+
 def _sum_fees_for_period(
     month_starts: list[date],
     month_fees: list[Decimal],
@@ -677,14 +696,13 @@ def _sum_fees_for_period(
     """Pure-Python replication of the fee_for_month() step function - no
     DB calls. month_starts/month_fees come from get_all_fees(db), loaded
     once for the whole bulk run (see get_fee_balances)."""
-    total = Decimal(0)
-    for i in range(n_months):
-        year = first_month.year + (first_month.month - 1 + i) // 12
-        month = (first_month.month - 1 + i) % 12 + 1
-        idx = bisect_right(month_starts, date(year, month, 1)) - 1
-        if idx >= 0:
-            total += month_fees[idx]
-    return total
+    return sum(
+        (
+            _fee_at(month_starts, month_fees, month)
+            for month in _months_from(first_month, n_months)
+        ),
+        start=Decimal(0),
+    )
 
 
 def _build_member_states(

@@ -11,8 +11,12 @@ if TYPE_CHECKING:
 
 
 def get_current_fee(db: Session) -> str:
-    today = local_today().replace(day=1)
-    return str(int(fee_for_month(db, today)))
+    """The current monthly fee as text: whole euros without decimals, otherwise
+    two decimals with a comma (15.50 is "15,50", not "15")."""
+    fee = fee_for_month(db, local_today().replace(day=1))
+    if fee == fee.to_integral_value():
+        return str(int(fee))
+    return f"{fee:.2f}".replace(".", ",")
 
 
 def get_payment_info(db: Session) -> list[dict[str, str | None]]:

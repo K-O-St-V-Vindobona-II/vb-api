@@ -72,12 +72,23 @@ def mirror_prefix(
     failed copy is recorded in the result and does not abort the sync.
     dry_run performs no writes but the result still reports what would
     happen.
+
+    Raises RuntimeError, before anything is copied or deleted, when the source
+    has no objects under the prefix but the destination has some and orphans
+    would be deleted: that is what a wrong bucket name or an empty bucket
+    looks like, and following it would erase the whole destination.
     """
     source_keys = set(source.list_keys(prefix=prefix))
     dest_keys = set(dest.list_keys(prefix=prefix))
 
     missing = sorted(source_keys - dest_keys)
     orphans = dest_keys - source_keys
+    if delete_orphans and orphans and not source_keys:
+        msg = (
+            f"Source has no objects under prefix {prefix!r} but the destination "
+            f"has {len(orphans)}; refusing to delete them."
+        )
+        raise RuntimeError(msg)
 
     result = MirrorResult(skipped=len(source_keys) - len(missing))
     total = len(missing)

@@ -37,7 +37,9 @@ class P4xCategory(Base):
     background_color: Mapped[str]
     text_color: Mapped[str]
     protected: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     category_filters: Mapped[list[P4xCategoryFilter]] = relationship(

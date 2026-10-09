@@ -1,8 +1,10 @@
 """Tests for the information/payment endpoint."""
 
 import datetime
+from decimal import Decimal
 
 import bcrypt
+import pytest
 
 from app.models.member import Member
 from app.models.org import Org
@@ -168,3 +170,39 @@ class TestGetPaymentInfoService:
         )
         db_session.commit()
         assert get_current_fee(db_session) == "15"
+
+
+class TestFeeText:
+    @pytest.mark.parametrize(
+        ("fee", "expected"),
+        [
+            (Decimal("15.50"), "15,50"),
+            (Decimal("15.00"), "15"),
+            (Decimal("15.05"), "15,05"),
+            (Decimal("9.99"), "9,99"),
+            (Decimal("100.10"), "100,10"),
+            (Decimal(0), "0"),
+        ],
+    )
+    def test_fee_is_stated_exactly(self, db_session, fee, expected):
+        db_session.add(
+            P4xFee(start=datetime.date(2020, 1, 1), fee=fee, protected=False)
+        )
+        db_session.commit()
+
+        assert get_current_fee(db_session) == expected
+
+    def test_no_fee_row_reads_zero(self, db_session):
+        assert get_current_fee(db_session) == "0"
+
+    def test_the_fee_in_force_this_month_is_stated(self, db_session):
+        db_session.add_all(
+            [
+                P4xFee(start=datetime.date(2020, 1, 1), fee=Decimal("10.00")),
+                P4xFee(start=datetime.date(2021, 1, 1), fee=Decimal("12.50")),
+                P4xFee(start=datetime.date(2999, 1, 1), fee=Decimal("99.00")),
+            ]
+        )
+        db_session.commit()
+
+        assert get_current_fee(db_session) == "12,50"

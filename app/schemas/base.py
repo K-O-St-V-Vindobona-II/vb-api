@@ -32,6 +32,17 @@ class StrictInputModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class TrimmedInputModel(StrictInputModel):
+    """Strict input model that also trims leading and trailing whitespace from
+    every string before the length constraints run, so a value of only spaces
+    fails `min_length=1` instead of being stored as a blank name or heading.
+
+    Not the default base: passwords and tokens must never be trimmed.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
 class MoveRequest(StrictInputModel):
     """Shared request body for every sort_order-reorderable admin list
     (gallery images, programm hints, quotes, social links) — see

@@ -19,9 +19,20 @@ from app.models.enums import (
     MemberDeliveryPreference,
     RoleGroup,
 )
-from app.schemas.base import IdLabelOption, StrictInputModel, UtcDatetime
+from app.schemas.base import (
+    IdLabelOption,
+    StrictInputModel,
+    TrimmedInputModel,
+    UtcDatetime,
+)
 
-PHONE_REGEX = re.compile(r"^\+?[\d\s/\- ]+$")
+PHONE_REGEX = re.compile(r"\+?[0-9 /\-]+")
+
+# Upper bounds for free-text input. The database columns are unbounded TEXT, so
+# the schema is the only place that limits what a request can store.
+MAX_PHONE_LENGTH = 32
+MAX_ADDRESS_LINE_LENGTH = 128
+MAX_NOTE_LENGTH = 5000
 
 # Shared across every *_accuracy field below (see _format_date_by_accuracy in
 # app/core/mailer.py, the canonical implementation of this scale): how
@@ -337,7 +348,7 @@ def _validate_max_64(v: str | None) -> str | None:
 
 
 def _validate_phone(v: str | None) -> str | None:
-    if v and not PHONE_REGEX.match(v):
+    if v and not PHONE_REGEX.fullmatch(v):
         msg = "Ungültiges Telefonnummernformat."
         raise ValueError(msg)
     return v
@@ -372,7 +383,7 @@ def _require_nachname_or_couleurname(
         raise ValueError(msg)
 
 
-class MemberSaveRequest(StrictInputModel):
+class MemberSaveRequest(TrimmedInputModel):
     vortitel: str | None = None
     vorname: str | None = None
     nachname: str | None = None
@@ -385,7 +396,7 @@ class MemberSaveRequest(StrictInputModel):
     entlassen: bool = False
     verstorben: bool = False
     parent_id: uuid.UUID | None = Field(default=None, strict=False)
-    grabadresse: str | None = None
+    grabadresse: str | None = Field(default=None, max_length=MAX_ADDRESS_LINE_LENGTH)
 
     # strict=False: JSON has no native date type, dates always arrive as
     # ISO strings — the model-level strict=True would otherwise reject
@@ -422,9 +433,9 @@ class MemberSaveRequest(StrictInputModel):
     email: EmailStr | None = Field(default=None, max_length=128)
     url: str | None = Field(default=None, max_length=128)
     mkv_ogv_url: str | None = Field(default=None, max_length=128)
-    rufnummer_mobil: str | None = None
-    rufnummer_privat: str | None = None
-    rufnummer_beruf: str | None = None
+    rufnummer_mobil: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
+    rufnummer_privat: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
+    rufnummer_beruf: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
 
     # strict=False: the wire value is the enum's raw string, not an actual
     # MemberDeliveryPreference instance (same reasoning as the date fields
@@ -433,20 +444,24 @@ class MemberSaveRequest(StrictInputModel):
         default=MemberDeliveryPreference.DEAKTIVIERT, strict=False
     )
 
-    adresse_privat_anschrift: str | None = None
+    adresse_privat_anschrift: str | None = Field(
+        default=None, max_length=MAX_ADDRESS_LINE_LENGTH
+    )
     adresse_privat_plz: str | None = None
     adresse_privat_ort: str | None = None
     adresse_privat_land: str | None = None
-    adresse_beruf_anschrift: str | None = None
+    adresse_beruf_anschrift: str | None = Field(
+        default=None, max_length=MAX_ADDRESS_LINE_LENGTH
+    )
     adresse_beruf_plz: str | None = None
     adresse_beruf_ort: str | None = None
     adresse_beruf_land: str | None = None
 
     arbeitgeber: str | None = None
     taetigkeit: str | None = None
-    mitgliedschaften: str | None = None
-    verbandchargen: str | None = None
-    anmerkungen: str | None = None
+    mitgliedschaften: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
+    verbandchargen: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
+    anmerkungen: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
 
     chroniclemail: bool = False
     auth_locked: bool = True
@@ -455,7 +470,7 @@ class MemberSaveRequest(StrictInputModel):
     badges: list[BadgeEntry] = Field(default_factory=list)
     keys: list[KeyEntry] = Field(default_factory=list)
 
-    @field_validator("vortitel", "nachtitel", mode="before")
+    @field_validator("vortitel", "nachtitel")
     @classmethod
     def max_32(cls, v: str | None) -> str | None:
         return _validate_max_32(v)
@@ -467,7 +482,6 @@ class MemberSaveRequest(StrictInputModel):
         "couleurname",
         "arbeitgeber",
         "taetigkeit",
-        mode="before",
     )
     @classmethod
     def max_64(cls, v: str | None) -> str | None:
@@ -477,7 +491,6 @@ class MemberSaveRequest(StrictInputModel):
         "rufnummer_mobil",
         "rufnummer_privat",
         "rufnummer_beruf",
-        mode="before",
     )
     @classmethod
     def valid_phone(cls, v: str | None) -> str | None:
@@ -486,7 +499,6 @@ class MemberSaveRequest(StrictInputModel):
     @field_validator(
         "adresse_privat_plz",
         "adresse_beruf_plz",
-        mode="before",
     )
     @classmethod
     def plz_max_8(cls, v: str | None) -> str | None:
@@ -497,13 +509,12 @@ class MemberSaveRequest(StrictInputModel):
         "adresse_privat_land",
         "adresse_beruf_ort",
         "adresse_beruf_land",
-        mode="before",
     )
     @classmethod
     def ort_land_max_32(cls, v: str | None) -> str | None:
         return _validate_ort_land_max_32(v)
 
-    @field_validator("url", "mkv_ogv_url", mode="before")
+    @field_validator("url", "mkv_ogv_url")
     @classmethod
     def valid_url(cls, v: str | None) -> str | None:
         return _validate_url(v)
@@ -514,7 +525,7 @@ class MemberSaveRequest(StrictInputModel):
         return self
 
 
-class MemberSelfServiceSaveRequest(StrictInputModel):
+class MemberSelfServiceSaveRequest(TrimmedInputModel):
     """Self-service subset of MemberSaveRequest - "echte Stammdaten" only.
 
     Deliberately excludes org_id/state_id/gruender/entlassen/verstorben/
@@ -539,29 +550,33 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
     email: EmailStr | None = Field(default=None, max_length=128)
     url: str | None = Field(default=None, max_length=128)
     mkv_ogv_url: str | None = Field(default=None, max_length=128)
-    rufnummer_mobil: str | None = None
-    rufnummer_privat: str | None = None
-    rufnummer_beruf: str | None = None
+    rufnummer_mobil: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
+    rufnummer_privat: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
+    rufnummer_beruf: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
 
     zustellungen: MemberDeliveryPreference = Field(
         default=MemberDeliveryPreference.DEAKTIVIERT, strict=False
     )
 
-    adresse_privat_anschrift: str | None = None
+    adresse_privat_anschrift: str | None = Field(
+        default=None, max_length=MAX_ADDRESS_LINE_LENGTH
+    )
     adresse_privat_plz: str | None = None
     adresse_privat_ort: str | None = None
     adresse_privat_land: str | None = None
-    adresse_beruf_anschrift: str | None = None
+    adresse_beruf_anschrift: str | None = Field(
+        default=None, max_length=MAX_ADDRESS_LINE_LENGTH
+    )
     adresse_beruf_plz: str | None = None
     adresse_beruf_ort: str | None = None
     adresse_beruf_land: str | None = None
 
     arbeitgeber: str | None = None
     taetigkeit: str | None = None
-    mitgliedschaften: str | None = None
-    verbandchargen: str | None = None
+    mitgliedschaften: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
+    verbandchargen: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
 
-    @field_validator("vortitel", "nachtitel", mode="before")
+    @field_validator("vortitel", "nachtitel")
     @classmethod
     def max_32(cls, v: str | None) -> str | None:
         return _validate_max_32(v)
@@ -573,7 +588,6 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
         "couleurname",
         "arbeitgeber",
         "taetigkeit",
-        mode="before",
     )
     @classmethod
     def max_64(cls, v: str | None) -> str | None:
@@ -583,7 +597,6 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
         "rufnummer_mobil",
         "rufnummer_privat",
         "rufnummer_beruf",
-        mode="before",
     )
     @classmethod
     def valid_phone(cls, v: str | None) -> str | None:
@@ -592,7 +605,6 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
     @field_validator(
         "adresse_privat_plz",
         "adresse_beruf_plz",
-        mode="before",
     )
     @classmethod
     def plz_max_8(cls, v: str | None) -> str | None:
@@ -603,13 +615,12 @@ class MemberSelfServiceSaveRequest(StrictInputModel):
         "adresse_privat_land",
         "adresse_beruf_ort",
         "adresse_beruf_land",
-        mode="before",
     )
     @classmethod
     def ort_land_max_32(cls, v: str | None) -> str | None:
         return _validate_ort_land_max_32(v)
 
-    @field_validator("url", "mkv_ogv_url", mode="before")
+    @field_validator("url", "mkv_ogv_url")
     @classmethod
     def valid_url(cls, v: str | None) -> str | None:
         return _validate_url(v)
@@ -645,28 +656,30 @@ class ContactDetailResponse(BaseModel):
     anmerkungen: str | None = None
 
 
-class ContactSaveRequest(StrictInputModel):
+class ContactSaveRequest(TrimmedInputModel):
     # strict=False: same enum-from-raw-string reasoning as MemberSaveRequest
     # above.
     kontakttyp: ContactType = Field(strict=False)
     anrede: str | None = None
-    name: str
+    name: str = Field(min_length=1)
     couleurname: str | None = None
     org_id: str | None = None
-    adresse_anschrift: str | None = None
+    adresse_anschrift: str | None = Field(
+        default=None, max_length=MAX_ADDRESS_LINE_LENGTH
+    )
     adresse_plz: str | None = None
     adresse_ort: str | None = None
     adresse_land: str | None = None
     zustellungen: bool = False
     email: EmailStr | None = Field(default=None, max_length=128)
-    rufnummer: str | None = None
+    rufnummer: str | None = Field(default=None, max_length=MAX_PHONE_LENGTH)
     datum: date | None = Field(default=None, strict=False)
     datum_accuracy: int = Field(
         default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
     )
-    anmerkungen: str | None = None
+    anmerkungen: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
 
-    @field_validator("name", "couleurname", mode="before")
+    @field_validator("name", "couleurname")
     @classmethod
     def name_max_64(cls, v: str | None) -> str | None:
         if v and len(v) > 64:
@@ -674,7 +687,7 @@ class ContactSaveRequest(StrictInputModel):
             raise ValueError(msg)
         return v
 
-    @field_validator("anrede", mode="before")
+    @field_validator("anrede")
     @classmethod
     def anrede_max_32(cls, v: str | None) -> str | None:
         if v and len(v) > 32:
@@ -682,7 +695,7 @@ class ContactSaveRequest(StrictInputModel):
             raise ValueError(msg)
         return v
 
-    @field_validator("adresse_plz", mode="before")
+    @field_validator("adresse_plz")
     @classmethod
     def plz_max_8(cls, v: str | None) -> str | None:
         if v and len(v) > 8:
@@ -693,7 +706,6 @@ class ContactSaveRequest(StrictInputModel):
     @field_validator(
         "adresse_ort",
         "adresse_land",
-        mode="before",
     )
     @classmethod
     def ort_land_max_32(cls, v: str | None) -> str | None:
@@ -702,10 +714,10 @@ class ContactSaveRequest(StrictInputModel):
             raise ValueError(msg)
         return v
 
-    @field_validator("rufnummer", mode="before")
+    @field_validator("rufnummer")
     @classmethod
     def valid_phone(cls, v: str | None) -> str | None:
-        if v and not PHONE_REGEX.match(v):
+        if v and not PHONE_REGEX.fullmatch(v):
             msg = "Ungültiges Telefonnummernformat."
             raise ValueError(msg)
         return v
@@ -718,7 +730,7 @@ class ImageUpdateRequest(StrictInputModel):
     description: str | None = None
     default: bool = False
 
-    @field_validator("description", mode="before")
+    @field_validator("description")
     @classmethod
     def desc_max_100(cls, v: str | None) -> str | None:
         if v and len(v) > 100:

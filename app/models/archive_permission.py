@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Uuid, text
+from sqlalchemy import ForeignKey, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -14,6 +14,14 @@ if TYPE_CHECKING:
 
 class ArchivePermission(Base):
     __tablename__ = "archive_permissions"
+    __table_args__ = (
+        UniqueConstraint(
+            "archive_dir_id",
+            "org_id",
+            "state_id",
+            name="archive_permissions_dir_org_state_key",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")

@@ -37,9 +37,14 @@ REDACT_KEYS = frozenset(
         "token",
         "secret",
         "authorization",
+        "credential",
     }
 )
 _REDACTED_VALUE = "***"
+
+# A presigned storage URL is a bearer link until it expires; the signature
+# parameter is what makes it one.
+_SIGNED_URL_MARKER = "x-amz-signature="
 
 # Bounds how much of a request/response body ends up permanently stored in
 # this audit table - a handful of admin exports return payloads well beyond
@@ -57,8 +62,8 @@ def should_skip(path: str, *, skip_header_present: bool) -> bool:
 
 def redact(value: JsonValue) -> JsonValue:
     """Recursively masks any dict key matching REDACT_KEYS (case-insensitive)
-    in both request and response payloads, at any nesting depth. Returns a
-    new structure, never mutates the input."""
+    and any presigned storage URL in both request and response payloads, at
+    any nesting depth. Returns a new structure, never mutates the input."""
     if isinstance(value, dict):
         return {
             key: _REDACTED_VALUE if key.lower() in REDACT_KEYS else redact(item)
@@ -66,6 +71,8 @@ def redact(value: JsonValue) -> JsonValue:
         }
     if isinstance(value, list):
         return [redact(item) for item in value]
+    if isinstance(value, str) and _SIGNED_URL_MARKER in value.lower():
+        return _REDACTED_VALUE
     return value
 
 

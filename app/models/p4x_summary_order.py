@@ -34,8 +34,8 @@ class P4xSummaryOrder(Base):
         DateTime(timezone=True)
     )
     finished_ok: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime(timezone=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)

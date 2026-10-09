@@ -12,9 +12,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     Text,
     Uuid,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -45,12 +47,21 @@ _ACCURACY_COLUMNS = (
 
 class Member(Base):
     __tablename__ = "members"
-    __table_args__ = tuple(
+    __table_args__ = (
+        *(
+            CheckConstraint(
+                f"{col} IS NULL OR {col} BETWEEN 0 AND 3",
+                name=f"members_{col}_check",
+            )
+            for col in _ACCURACY_COLUMNS
+        ),
         CheckConstraint(
-            f"{col} IS NULL OR {col} BETWEEN 0 AND 3",
-            name=f"members_{col}_check",
-        )
-        for col in _ACCURACY_COLUMNS
+            "parent_id IS DISTINCT FROM id", name="members_parent_not_self_check"
+        ),
+        # The address is the sign-in name and every lookup ignores case
+        # (lower(email) in the auth service), so two rows that differ only in
+        # case would be ambiguous.
+        Index("members_email_lower_key", func.lower(text("email")), unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -118,7 +129,7 @@ class Member(Base):
     sterbedatum_accuracy: Mapped[int | None] = mapped_column(default=0)
 
     # --- Contact ---
-    email: Mapped[str | None] = mapped_column(unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(index=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     url: Mapped[str | None]
     mkv_ogv_url: Mapped[str | None]
@@ -182,7 +193,9 @@ class Member(Base):
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # --- Relationships ---

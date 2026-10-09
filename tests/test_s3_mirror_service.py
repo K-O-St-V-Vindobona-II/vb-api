@@ -79,6 +79,7 @@ class TestMirrorPrefix:
         assert dest.download("archive/store/x") == b"old"
 
     def test_deletes_orphans_when_delete_orphans_true(self, source, dest):
+        source.upload("archive/store/kept", b"content")
         dest.upload("archive/store/orphan", b"stale")
 
         result = mirror_prefix(source, dest, delete_orphans=True)
@@ -160,3 +161,54 @@ class TestMirrorPrefix:
         assert result.skipped == 0
         assert result.deleted == []
         assert result.has_errors is False
+
+
+class TestMirrorSafetyNet:
+    def test_empty_source_does_not_erase_the_destination(self, source, dest):
+        dest.upload("archive/a", b"x")
+        dest.upload("archive/b", b"x")
+
+        with pytest.raises(RuntimeError, match="has 2; refusing to delete"):
+            mirror_prefix(source, dest, prefix="archive/")
+
+        assert sorted(dest.list_keys(prefix="archive/")) == ["archive/a", "archive/b"]
+
+    def test_the_refusal_comes_before_a_dry_run_report(self, source, dest):
+        dest.upload("archive/a", b"x")
+
+        with pytest.raises(RuntimeError, match="refusing to delete"):
+            mirror_prefix(source, dest, prefix="archive/", dry_run=True)
+
+    def test_empty_source_and_empty_destination_is_fine(self, source, dest):
+        result = mirror_prefix(source, dest, prefix="unused-prefix/")
+
+        assert result.deleted == []
+        assert result.synced == []
+
+    def test_orphans_are_still_deleted_when_the_source_has_objects(self, source, dest):
+        source.upload("m/keep", b"1")
+        dest.upload("m/keep", b"1")
+        dest.upload("m/orphan", b"2")
+
+        result = mirror_prefix(source, dest, prefix="m/")
+
+        assert result.deleted == ["m/orphan"]
+        assert dest.exists("m/keep")
+
+    def test_a_destination_object_outside_the_prefix_does_not_trigger_the_refusal(
+        self, source, dest
+    ):
+        dest.upload("other/x", b"1")
+
+        result = mirror_prefix(source, dest, prefix="archive/")
+
+        assert result.deleted == []
+        assert dest.exists("other/x")
+
+    def test_keeping_orphans_never_refuses(self, source, dest):
+        dest.upload("archive/a", b"x")
+
+        result = mirror_prefix(source, dest, prefix="archive/", delete_orphans=False)
+
+        assert result.deleted == []
+        assert dest.exists("archive/a")
