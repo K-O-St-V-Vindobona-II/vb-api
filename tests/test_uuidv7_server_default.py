@@ -241,6 +241,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "p4x_category_id": f"'{_make_p4x_category(s)}'",
     },
     "p4x_partners": lambda s: {"member_id": f"'{_make_member(s)}'"},
+    "p4x_special_contacts": lambda _s: {"cn": "'uuidv7-test'"},
     "p4x_summary_orders": lambda s: {
         "ordered_by": f"'{_make_member(s)}'",
         "email": "'uuidv7-test@vindobona.at'",

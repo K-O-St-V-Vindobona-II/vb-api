@@ -18,7 +18,8 @@ class PublicSiteProgrammHint(Base):
     __tablename__ = "public_site_programm_hints"
     __table_args__ = (
         CheckConstraint(
-            "char_length(text) > 0", name="public_site_programm_hints_text_check"
+            "text ~ '[^[:space:]]' AND char_length(text) <= 300",
+            name="public_site_programm_hints_text_check",
         ),
     )
 
