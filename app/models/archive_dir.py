@@ -29,6 +29,10 @@ class ArchiveDir(Base):
         CheckConstraint(
             "length(name) BETWEEN 3 AND 64", name="archive_dirs_name_check"
         ),
+        CheckConstraint(
+            "description IS NULL OR char_length(description) <= 128",
+            name="archive_dirs_description_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

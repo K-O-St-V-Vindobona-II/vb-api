@@ -6,6 +6,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy.exc import IntegrityError
 
 from app.core.storage import (
     S3_PATH_STANDESDB_CACHE,
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     import uuid
 
     from sqlalchemy import ColumnElement
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Query, Session
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -39,6 +40,39 @@ def _owner_filter(owner_type: str, owner_id: uuid.UUID) -> ColumnElement[bool]:
         return StandesdbImage.owner_contact_id == owner_id
     msg = f"Unbekannter owner_type: {owner_type!r}"
     raise ValueError(msg)
+
+
+def _active_images(
+    db: Session, owner_type: str, owner_id: uuid.UUID
+) -> Query[StandesdbImage]:
+    return db.query(StandesdbImage).filter(
+        _owner_filter(owner_type, owner_id),
+        StandesdbImage.deleted_at.is_(None),
+    )
+
+
+def _refuse_duplicate(active_images: Query[StandesdbImage], sha256: str) -> None:
+    """One owner cannot hold the same file twice (the database enforces it too)."""
+    if active_images.filter(StandesdbImage.sha256_hash == sha256).first():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Dieses Bild ist bereits vorhanden.",
+        )
+
+
+def _commit_new_image(
+    db: Session, img: StandesdbImage, active_images: Query[StandesdbImage]
+) -> None:
+    db.add(img)
+    try:
+        db.commit()
+    except IntegrityError:
+        # A second request with the same file (a double click) passed the check
+        # before the first row existed: answer it like the check does.
+        db.rollback()
+        _refuse_duplicate(active_images, img.sha256_hash)
+        raise
+    db.refresh(img)
 
 
 def get_image_record(
@@ -211,6 +245,9 @@ def upload_image(
 
     sha256 = hashlib.sha256(content).hexdigest()
 
+    active_images = _active_images(db, owner_type, owner_id)
+    _refuse_duplicate(active_images, sha256)
+
     key = f"{S3_PATH_STANDESDB_IMAGES}/{sha256}"
     if not storage.exists(key):
         storage.upload(key, content, content_type)
@@ -219,14 +256,7 @@ def upload_image(
     if ext == "jpeg":
         ext = "jpg"
 
-    existing_count = (
-        db.query(StandesdbImage)
-        .filter(
-            _owner_filter(owner_type, owner_id),
-            StandesdbImage.deleted_at.is_(None),
-        )
-        .count()
-    )
+    existing_count = active_images.count()
 
     # Translates the owner_type/owner_id pair callers still use into the
     # matching exclusive-arc FK columns (see StandesdbImage).
@@ -256,9 +286,7 @@ def upload_image(
         created_at=now,
         updated_at=now,
     )
-    db.add(img)
-    db.commit()
-    db.refresh(img)
+    _commit_new_image(db, img, active_images)
     return img
 
 

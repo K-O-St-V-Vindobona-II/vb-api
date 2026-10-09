@@ -17,7 +17,7 @@ class Badge(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")
     )
-    name: Mapped[str | None]
+    name: Mapped[str]
     group: Mapped[BadgeGroup | None] = mapped_column(
         Enum(
             BadgeGroup,

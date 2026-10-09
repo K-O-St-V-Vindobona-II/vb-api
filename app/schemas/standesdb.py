@@ -189,6 +189,11 @@ class MemberDismissedResponse(BaseModel):
 
 
 class MemberDetailResponse(BaseModel):
+    """The directory entry every signed-in member may read, including the free
+    text `anmerkungen`. The account status (`auth_locked`, `email_verified_at`,
+    `chroniclemail`) is None unless the viewer is the member or an admin of the
+    member's organisation."""
+
     id: uuid.UUID
     cn: str
     vortitel: str | None = None
@@ -221,8 +226,8 @@ class MemberDetailResponse(BaseModel):
     parent_cn: str = ""
     default_image: uuid.UUID | None = None
 
-    chroniclemail: bool = False
-    auth_locked: bool = True
+    chroniclemail: bool | None = None
+    auth_locked: bool | None = None
     email: str | None = None
     email_verified_at: str | None = None
     url: str | None = None
@@ -531,7 +536,7 @@ class MemberSelfServiceSaveRequest(TrimmedInputModel):
     Deliberately excludes org_id/state_id/gruender/entlassen/verstorben/
     grabadresse/parent_id/auth_locked/chroniclemail (own dedicated
     unapproved toggle, see PATCH /members/me/chroniclemail)/anmerkungen
-    (risk of being an admin-internal note, same reasoning as p4x_comment)/
+    (the directory note is maintained by administrators)/
     roles_history/badges/keys, as well as geburtsdatum(_accuracy) and the
     membership-milestone dates (aufnahmedatum/branderdatum/
     burschungsdatum/philistrierungsdatum) - official record, not everyday

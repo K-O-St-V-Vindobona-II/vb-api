@@ -170,7 +170,8 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "archive_store_item_id": f"'{_make_archive_store_item(s)}'"
     },
     "archive_file_comments": lambda s: {
-        "archive_file_id": f"'{_make_archive_file(s)}'"
+        "archive_file_id": f"'{_make_archive_file(s)}'",
+        "content": "'uuidv7 test'",
     },
     "archive_permissions": lambda s: {
         "archive_dir_id": f"'{_make_archive_dir(s)}'",
@@ -213,6 +214,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "remote_id": "'uuidv7-test-remote'",
         "remote_name": "'uuidv7-test-name'",
     },
+    "badges": lambda _s: {"name": "'uuidv7 test'"},
     "p4x_accounts": lambda _s: {
         "iban": "'AT000000000000000000'",
         "init_balance": "0",

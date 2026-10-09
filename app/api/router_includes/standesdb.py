@@ -292,12 +292,14 @@ def get_roles_list(
 def get_member(
     member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: Annotated[Member, Depends(get_current_user)],
 ) -> MemberDetailResponse | MemberDismissedResponse:
     """Retrieve a single member by ID with all related data (roles, badges, keys,
-    contact info). No special permission - any authenticated member; write operations
-    enforce org-scoped admin permission separately."""
-    return standesdb_service.get_member_detail(db, member_id)
+    contact info). No special permission - any authenticated member; the account
+    status is returned only to the member and the admins of the member's
+    organisation, and write operations enforce org-scoped admin permission
+    separately."""
+    return standesdb_service.get_member_detail(db, member_id, current_user)
 
 
 @standesdb_router.get("/members/{member_id}/auth-activity")

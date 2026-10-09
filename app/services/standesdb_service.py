@@ -36,6 +36,7 @@ from app.schemas.standesdb import (
     RoleHistoryResponse,
     TreeNodeResponse,
 )
+from app.services.permission_service import calculate_permissions
 from app.services.role_history_service import RoleEntry, record_role_changes
 from app.services.search_utils import build_prefix_tsquery_text
 
@@ -329,13 +330,27 @@ def get_visible_member_or_404(db: Session, member_id: uuid.UUID) -> Member:
     return member
 
 
+def _may_see_account_status(viewer: Member, member: Member) -> bool:
+    """The account status describes the sign-in, not the person: only the
+    member and the admins of the member's organisation need it."""
+    if viewer.id == member.id:
+        return True
+    if not member.org_id:
+        return False
+    return f"standesdb{member.org_id.capitalize()}Admin" in calculate_permissions(
+        viewer
+    )
+
+
 def get_member_detail(
-    db: Session, member_id: uuid.UUID
+    db: Session, member_id: uuid.UUID, viewer: Member
 ) -> MemberDetailResponse | MemberDismissedResponse:
     # Intentionally not org-scoped: any authenticated member (vbw or vbn)
     # can read any other member's directory entry - the two orgs
-    # deliberately share one member directory. Only write access
-    # (create/update/delete) is org-restricted, see _require_standesdb_admin.
+    # deliberately share one member directory, including the free-text note
+    # `anmerkungen`. Only the account status is restricted, see
+    # _may_see_account_status. Write access (create/update/delete) is
+    # org-restricted, see _require_standesdb_admin.
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -387,6 +402,7 @@ def get_member_detail(
         "ancestry": list(reversed(ancestry)),
     }
 
+    show_status = _may_see_account_status(viewer, member)
     return MemberDetailResponse(
         id=member.id,
         cn=member.cn,
@@ -407,11 +423,13 @@ def get_member_detail(
         parent_id=member.parent_id,
         parent_cn=parent_cn,
         default_image=member.default_image,
-        chroniclemail=member.chroniclemail,
-        auth_locked=member.auth_locked,
+        chroniclemail=member.chroniclemail if show_status else None,
+        auth_locked=member.auth_locked if show_status else None,
         email=member.email,
         email_verified_at=(
-            str(member.email_verified_at) if member.email_verified_at else None
+            str(member.email_verified_at)
+            if show_status and member.email_verified_at
+            else None
         ),
         url=member.url,
         mkv_ogv_url=member.mkv_ogv_url,

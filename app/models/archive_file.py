@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Computed, DateTime, ForeignKey, Uuid, text
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
+    __table_args__ = (
+        CheckConstraint(
+            "description IS NULL OR char_length(description) <= 128",
+            name="archive_files_description_check",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")

@@ -18,8 +18,8 @@ class StandesdbImage(Base):
     PublicGalleryImage/P4xTransaction): S3 storage is already content-
     addressable, so the same photo legitimately being attached to multiple
     owners (e.g. a group photo, a joint award ceremony) is a valid case.
-    The partial index below only blocks the same owner uploading the exact
-    same file twice while active."""
+    The partial indexes below only block the same owner holding the exact
+    same file twice while active, and a second default image."""
 
     __tablename__ = "standesdb_images"
     __table_args__ = (
@@ -37,13 +37,42 @@ class StandesdbImage(Base):
             "OR (owner_member_id IS NULL AND owner_contact_id IS NOT NULL)",
             name="standesdb_images_owner_exclusive_arc_check",
         ),
+        # One owner cannot hold the same file twice. The two owner columns are
+        # never both set, and a unique index treats NULLs as different, so a
+        # single index over both columns would block nothing: one index per
+        # kind of owner.
         Index(
-            "standesdb_images_owner_hash_active_uniq",
+            "standesdb_images_member_hash_active_uniq",
             "sha256_hash",
             "owner_member_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND owner_member_id IS NOT NULL"),
+        ),
+        Index(
+            "standesdb_images_contact_hash_active_uniq",
+            "sha256_hash",
             "owner_contact_id",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL"),
+            postgresql_where=text(
+                "deleted_at IS NULL AND owner_contact_id IS NOT NULL"
+            ),
+        ),
+        # At most one default image per owner.
+        Index(
+            "standesdb_images_member_default_uniq",
+            "owner_member_id",
+            unique=True,
+            postgresql_where=text(
+                '"default" AND deleted_at IS NULL AND owner_member_id IS NOT NULL'
+            ),
+        ),
+        Index(
+            "standesdb_images_contact_default_uniq",
+            "owner_contact_id",
+            unique=True,
+            postgresql_where=text(
+                '"default" AND deleted_at IS NULL AND owner_contact_id IS NOT NULL'
+            ),
         ),
     )
 

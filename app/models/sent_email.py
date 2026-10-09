@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Uuid, text
+from sqlalchemy import DateTime, Index, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -9,6 +9,8 @@ from app.db.database import Base
 
 class SentEmail(Base):
     __tablename__ = "sent_emails"
+    # The mail log is listed newest first, filtered by month and purged by age.
+    __table_args__ = (Index("ix_sent_emails_created_at", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")

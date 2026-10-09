@@ -274,7 +274,7 @@ class TestPurgeFileCascade:
     def test_deletes_comment_rows(self, db_session, mock_s3):
         f = _make_file(db_session)
         file_id = f.id
-        db_session.add(ArchiveFileComment(archive_file_id=file_id, content="hi"))
+        db_session.add(ArchiveFileComment(archive_file_id=file_id, content="A comment"))
         db_session.commit()
 
         purge_file(db_session, mock_s3, file_id)

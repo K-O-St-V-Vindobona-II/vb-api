@@ -211,7 +211,7 @@ class TestStringLengthRange:
             db_session.commit()
         db_session.rollback()
 
-    def test_null_archive_file_comment_content_is_allowed(self, db_session):
+    def test_null_archive_file_comment_content_is_rejected(self, db_session):
         item = ArchiveStoreItem(
             name="f",
             extension="txt",
@@ -228,7 +228,9 @@ class TestStringLengthRange:
         db_session.add(
             ArchiveFileComment(archive_file_id=archive_file.id, content=None)
         )
-        db_session.commit()
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
 
 
 class TestNullablePositiveOnly:

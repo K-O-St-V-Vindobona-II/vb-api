@@ -25,7 +25,7 @@ class PublicSiteSocialLink(Base):
             name="public_site_social_links_platform_check",
         ),
         CheckConstraint(
-            "char_length(label) > 0", name="public_site_social_links_label_check"
+            "label ~ '[^[:space:]]'", name="public_site_social_links_label_check"
         ),
         CheckConstraint(
             "url ~* '^https?://'", name="public_site_social_links_url_check"
