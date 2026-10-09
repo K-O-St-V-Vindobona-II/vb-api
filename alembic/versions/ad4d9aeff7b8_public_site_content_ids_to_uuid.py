@@ -6,7 +6,7 @@ Create Date: 2026-09-01 11:39:25.716284
 
 Three structurally identical leaf tables (no incoming foreign keys),
 bundled into one migration - same Phase A + Phase C in one step, and same
-CONCURRENTLY-index-straight-to-primary-key cutover, as the pattern-setting
+unique-index-straight-to-primary-key cutover, as the pattern-setting
 61330e9e0ca8_public_site_social_links_id_to_uuid.py. See that migration's
 docstring for the full rationale; this one only carries the per-table
 mechanics.
@@ -55,10 +55,9 @@ def _cutover_to_uuid(table: str) -> None:
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
     # --- Phase C: final cutover (no referrer table to wait for) -----------
     op.drop_constraint(f"{table}_pkey", table, type_="primary")

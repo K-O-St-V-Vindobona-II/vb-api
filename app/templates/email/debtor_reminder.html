@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head></head>
+<head><meta charset="utf-8"></head>
 <body>
 <p>Lieber Bundesbruder {{ name }},</p>
 <p>
@@ -30,9 +30,9 @@ Per <strong>{{ target }}</strong> beträgt Dein Rückstand an Beiträgen
 <p>
 Wir bitten Dich, den offenen Betrag an<br>
 AH Kto. Vindobona 2<br>
-IBAN: AT94 2011 1000 0530 1947<br>
-BIC: GIBAATWWXXX<br>
-zu überweisen.
+IBAN: {{ iban }}<br>
+{% if bic %}BIC: {{ bic }}<br>
+{% endif %}zu überweisen.
 </p>
 <p>
 Gleichzeitig laden wir Dich ein, gleich einen Dauerauftrag einzurichten,

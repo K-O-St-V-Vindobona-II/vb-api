@@ -26,7 +26,6 @@ key, model config predates this migration) is deliberately not rebuilt
 on the renamed id column - same call as sent_emails in slice 4.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -40,7 +39,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "standesdb_images"
-BATCH_SIZE = 5000
 EXCLUSIVE_ARC_CHECK_NAME = "standesdb_images_owner_exclusive_arc_check"
 EXCLUSIVE_ARC_CHECK_SQL = (
     "(owner_member_id IS NOT NULL AND owner_contact_id IS NULL) "
@@ -49,32 +47,13 @@ EXCLUSIVE_ARC_CHECK_SQL = (
 OWNER_HASH_UNIQUE_INDEX_NAME = "standesdb_images_owner_hash_active_uniq"
 
 
-def _batched_uuid_backfill() -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(
-                f"SELECT id FROM {TABLE} WHERE id_uuid IS NULL LIMIT :limit"  # noqa: S608
-            ),
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {TABLE} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
-
-
 def _cutover_own_id() -> None:
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill()
+    op.execute(f"UPDATE {TABLE} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(TABLE, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
     op.drop_index("ix_standesdb_images_id", table_name=TABLE)
     op.drop_constraint(f"{TABLE}_pkey", TABLE, type_="primary")
     op.drop_column(TABLE, "id")

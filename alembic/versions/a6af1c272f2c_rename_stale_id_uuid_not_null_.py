@@ -70,6 +70,8 @@ _RENAMES: list[tuple[str, str]] = [
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     for table, column in _RENAMES:
         op.execute(
             f"ALTER TABLE {table} "
@@ -80,6 +82,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     for table, column in _RENAMES:
         op.execute(
             f"ALTER TABLE {table} "

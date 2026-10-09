@@ -134,11 +134,11 @@ def _revert_client_user_agents_own_id() -> None:
     )
     op.create_primary_key("client_user_agents_pkey", "client_user_agents", ["id"])
     op.create_index("ix_client_user_agents_id", "client_user_agents", ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE UNIQUE INDEX CONCURRENTLY client_user_agents_id_uuid_key "
-            "ON client_user_agents (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(
+        "client_user_agents_id_uuid_key", "client_user_agents", ["id_uuid"], unique=True
+    )
 
 
 def upgrade() -> None:

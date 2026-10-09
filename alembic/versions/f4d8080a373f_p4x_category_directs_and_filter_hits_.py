@@ -100,10 +100,9 @@ def _cutover_own_id(table: str) -> None:
     op.add_column(table, sa.Column("id_uuid", sa.Uuid(), nullable=True))
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
     op.drop_constraint(f"{table}_pkey", table, type_="primary")
     op.drop_column(table, "id")
     op.execute(f"DROP SEQUENCE IF EXISTS {table}_id_seq")

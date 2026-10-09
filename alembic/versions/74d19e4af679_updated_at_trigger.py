@@ -66,6 +66,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     for table in _TABLES_WITH_UPDATED_AT:
         op.execute(f"DROP TRIGGER IF EXISTS {table}_set_updated_at ON {table}")
     op.execute("DROP FUNCTION IF EXISTS set_updated_at()")

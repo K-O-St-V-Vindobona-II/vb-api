@@ -459,7 +459,7 @@ class TestSendResetEmailReal:
         assert log_args[3] == "password-reset"
         assert "tok123" not in log_args[2]
         assert "token=[redacted]" in log_args[2]
-        assert "member@test.at" in log_args[2]
+        assert "email=member%40test.at" in log_args[2]
 
         sent_parts = [
             part.get_payload(decode=True).decode() for part in msg.get_payload()

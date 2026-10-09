@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from urllib.parse import urlencode
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
@@ -190,18 +191,25 @@ def send_to_recipients(
     )
 
 
+def _reset_link(frontend_url: str, token: str, email: str) -> str:
+    """The address and the token are encoded: a "+" or "&" in an address would
+    otherwise be read back as a space or as a new parameter. The brackets of
+    the log placeholder stay readable; a real token never contains them."""
+    return f"{frontend_url}?{urlencode({'token': token, 'email': email}, safe='[]')}"
+
+
 def send_reset_email(to_email: str, token: str) -> None:
     _from_email, from_header = _build_from_header()
     frontend_url = require_setting(
         get_settings().frontend_reset_url, "FRONTEND_RESET_URL"
     )
-    reset_link = f"{frontend_url}?token={token}&email={to_email}"
+    reset_link = _reset_link(frontend_url, token, to_email)
 
     template = _jinja_env.get_template("password_reset.html")
     html_content = template.render(reset_link=reset_link)
     # The sent-mail log is readable by administrators, so it must never hold a
     # working token: the stored copy carries a placeholder in its place.
-    logged_link = f"{frontend_url}?token={_LOG_REDACTION}&email={to_email}"
+    logged_link = _reset_link(frontend_url, _LOG_REDACTION, to_email)
     logged_html = template.render(reset_link=logged_link)
 
     text_content = (

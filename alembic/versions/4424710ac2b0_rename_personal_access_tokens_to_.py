@@ -68,7 +68,11 @@ def downgrade() -> None:
         "ON sessions RENAME TO personal_access_tokens_set_updated_at"
     )
     op.execute("ALTER INDEX ix_sessions_jti RENAME TO ix_personal_access_tokens_token")
-    op.execute("ALTER INDEX ix_sessions_id RENAME TO ix_personal_access_tokens_id")
+    # ix_sessions_id no longer exists on a database built by the whole chain:
+    # bc095b5fb813 drops that redundant index later, so IF EXISTS.
+    op.execute(
+        "ALTER INDEX IF EXISTS ix_sessions_id RENAME TO ix_personal_access_tokens_id"
+    )
     op.execute(
         "ALTER TABLE sessions RENAME CONSTRAINT "
         "sessions_member_id_fkey TO personal_access_tokens_member_id_fkey"

@@ -34,6 +34,8 @@ about_tab_slot_enum = postgresql.ENUM(
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     # The pre-existing UNIQUE constraint's index must go first: Postgres
     # cannot rebuild an index on the new enum type while the old text-typed
     # one is still live mid-ALTER (it errors on a missing `about_tab_slot =
@@ -60,6 +62,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.drop_constraint(
         "public_site_about_tabs_slot_key", "public_site_about_tabs", type_="unique"
     )

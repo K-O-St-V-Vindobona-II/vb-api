@@ -9,8 +9,8 @@ pattern as every prior slice in this series.
 
 archive_files (its own Final-Cutover follows in a later slice, once every
 other referrer of its own future id has been considered):
-1. Phase A on its own primary key - additive id_uuid, batched backfill,
-   CONCURRENTLY-built unique index. The self-referencing-style
+1. Phase A on its own primary key - additive id_uuid, set-based backfill,
+   unique index. The self-referencing-style
    `archive_dir_id` sentinel column is deliberately left untouched, same
    reasoning as archive_dirs' own Phase A migration.
 2. archive_store_item_id -> archive_store_items.id_uuid Phase B cutover,
@@ -29,7 +29,6 @@ optional org_id/state_id FK hardening for this table is deliberately out
 of scope here, to keep this migration focused on the UUID cutover alone.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -42,33 +41,14 @@ down_revision: str | Sequence[str] | None = "191cba0a57bd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-BATCH_SIZE = 5000
-
-
-def _batched_uuid_backfill(table: str) -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(f"SELECT id FROM {table} WHERE id_uuid IS NULL LIMIT :limit"),  # noqa: S608
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {table} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
-
 
 def _add_phase_a_column(table: str) -> None:
     op.add_column(table, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill(table)
+    op.execute(f"UPDATE {table} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(table, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
 
 def _cutover_own_id(table: str) -> None:

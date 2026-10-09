@@ -98,10 +98,9 @@ def _revert_own_id(table: str) -> None:
         server_default=sa.text(f"nextval('{table}_id_seq'::regclass)"),
     )
     op.create_primary_key(f"{table}_pkey", table, ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # Plain build on purpose: keeps the revert atomic and the lock timeout
+    # in force (a CONCURRENTLY build needs a commit of its own).
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
     op.create_foreign_key(
         referrer.name,

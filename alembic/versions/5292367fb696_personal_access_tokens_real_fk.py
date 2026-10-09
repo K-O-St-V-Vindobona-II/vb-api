@@ -44,6 +44,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.drop_constraint(
         "personal_access_tokens_member_id_fkey",
         "personal_access_tokens",

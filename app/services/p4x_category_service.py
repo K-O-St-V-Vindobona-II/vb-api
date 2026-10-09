@@ -83,6 +83,17 @@ def _apply_category_filter_criteria(
     return query
 
 
+def _matching_transactions(
+    db: Session,
+    category_filter: P4xCategoryFilter,
+    tx_with_directs: set[uuid.UUID],
+) -> RowReturningQuery[tuple[uuid.UUID]]:
+    query = db.query(P4xTransaction.id).filter(
+        P4xTransaction.deleted_at.is_(None),
+    )
+    return _apply_category_filter_criteria(query, category_filter, tx_with_directs)
+
+
 def _apply_filter_with_cache(
     db: Session,
     category_filter: P4xCategoryFilter,
@@ -92,16 +103,46 @@ def _apply_filter_with_cache(
         P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
     ).delete()
 
-    query = db.query(P4xTransaction.id).filter(
-        P4xTransaction.deleted_at.is_(None),
-    )
-    query = _apply_category_filter_criteria(query, category_filter, tx_with_directs)
+    query = _matching_transactions(db, category_filter, tx_with_directs)
 
     now = datetime.now(UTC)
     for (tx_id,) in query.all():
         db.add(
             P4xCategoryFilterHit(
                 p4x_transaction_id=tx_id,
+                p4x_category_filter_id=category_filter.id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def _refresh_transaction_hits(
+    db: Session,
+    transaction: P4xTransaction,
+    *,
+    assigned: bool,
+) -> None:
+    """Brings the stored filter hits of one transaction up to date after its
+    direct assignment changed, without rebuilding every filter: a transaction
+    with a direct assignment has no hits, one without gets the hits of the
+    filters that match it."""
+    db.query(P4xCategoryFilterHit).filter(
+        P4xCategoryFilterHit.p4x_transaction_id == transaction.id,
+    ).delete()
+    if assigned:
+        return
+
+    now = datetime.now(UTC)
+    for category_filter in db.query(P4xCategoryFilter).all():
+        matches = _matching_transactions(db, category_filter, set()).filter(
+            P4xTransaction.id == transaction.id
+        )
+        if matches.first() is None:
+            continue
+        db.add(
+            P4xCategoryFilterHit(
+                p4x_transaction_id=transaction.id,
                 p4x_category_filter_id=category_filter.id,
                 created_at=now,
                 updated_at=now,
@@ -477,6 +518,7 @@ def _set_category_direct_core(
             )
         )
 
+    _refresh_transaction_hits(db, transaction, assigned=bool(valid_slots))
     return None
 
 
@@ -499,5 +541,5 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
         P4xCategoryDirect.p4x_transaction_id == transaction.id,
         P4xCategoryDirect.deleted_at.is_(None),
     ).update({"deleted_at": now})
-    apply_all_category_filters_core(db)
+    _refresh_transaction_hits(db, transaction, assigned=False)
     db.commit()

@@ -111,6 +111,9 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: runs for several seconds (a full migration round trip in a database of its own)",
+]
 addopts = "--cov=app --cov=scripts --cov=main --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
 filterwarnings = [
     "error",

@@ -388,6 +388,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.drop_constraint(
         "p4x_transactions_p4x_account_id_fkey", "p4x_transactions", type_="foreignkey"
     )

@@ -1,11 +1,11 @@
 """The stored filter hits of a transaction follow every write path: a hit exists
 exactly when the transaction is active, has no direct assignment and matches the
-filter. Readers leave out transactions with a direct assignment, so only the
-hits of the others are compared."""
+filter."""
 
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 
@@ -18,18 +18,20 @@ from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_transaction import P4xTransaction
 from app.schemas.p4x import CategoryFilterSaveRequest
-from app.services import p4x_import_service
+from app.services import p4x_category_service, p4x_import_service
 from app.services.p4x_category_service import (
     _apply_category_filter_criteria,
     apply_all_category_filters,
     create_category_filter,
     delete_category_filter,
     filter_to_direct,
+    get_filter_hit_count,
     set_category_direct,
     unset_category_direct,
     update_category_filter,
 )
 from app.services.p4x_import_service import GEORGE_BIC, parse_george_json
+from app.services.p4x_response_builders import _filter_hit_counts
 
 
 def _now() -> datetime:
@@ -56,20 +58,16 @@ def expected_hits(db) -> set[tuple]:
     return pairs
 
 
-def stored_hits(db, *, masked: bool = False) -> set[tuple]:
-    """The stored hits. Masked, the hits of transactions with a direct
-    assignment are left out, as readers do."""
-    with_directs = _direct_ids(db) if masked else set()
+def stored_hits(db) -> set[tuple]:
     return {
         (hit.p4x_category_filter_id, hit.p4x_transaction_id)
         for hit in db.query(P4xCategoryFilterHit)
-        if hit.p4x_transaction_id not in with_directs
     }
 
 
-def assert_hits_follow(db, *, masked: bool = False) -> None:
+def assert_hits_follow(db) -> None:
     db.expire_all()
-    assert stored_hits(db, masked=masked) == expected_hits(db)
+    assert stored_hits(db) == expected_hits(db)
 
 
 def _transaction(db, account, subject: str, amount: str, suffix: str):
@@ -205,7 +203,7 @@ class TestHitsFollowTheWritePaths:
             [{"p4x_category_id": category.id, "amount": matching.amount}],
         )
 
-        assert_hits_follow(db_session, masked=True)
+        assert_hits_follow(db_session)
         assert expected_hits(db_session) == set()
 
     def test_removing_the_direct_assignment_restores_the_hit(self, db_session, setup):
@@ -224,6 +222,96 @@ class TestHitsFollowTheWritePaths:
 
         assert_hits_follow(db_session)
         assert stored_hits(db_session) == {(category_filter.id, matching.id)}
+
+    def test_both_hit_counts_agree_after_an_assignment(self, db_session, setup):
+        account, category, matching, _other = setup
+        category_filter = create_category_filter(
+            db_session, _request(account, category)
+        )
+        set_category_direct(
+            db_session,
+            matching,
+            [{"p4x_category_id": category.id, "amount": matching.amount}],
+        )
+
+        counted = _filter_hit_counts(db_session, {category_filter.id})
+
+        assert counted.get(category_filter.id, 0) == 0
+        assert get_filter_hit_count(db_session, category_filter) == 0
+
+    def test_an_empty_assignment_list_restores_the_hit(self, db_session, setup):
+        account, category, matching, _other = setup
+        category_filter = create_category_filter(
+            db_session, _request(account, category)
+        )
+        set_category_direct(
+            db_session,
+            matching,
+            [{"p4x_category_id": category.id, "amount": matching.amount}],
+        )
+
+        assert set_category_direct(db_session, matching, []) is None
+
+        assert_hits_follow(db_session)
+        assert stored_hits(db_session) == {(category_filter.id, matching.id)}
+
+    def test_replacing_an_assignment_keeps_the_transaction_without_hits(
+        self, db_session, setup
+    ):
+        account, category, matching, _other = setup
+        create_category_filter(db_session, _request(account, category))
+        slots = [{"p4x_category_id": category.id, "amount": matching.amount}]
+        set_category_direct(db_session, matching, slots)
+
+        set_category_direct(db_session, matching, slots)
+
+        assert_hits_follow(db_session)
+        assert matching.id not in {tx for _f, tx in stored_hits(db_session)}
+
+    def test_removing_the_assignment_of_a_transaction_no_filter_matches(
+        self, db_session, setup
+    ):
+        account, category, _matching, other = setup
+        create_category_filter(db_session, _request(account, category))
+        set_category_direct(
+            db_session,
+            other,
+            [{"p4x_category_id": category.id, "amount": other.amount}],
+        )
+
+        unset_category_direct(db_session, other)
+
+        assert_hits_follow(db_session)
+        assert other.id not in {tx for _f, tx in stored_hits(db_session)}
+
+    def test_removing_the_assignment_of_a_deleted_transaction(self, db_session, setup):
+        account, category, matching, _other = setup
+        create_category_filter(db_session, _request(account, category))
+        set_category_direct(
+            db_session,
+            matching,
+            [{"p4x_category_id": category.id, "amount": matching.amount}],
+        )
+        matching.deleted_at = _now()
+        db_session.commit()
+
+        unset_category_direct(db_session, matching)
+
+        assert_hits_follow(db_session)
+        assert stored_hits(db_session) == set()
+
+    def test_one_assignment_does_not_rebuild_every_filter(self, db_session, setup):
+        account, category, matching, _other = setup
+        create_category_filter(db_session, _request(account, category))
+        slots = [{"p4x_category_id": category.id, "amount": matching.amount}]
+
+        with patch.object(
+            p4x_category_service, "apply_all_category_filters_core"
+        ) as rebuild:
+            set_category_direct(db_session, matching, slots)
+            unset_category_direct(db_session, matching)
+
+        rebuild.assert_not_called()
 
     def test_converting_a_filter_to_direct_assignments(self, db_session, setup):
         account, category, matching, _other = setup

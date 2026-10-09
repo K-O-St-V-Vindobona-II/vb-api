@@ -13,7 +13,6 @@ slice 29, once every referrer table (contacts_logs, p4x_transactions,
 p4x_partners, standesdb_images) has cut over onto this column.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -27,38 +26,18 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "contacts"
-BATCH_SIZE = 5000
-
-
-def _batched_uuid_backfill() -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(
-                f"SELECT id FROM {TABLE} WHERE id_uuid IS NULL LIMIT :limit"  # noqa: S608
-            ),
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {TABLE} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
 
 
 def upgrade() -> None:
     """Upgrade schema."""
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill()
+    op.execute(f"UPDATE {TABLE} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(TABLE, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
 
 def downgrade() -> None:

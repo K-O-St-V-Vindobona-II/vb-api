@@ -37,6 +37,7 @@ from app.models.client_user_agent import ClientUserAgent
 from app.models.enums import JobId
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_transaction import P4xTransaction
 from app.models.password_reset import PasswordResetToken
 from app.models.request_log import RequestLog
@@ -278,8 +279,8 @@ def _send_birthday_mails(db: Session, members: list[Member], tomorrow: date) -> 
         if not m.email:
             continue
         birth_year = _parse_year(m.geburtsdatum)
-        age = tomorrow.year - birth_year if birth_year else "?"
-        html = render_template("birthday.html", name=m.couleurname, age=age)
+        age = tomorrow.year - birth_year if birth_year else None
+        html = render_template("birthday.html", name=_greeting_name(m), age=age)
         try:
             send_to_recipients(
                 to_emails=[m.email],
@@ -380,6 +381,23 @@ def _compute_target_date(today: date) -> date:
     return next_month_first - timedelta(days=1)
 
 
+def _greeting_name(member: Member) -> str:
+    """The name a mail greets a member with: the student name, else the name."""
+    return member.couleurname or member.cn
+
+
+def _payment_account(db: Session) -> P4xAccount:
+    """The account a reminder asks to pay into, read from the database so the
+    mail never states bank details that differ from the ones on the payment
+    page. A missing account stops the job (recorded as failed) instead of
+    sending a reminder without or with wrong details."""
+    account = db.get(P4xAccount, GIROKONTO_ACCOUNT_ID)
+    if account is None:
+        msg = "The account for the payment details of the reminder is missing."
+        raise RuntimeError(msg)
+    return account
+
+
 def _send_debtor_reminders(
     db: Session,
     target: date,
@@ -403,6 +421,7 @@ def _send_debtor_reminders(
     )
 
     run = MailRun()
+    payment_account: P4xAccount | None = None
     for m in fee_members:
         balance_data = calculate_fee_balance(db, m, None, target_str)
         if not balance_data:
@@ -413,13 +432,16 @@ def _send_debtor_reminders(
         if debt <= 300 or not m.email:
             continue
 
+        payment_account = payment_account or _payment_account(db)
         html = render_template(
             "debtor_reminder.html",
-            name=m.couleurname or m.cn,
+            name=_greeting_name(m),
             fee=monthly_fee,
             target=target_formatted,
             debt=debt,
             sender_name=sender_name,
+            iban=payment_account.iban,
+            bic=payment_account.bic,
         )
         try:
             send_to_recipients(

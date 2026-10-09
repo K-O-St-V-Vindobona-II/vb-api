@@ -35,6 +35,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.alter_column(
         "p4x_partners",
         "p4x_specialcontact_id",
@@ -63,6 +65,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.execute(
         "ALTER TABLE p4x_transactions "
         "RENAME CONSTRAINT p4x_transactions_delegating_p4x_special_contact_id_fkey "

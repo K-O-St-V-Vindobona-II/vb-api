@@ -492,6 +492,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.alter_column(
         "standesdb_images",
         "deleted_at",

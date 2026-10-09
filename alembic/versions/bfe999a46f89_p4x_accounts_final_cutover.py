@@ -113,10 +113,9 @@ def downgrade() -> None:
         server_default=sa.text(f"nextval('{SEQUENCE_NAME}'::regclass)"),
     )
     op.create_primary_key(f"{TABLE}_pkey", TABLE, ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
     for referrer in REFERRERS:
         op.create_foreign_key(

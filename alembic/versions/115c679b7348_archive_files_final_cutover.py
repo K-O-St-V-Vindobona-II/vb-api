@@ -75,10 +75,9 @@ def downgrade() -> None:
         server_default=sa.text(f"nextval('{TABLE}_id_seq'::regclass)"),
     )
     op.create_primary_key(f"{TABLE}_pkey", TABLE, ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # Plain build on purpose: keeps the revert atomic and the lock timeout
+    # in force (a CONCURRENTLY build needs a commit of its own).
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
     op.create_foreign_key(
         "archive_file_comments_archive_file_id_fkey",
         "archive_file_comments",

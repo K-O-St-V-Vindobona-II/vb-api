@@ -15,7 +15,6 @@ half-migrated state. No API contract changes: the old integer `id` stays
 the primary key.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -29,38 +28,18 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "archive_dirs"
-BATCH_SIZE = 5000
-
-
-def _batched_uuid_backfill() -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(
-                f"SELECT id FROM {TABLE} WHERE id_uuid IS NULL LIMIT :limit"  # noqa: S608
-            ),
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {TABLE} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
 
 
 def upgrade() -> None:
     """Upgrade schema."""
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill()
+    op.execute(f"UPDATE {TABLE} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(TABLE, "id_uuid", nullable=False)
-
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the whole revision in one
+    # transaction: it either applies completely or not at all, and the lock
+    # timeout above stays in force. The table holds a few hundred rows.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
 
 def downgrade() -> None:

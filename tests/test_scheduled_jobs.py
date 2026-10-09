@@ -39,7 +39,7 @@ from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
-from app.models.p4x_account import P4xAccount
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import (
@@ -73,6 +73,19 @@ def _seed_base(db):
                 order=1,
             ),
         ]
+    )
+    db.commit()
+
+
+def _seed_girokonto(db):
+    db.add(
+        P4xAccount(
+            id=GIROKONTO_ACCOUNT_ID,
+            iban="AT61 1904 3002 3457 3201",
+            bic="BKAUATWWXXX",
+            label="Girokonto",
+            init_balance=0,
+        )
     )
     db.commit()
 
@@ -1046,6 +1059,7 @@ class TestJobDbBackup:
 class TestDebtorReminder:
     def test_sends_with_treasurers_real_name(self, db_session):
         _seed_base(db_session)
+        _seed_girokonto(db_session)
         db_session.add(Role(id="phil-xxxx", group="philchc", label="Kassier", order=9))
         db_session.commit()
 
@@ -1106,6 +1120,7 @@ class TestDebtorReminder:
         phil-xxxx member seeded, the reminder must still go out under a
         generic sender name instead of crashing."""
         _seed_base(db_session)
+        _seed_girokonto(db_session)
         debtor = Member(
             email="schuldner2@vbw.at",
             vorname="Max",
@@ -1214,6 +1229,7 @@ class TestDebtorReminder:
 
     def test_one_refused_reminder_does_not_stop_the_others(self, db_session):
         _seed_base(db_session)
+        _seed_girokonto(db_session)
         debtors = [
             Member(
                 email=f"schuldner-{name}@vbw.at",
