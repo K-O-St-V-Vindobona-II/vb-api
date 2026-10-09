@@ -5,7 +5,7 @@ Revises: a94438173fe9
 Create Date: 2026-09-02 13:00:00.000000
 
 Two independent own-PK-only Final-Cutovers, bundled because both already
-completed their Phase A in earlier slices (p4x_category_filters in
+completed their Phase A in earlier revisions (p4x_category_filters in
 d6443ece80ad, p4x_transactions in c963591a4c7a) and neither has any
 outgoing FK of its own left to cut over. Every referrer that already
 points at one of these tables' id_uuid column

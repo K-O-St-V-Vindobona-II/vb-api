@@ -1,4 +1,4 @@
-"""Tests für GET /api/standesdb/roles — Chargen-Liste."""
+"""Tests for GET /api/standesdb/roles - the officer-list."""
 
 from datetime import date
 from unittest.mock import patch
@@ -274,7 +274,7 @@ class TestRolesListEndpoint:
         assert groups == {"chc", "philchc", "funktion", "verbindungsgericht"}
 
     def test_first_match_per_org_returned(self, client, db_session):
-        """Nur die erste Zuweisung (nach startdate) pro Org wird zurückgegeben."""
+        """Only the first assignment (by startdate) per org is returned."""
         _seed(db_session)
         headers, user = _login(db_session, client)
 

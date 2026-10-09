@@ -4,28 +4,29 @@ Revision ID: bc095b5fb813
 Revises: a67f0d2a4c5e
 Create Date: 2026-09-01 18:30:00.000000
 
-First slice of Wave C (Layer-1-Referrer-Cutover): four structurally
+The first of several revisions that cut a referrer table's own primary
+key over together with its foreign key onto members: four structurally
 identical single-members-FK tables, bundled.
 
 sessions, members_oauth2bindings, and p4x_summary_orders are leaf tables
 with no referrers of their own, so each gets its own Final-Cutover
-(Phase A+C in one step, the established pattern from every Wave-A slice)
-AND its members FK cut over in the same migration - no reason to spread
-a leaf table's full cutover across two slices. public_gallery_images
+(Phase A+C in one step, the pattern for every table of this series without
+referrers) AND its members FK cut over in the same migration - no reason to spread
+a leaf table's full cutover across two revisions. public_gallery_images
 already has a UUID primary key (see its model docstring), so only its
 created_by FK is touched here.
 
 Every member FK below now points at members(id_uuid), not members(id) -
 members itself won't have a UUID primary key until its own Final-Cutover
-(slice 32) - with the exact ondelete/onupdate strategy the original FK
+(e097221b6c5f) - with the exact ondelete/onupdate strategy the original FK
 had, nothing loosened or tightened. sessions and members_oauth2bindings
 each carry a redundant plain index on `id` (leftover `index=True` next
-to the primary key's own index, same finding as sent_emails in slice 4);
-dropped here rather than rebuilt on the new column. members_oauth2bindings
-also carries a genuine (non-redundant) plain index on `member_id`, which
-DOES get rebuilt on the new column - dropping a column drops any index
-defined on it, and this one earns its keep (FK columns aren't indexed
-automatically by Postgres).
+to the primary key's own index, the same redundancy as in sent_emails,
+see 22fc473b0891); dropped here rather than rebuilt on the new column.
+members_oauth2bindings also carries a genuine (non-redundant) plain
+index on `member_id`, which DOES get rebuilt on the new column - dropping
+a column drops any index defined on it, and this one earns its keep (FK
+columns aren't indexed automatically by Postgres).
 """
 
 import uuid

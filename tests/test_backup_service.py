@@ -25,7 +25,7 @@ from app.services.backup_service import (
 
 BACKUP_BUCKET = "backup-tests"
 PG_URL = "postgresql://user:secret@localhost:5432/testdb"
-SQLITE_URL = "sqlite:///test.db"
+NON_POSTGRES_URL = "mysql://user:secret@localhost:3306/testdb"
 FAKE_PG_DUMP = "/usr/bin/pg_dump"
 FAKE_PG_RESTORE = "/usr/bin/pg_restore"
 FAKE_PSQL = "/usr/bin/psql"
@@ -206,7 +206,7 @@ class TestRunBackup:
     def test_run_backup_not_postgres(self):
         storage = MagicMock(spec=StorageClient)
         with (
-            patch.dict(os.environ, {"DATABASE_URL": SQLITE_URL}),
+            patch.dict(os.environ, {"DATABASE_URL": NON_POSTGRES_URL}),
             pytest.raises(RuntimeError, match="Backup requires PostgreSQL"),
         ):
             run_backup(storage)
@@ -607,7 +607,7 @@ class TestRunRestore:
     def test_run_restore_not_postgres(self):
         storage = MagicMock(spec=StorageClient)
         with (
-            patch.dict(os.environ, {"DATABASE_URL": SQLITE_URL}),
+            patch.dict(os.environ, {"DATABASE_URL": NON_POSTGRES_URL}),
             pytest.raises(RuntimeError, match="Backup requires PostgreSQL"),
         ):
             run_restore(storage)

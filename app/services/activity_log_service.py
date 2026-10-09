@@ -4,10 +4,11 @@ from typing import TYPE_CHECKING
 
 import jwt
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import Date, cast, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.core.datetime_utils import get_app_timezone, local_day_bounds_utc
+from app.core.config import get_settings
+from app.core.datetime_utils import local_day_bounds_utc
 from app.core.security import ALGORITHM, SECRET_KEY
 from app.models.client_user_agent import MAX_USER_AGENT_LENGTH, ClientUserAgent
 from app.models.member import Member
@@ -194,25 +195,27 @@ def list_days_with_activity(
     month_start_utc, _ = local_day_bounds_utc(first_of_month)
     month_end_utc, _ = local_day_bounds_utc(first_of_next_month)
 
+    local_day = cast(
+        func.timezone(get_settings().app_timezone, RequestLog.created_at), Date
+    )
     rows = (
-        db.query(RequestLog.created_at, RequestLog.member_id)
+        db.query(local_day, RequestLog.member_id)
         .filter(
             RequestLog.created_at >= month_start_utc,
             RequestLog.created_at < month_end_utc,
             RequestLog.member_id.isnot(None),
         )
+        .distinct()
         .all()
     )
     if not rows:
         return []
 
-    tz = get_app_timezone()
     member_ids_by_day: dict[date, set[uuid.UUID]] = {}
-    for created_at, member_id in rows:
+    for day, member_id in rows:
         if member_id is None:
             continue
-        local_day = created_at.astimezone(tz).date()
-        member_ids_by_day.setdefault(local_day, set()).add(member_id)
+        member_ids_by_day.setdefault(day, set()).add(member_id)
 
     all_member_ids = {mid for ids in member_ids_by_day.values() for mid in ids}
     members_by_id = {

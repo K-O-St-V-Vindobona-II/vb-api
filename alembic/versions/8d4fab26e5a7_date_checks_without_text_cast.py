@@ -15,7 +15,7 @@ ISO text form, which is equivalent to the date comparison, so they satisfy the
 new one.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 from alembic import op
 

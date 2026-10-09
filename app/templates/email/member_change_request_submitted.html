@@ -12,7 +12,7 @@
   {% for key, values in diff.items() %}
     {% if not key.endswith('_accuracy') %}
     <div style="margin-top: 1em;">
-      <strong>{{ key }}</strong><br>
+      <strong>{{ field_label(key) }}</strong><br>
       alt:&nbsp; {{ format_value(key, values.get('old'), diff) }}<br>
       neu:&nbsp; {{ format_value(key, values.get('new'), diff) }}
     </div>

@@ -6,7 +6,7 @@ Create Date: 2026-08-01 23:21:58.486045
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -23,7 +23,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.execute("SET LOCAL lock_timeout = '5s'")
 
-    # This table was originally a repurposed legacy "personal access token"
+    # This table was originally a repurposed "personal access token"
     # (long-lived, user-named API key) table, but every row it has ever
     # held is actually a login session: the surrounding code already calls
     # this concept "session" everywhere (create_user_session(),

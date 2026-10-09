@@ -4,7 +4,7 @@ from typing import cast
 from sqlalchemy import create_engine, pool, text
 
 # Importing the module registers every model on Base.metadata.
-import app.db.base
+import app.db.base  # noqa: F401
 from alembic import context
 from app.core.config import get_settings
 from app.db.database import Base

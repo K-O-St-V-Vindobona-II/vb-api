@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError, field_validator
 
+from app.core.config import get_settings
 from main import _unhandled_exception_handler, _validation_error_handler
 from main import app as real_app
 
@@ -159,3 +160,10 @@ class TestServerErrorKeepsTheSecurityHeaders:
         )
 
         assert failing.json() == {"detail": "Ein unerwarteter Fehler ist aufgetreten."}
+
+
+class TestApiDescription:
+    def test_the_documented_token_lifetime_is_the_configured_one(self):
+        lifetime = get_settings().session_lifetime_minutes
+
+        assert f"Tokens expire after {lifetime} minutes." in real_app.description

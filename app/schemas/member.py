@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, EmailStr
 
 
 # 1. Base Schema: Fields that are needed everywhere
@@ -18,15 +18,13 @@ class MemberBase(BaseModel):
 class MemberResponse(MemberBase):
     id: uuid.UUID
 
-    cn: str = ""
-    default_image: uuid.UUID | None = None
-    permissions: list[str] = []
-    google_linked: bool = False
-    chroniclemail: bool = False
-    is_fee_member: bool = False
-    session_idle_timeout: int = 120
-
-    model_config = ConfigDict(from_attributes=True)
+    cn: str
+    default_image: uuid.UUID | None
+    permissions: list[str]
+    google_linked: bool
+    chroniclemail: bool
+    is_fee_member: bool
+    session_idle_timeout: int
 
 
 class ChroniclemailToggleResponse(BaseModel):

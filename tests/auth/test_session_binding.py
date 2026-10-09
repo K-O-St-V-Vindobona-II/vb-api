@@ -1,15 +1,15 @@
 """A session belongs to the member it was created for, not to whoever holds
 the e-mail address named in the token later."""
 
-import uuid
-
 import pytest
-from fastapi import HTTPException
 
-from app.api import deps
-from app.models.auth_session import AuthSession
+from app.core.security import create_access_token
 from app.models.member import Member
-from app.services.auth_service import create_user_session
+from app.services.auth_service import (
+    InvalidTokenError,
+    authenticate_access_token,
+    create_user_session,
+)
 
 OLD_ADDRESS = "old.address@vindobona.at"
 NEW_ADDRESS = "new.address@vindobona.at"
@@ -90,20 +90,20 @@ class TestSessionIsBoundToMember:
         assert _get_me(client, token).status_code == 403
 
 
-class TestVerifiedUser:
-    def test_a_session_of_another_member_is_refused(self, db_session):
+class TestAuthenticateAccessToken:
+    def test_a_token_with_the_session_of_another_member_is_refused(self, db_session):
         member = _member(db_session, OLD_ADDRESS)
-        foreign_session = AuthSession(member_id=uuid.uuid4(), jti="foreign")
+        other = _member(db_session, NEW_ADDRESS)
+        _, other_jti, _ = create_user_session(db_session, other)
+        token, _ = create_access_token(subject=member.email, jti_override=other_jti)
 
-        with pytest.raises(HTTPException) as info:
-            deps._get_verified_user(db_session, member.email, foreign_session)
-
-        assert info.value.status_code == 401
+        with pytest.raises(InvalidTokenError):
+            authenticate_access_token(db_session, token)
 
     def test_the_matching_session_returns_the_member(self, db_session):
         member = _member(db_session, OLD_ADDRESS)
-        own_session = AuthSession(member_id=member.id, jti="own")
+        token, _, _ = create_user_session(db_session, member)
 
-        user = deps._get_verified_user(db_session, member.email, own_session)
+        user = authenticate_access_token(db_session, token)
 
         assert user.id == member.id

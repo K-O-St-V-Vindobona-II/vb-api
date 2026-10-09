@@ -45,13 +45,16 @@ class TestContactForm:
         mock_smtp.assert_not_called()
         mock_send.assert_not_called()
 
-    def test_honeypot_field_rejects_submission(self, client, db_session, mock_arq_pool):
+    def test_honeypot_field_is_answered_like_a_success_without_a_mail(
+        self, client, db_session, mock_arq_pool
+    ):
         resp = client.post(
             URL,
             json={**VALID, "website": "https://spam.example.com"},
         )
 
-        assert resp.status_code == 422
+        assert resp.status_code == 202
+        assert resp.json() == {"status": "ok"}
         mock_arq_pool.enqueue_job.assert_not_called()
 
     def test_invalid_email_rejected(self, client, db_session, mock_arq_pool):

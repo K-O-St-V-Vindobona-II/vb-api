@@ -2,7 +2,7 @@
 
 run_restore() itself is already covered by tests/test_backup_service.py and
 the S3 mirror logic by tests/test_s3_mirror_service.py - these tests only
-exercise this script's own orchestration (guard, confirmation prompt, step
+exercise this script's own orchestration (guard, confirmation question, step
 skipping/ordering, alembic invocation, exit codes).
 """
 
@@ -72,7 +72,7 @@ class TestConfirmation:
         mock_db.assert_not_called()
         mock_s3.assert_not_called()
 
-    def test_yes_flag_skips_prompt(self) -> None:
+    def test_yes_flag_skips_question(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(
@@ -86,7 +86,7 @@ class TestConfirmation:
 
         mock_input.assert_not_called()
 
-    def test_dry_run_skips_prompt(self) -> None:
+    def test_dry_run_skips_question(self) -> None:
         with (
             patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
             patch.object(

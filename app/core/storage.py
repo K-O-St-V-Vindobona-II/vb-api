@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import quote
 
 import boto3
@@ -12,6 +12,8 @@ from app.core.config import get_settings, require_setting
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+    from mypy_boto3_s3.literals import BucketLocationConstraintType
 
 # Pillow warns above this many pixels and raises above twice as many: this is
 # a hard cap of 100 million pixels.
@@ -218,19 +220,24 @@ class StorageClient:
         except ClientError as exc:
             if not _is_missing(exc):
                 raise
-            create_kwargs: dict[str, object] = {"Bucket": self._bucket}
-            if self._region != "us-east-1":
-                create_kwargs["CreateBucketConfiguration"] = {
-                    "LocationConstraint": self._region
-                }
-            self._client.create_bucket(**create_kwargs)
+            if self._region == "us-east-1":
+                self._client.create_bucket(Bucket=self._bucket)
+                return
+            self._client.create_bucket(
+                Bucket=self._bucket,
+                CreateBucketConfiguration={
+                    "LocationConstraint": cast(
+                        "BucketLocationConstraintType", self._region
+                    )
+                },
+            )
 
     def list_keys(self, prefix: str) -> list[str]:
         """Return all object keys under prefix (handles S3 pagination)."""
         keys: list[str] = []
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
-            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+            keys.extend(obj["Key"] for obj in page.get("Contents", []) if "Key" in obj)
         return keys
 
 
@@ -252,7 +259,10 @@ def generate_thumbnail(
         max(1, int(img.width * ratio)),
         max(1, int(img.height * ratio)),
     )
-    img = img.resize(new_size, PILImage.Resampling.LANCZOS)
+    # Pillow declares the size parameter partly as Unknown in its own stubs.
+    img = img.resize(  # pyright: ignore[reportUnknownMemberType]
+        new_size, PILImage.Resampling.LANCZOS
+    )
 
     use_png = preserve_png and source_mime and "png" in source_mime
     if not use_png and img.mode in ("RGBA", "P"):

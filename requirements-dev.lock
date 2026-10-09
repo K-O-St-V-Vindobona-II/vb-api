@@ -98,6 +98,10 @@ boto3==1.43.36 \
     # via
     #   -r requirements.txt
     #   moto
+boto3-stubs-lite==1.43.111 \
+    --hash=sha256:341f2d6da41f8bc43ce0184c22541467300ec59c5fe8964b6e7f5940722dc045 \
+    --hash=sha256:34b3e14f227a5cda49eed77adc470e966286bacdb29286bb9f19e9035009f0c3
+    # via -r requirements-dev.txt
 botocore==1.43.36 \
     --hash=sha256:3c65fdc39ed01d8dfde1e961b34038aed03c459f8ddf80717a12ac006475e49d \
     --hash=sha256:4cae47d1b2d426316b85a0087d9e69e048f13bc003b5177d74639fe9dfd28205
@@ -105,6 +109,10 @@ botocore==1.43.36 \
     #   boto3
     #   moto
     #   s3transfer
+botocore-stubs==1.43.67 \
+    --hash=sha256:853e74014a1f557055c4ffae5fb38d7c65c7c0520e1aab366cac41d5428f419d \
+    --hash=sha256:c51262bac3341c1cda71f05fa01141fffd3990d7a92c7960e3b755c1bc830373
+    # via boto3-stubs-lite
 brotli==1.2.0 \
     --hash=sha256:022426c9e99fd65d9475dce5c195526f04bb8be8907607e27e747893f6ee3e24 \
     --hash=sha256:072e7624b1fc4d601036ab3f4f27942ef772887e876beff0301d261210bca97f \
@@ -1186,6 +1194,10 @@ msgpack==1.2.3 \
     --hash=sha256:fafc3b8898b432b841d30a61082c599fa7f4d06885f9dc58ad72259e12059fa6 \
     --hash=sha256:fcc6800daac4922960f6eeb7a0dda3dd4105e0bf7bce0e83ebc465a78cb7bdba
     # via cachecontrol
+mypy-boto3-s3==1.43.106 \
+    --hash=sha256:731195f15830699a36e29d3c8abb2918bccd3587eb2edcb233f8046967893279 \
+    --hash=sha256:e233d04dbcf3925522dff4346e75c37344ec3d1cbb82337e5eed2af263847668
+    # via boto3-stubs-lite
 nodeenv==1.10.0 \
     --hash=sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827 \
     --hash=sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb
@@ -1867,6 +1879,10 @@ truststore==0.10.4 \
     # via
     #   httpcore2
     #   httpx2
+types-s3transfer==0.16.0 \
+    --hash=sha256:1c0cd111ecf6e21437cb410f5cddb631bfb2263b77ad973e79b9c6d0cb24e0ef \
+    --hash=sha256:b4636472024c5e2b62278c5b759661efeb52a81851cde5f092f24100b1ecb443
+    # via boto3-stubs-lite
 typing-extensions==4.15.0 \
     --hash=sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466 \
     --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548

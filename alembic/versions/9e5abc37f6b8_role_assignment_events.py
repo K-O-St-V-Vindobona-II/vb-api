@@ -15,7 +15,7 @@ updated_at exists for schema uniformity (it always equals created_at, because
 the row is never updated).
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql

@@ -93,8 +93,8 @@ class TestSearchFeeMembers:
 
     def test_search_is_case_insensitive(self, db_session):
         """Regression test: Postgres LIKE is case-sensitive, unlike the
-        legacy MySQL system's default collation. A search term in a
-        different case than the stored name must still match."""
+        predecessor system's database default collation. A search term in
+        a different case than the stored name must still match."""
         _seed_base(db_session)
         _create_member(db_session, vorname="Wolfgang", email="w2@t.at")
 

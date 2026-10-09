@@ -10,8 +10,9 @@ pattern for every leaf table in this series, plus all three of its FK
 cutovers in the same migration: owner_member_id -> members.id_uuid,
 owner_contact_id -> contacts.id_uuid (both Referrer-Cutovers of an
 existing FK, CASCADE/CASCADE unchanged), and created_by -> members.id_uuid
-(a genuinely missing FK added directly, same as slice 20's
-contacts_logs/members_logs.modified_by and slice 22's request_logs FKs).
+(a genuinely missing FK added directly, same as the modified_by columns
+of contacts_logs/members_logs in 267386fa75f3 and the FKs of request_logs
+in e186839a1e80).
 
 The table-level exclusive-arc CHECK constraint
 (standesdb_images_owner_exclusive_arc_check) and the partial unique index
@@ -23,7 +24,7 @@ that direction, rather than per-column.
 
 ix_standesdb_images_id (a redundant plain index alongside the primary
 key, model config predates this migration) is deliberately not rebuilt
-on the renamed id column - same call as sent_emails in slice 4.
+on the renamed id column - same call as for sent_emails in 22fc473b0891.
 """
 
 from typing import Sequence

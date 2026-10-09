@@ -22,6 +22,8 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = _settings.session_lifetime_minutes
 SESSION_IDLE_TIMEOUT_MINUTES = _settings.session_idle_timeout_minutes
 REFRESH_TOKEN_LIFETIME_DAYS = _settings.refresh_token_lifetime_days
+REFRESH_COOKIE_NAME = "refresh_token"
+REFRESH_COOKIE_PATH = "/api/auth"
 
 # bcrypt only ever uses the first 72 bytes of its input (release 5 raises for
 # longer values, earlier releases truncated silently).

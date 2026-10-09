@@ -1,5 +1,5 @@
 """HTTP-level tests for the p4x_response_builders fetch-or-404 helpers
-(get_transaction_or_404, get_member_or_404) introduced in the Slice 3
+(get_transaction_or_404, get_member_or_404) introduced with the
 router->service extraction. The endpoints wiring them in
 (set_transaction_partner, update_transaction, set/unset-category-direct,
 get/update_fee_member) previously only had service-level tests that

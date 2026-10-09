@@ -12,7 +12,7 @@ delegating_p4x_account_id -> p4x_accounts.id_uuid,
 delegating_p4x_specialcontact_id -> p4x_special_contacts.id_uuid.
 
 p4x_transactions.id itself stays the primary key here - its own
-Final-Cutover (dropping id in favor of id_uuid) is a later slice, since
+Final-Cutover (dropping id in favor of id_uuid) is a separate revision, since
 p4x_category_directs and p4x_category_filter_hits still reference it by
 the integer id and haven't cut over yet.
 

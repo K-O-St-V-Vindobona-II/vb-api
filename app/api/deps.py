@@ -1,106 +1,31 @@
-import uuid
-from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app.core.security import ALGORITHM, SECRET_KEY, SESSION_IDLE_TIMEOUT_MINUTES
 from app.db.database import get_db
-from app.models.auth_session import AuthSession
 from app.models.member import Member
+from app.services import auth_service
 
 # This defines the security scheme.
 # It tells FastAPI (and the Swagger UI!) where a user can get a token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-def _credentials_exception() -> HTTPException:
-    """Build a new 401 for every rejection.
-
-    A single module-level instance would collect one traceback entry (and with
-    it every frame's locals) per raise for the life of the process.
-    """
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Anmeldedaten ungültig.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-
-def _decode_token(token: str) -> tuple[str, str]:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str | None = payload.get("sub")
-        token_id: str | None = payload.get("jti")
-        if email is None or token_id is None:
-            raise _credentials_exception()
-    except jwt.PyJWTError:
-        raise _credentials_exception() from None
-    else:
-        return email, token_id
-
-
-def _get_session_record(db: Session, token_id: str) -> AuthSession:
-    session_record = db.query(AuthSession).filter(AuthSession.jti == token_id).first()
-    if not session_record:
-        raise _credentials_exception()
-    return session_record
-
-
-def _ensure_tz_aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
-
-
-def _bump_lastsignal(db: Session, member_id: uuid.UUID, now: datetime) -> None:
-    db.query(Member).filter(Member.id == member_id).update({"auth_lastsignal": now})
-
-
-def _enforce_idle_timeout(db: Session, session_record: AuthSession) -> None:
-    now = datetime.now(UTC)
-    idle_duration = now - _ensure_tz_aware(session_record.last_used_at)
-
-    if idle_duration > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
-        db.delete(session_record)
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired due to inactivity.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if idle_duration > timedelta(minutes=1):
-        session_record.last_used_at = now
-        _bump_lastsignal(db, session_record.member_id, now)
-        db.commit()
-
-
-def _get_verified_user(db: Session, email: str, session_record: AuthSession) -> Member:
-    user = db.query(Member).filter(Member.email == email).first()
-    # The e-mail address is mutable and can later belong to someone else, so
-    # the session's own member id decides, not the address in the token.
-    if user is None or user.id != session_record.member_id:
-        raise _credentials_exception()
-    if user.auth_locked:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is locked"
-        )
-    return user
-
-
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> Member:
     """
     Dependency that extracts the JWT, verifies it cryptographically,
     checks the server-side session, enforces inactivity timeouts,
-    and returns the Member object.
+    and returns the Member object. Every rejection is a typed
+    AuthServiceError that app.api.error_handlers turns into the response.
     """
-    email, token_id = _decode_token(token)
-    session_record = _get_session_record(db, token_id)
-    _enforce_idle_timeout(db, session_record)
-    return _get_verified_user(db, email, session_record)
+    return auth_service.authenticate_access_token(db, token)
+
+
+# Routers annotate the signed-in user with this alias instead of importing the
+# ORM model themselves.
+CurrentUser = Annotated[Member, Depends(get_current_user)]

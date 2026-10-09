@@ -55,6 +55,8 @@ class ContactFormRequest(StrictInputModel):
     message: str = Field(min_length=1, max_length=MAX_CONTACT_MESSAGE_LENGTH)
     # Honeypot field: must stay empty. Real users never see or fill it
     # (hidden via CSS in the SPA); bots that blindly fill every field trip it.
+    # The route answers a filled field like a success, without queueing a
+    # mail, so a bot cannot tell from the response which field gave it away.
     website: str = ""
 
     @field_validator("name")
@@ -63,13 +65,5 @@ class ContactFormRequest(StrictInputModel):
         """The name goes into the subject line of the notification mail."""
         if any(ord(char) < _FIRST_PRINTABLE or ord(char) == _DELETE for char in v):
             msg = "The name must not contain control characters."
-            raise ValueError(msg)
-        return v
-
-    @field_validator("website")
-    @classmethod
-    def honeypot_must_be_empty(cls, v: str) -> str:
-        if v:
-            msg = "Invalid submission."
             raise ValueError(msg)
         return v

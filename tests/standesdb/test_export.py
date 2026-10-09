@@ -1,4 +1,4 @@
-"""Tests für Standesdb Export — Mailing-Liste + Excel."""
+"""Tests for Standesdb export - mailing list + Excel."""
 
 from datetime import date
 from io import BytesIO

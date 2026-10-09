@@ -273,7 +273,7 @@ def get_transactions_by_category(
         )
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
@@ -471,7 +471,7 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         .distinct()
         .all()
     }
-    filter_cat_ids = (
+    filter_cat_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilter.p4x_category_id)

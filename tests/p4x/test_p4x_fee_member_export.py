@@ -11,7 +11,6 @@ from urllib.parse import unquote
 import bcrypt
 from openpyxl import load_workbook
 
-from app.api.router_includes.p4x import _build_fee_member_response
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -23,6 +22,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+from app.services.p4x_response_builders import build_fee_member_response
 from app.services.p4x_summary_service import generate_fee_member_xlsx
 
 
@@ -165,7 +165,7 @@ class TestGenerateFeeMemberXlsx:
     def test_has_correct_sheets(self, db_session):
         _seed_base(db_session)
         member = _create_fee_member(db_session)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -175,7 +175,7 @@ class TestGenerateFeeMemberXlsx:
     def test_zusammenfassung_content(self, db_session):
         _seed_base(db_session)
         member = _create_fee_member(db_session)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -190,7 +190,7 @@ class TestGenerateFeeMemberXlsx:
         _seed_base(db_session)
         member = _create_fee_member(db_session)
         _add_payment(db_session, member, date(2017, 2, 14), 15.0)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -204,7 +204,7 @@ class TestGenerateFeeMemberXlsx:
         _seed_base(db_session)
         member = _create_fee_member(db_session)
         _add_payment(db_session, member, date(2017, 2, 14), 15.0)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -231,7 +231,7 @@ class TestGenerateFeeMemberXlsx:
         member.p4x_freed = True
         db_session.commit()
 
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
         assert response.balance is not None
         assert response.balance.progress == []
 

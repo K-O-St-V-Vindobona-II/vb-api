@@ -67,7 +67,7 @@ max-complexity = 8
 "tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603", "TID251"]
 # Migration files need no annotations and keep the typing imports of older
 # revisions; env.py follows the same rules as the application.
-"alembic/**" = ["F401", "UP035", "ANN", "PLR0915"]
+"alembic/**" = ["UP035", "ANN", "PLR0915"]
 "scripts/**" = ["T201", "FBT", "PLR0915"]
 # Declarative models use `from __future__ import annotations`, so SQLAlchemy
 # resolves `Mapped[...]` annotations at mapper-configure time by evaluating
@@ -138,7 +138,7 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-include = ["app", "scripts"]
+include = ["app", "scripts", "main.py"]
 exclude = [
     "alembic",
     "**/__pycache__",
@@ -149,9 +149,11 @@ typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
 reportMissingTypeStubs = false
 
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
+# Values from untyped libraries must not travel through the code as Unknown.
+# The few unavoidable cases carry a targeted ignore with the reason.
+reportUnknownMemberType = "error"
+reportUnknownVariableType = "error"
+reportUnknownArgumentType = "error"
 
 # --- DEAD CODE & UNREACHABLE (Pyright) ---
 reportUnreachable = "error"

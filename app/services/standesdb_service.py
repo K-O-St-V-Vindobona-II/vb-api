@@ -1,10 +1,10 @@
 import json
 from datetime import UTC, date, datetime
 from itertools import combinations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, literal
+from sqlalchemy import func, literal, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
@@ -243,7 +243,7 @@ def _descendants_by_parent(
     in the data ends the walk."""
     by_parent: dict[uuid.UUID, list[Member]] = {}
     seen = {root_id}
-    generation = [root_id]
+    generation: list[uuid.UUID] = [root_id]
     for _ in range(_MAX_TREE_DEPTH):
         if not generation:
             break
@@ -258,7 +258,7 @@ def _descendants_by_parent(
             if child.id in seen or child.parent_id is None:
                 continue
             seen.add(child.id)
-            by_parent.setdefault(child.parent_id, []).append(child)
+            by_parent.setdefault(child.parent_id, list[Member]()).append(child)
             generation.append(child.id)
     return by_parent
 
@@ -371,7 +371,7 @@ def get_member_detail(
         if parent:
             parent_cn = parent.cn
 
-    ancestry = []
+    ancestry: list[dict[str, object]] = []
     seen: set[uuid.UUID] = set()
     current: Member | None = member
     while (
@@ -496,7 +496,7 @@ def _serialize_log_value(val: object) -> str | None:
 
 
 # Technical/audit bookkeeping columns must never surface in the
-# Änderungshistorie — they aren't part of any edit form and aren't
+# change history - they aren't part of any edit form and aren't
 # meaningful change history for a user. Filtered both at write time
 # (defense in depth, in case a future diff includes one) and at read time
 # (to also suppress rows already sitting in the DB from earlier write paths, e.g.
@@ -886,11 +886,11 @@ def validate_parent_id(
 
 def _validate_ids_exist(
     db: Session,
-    model: type,
+    model: type[Role] | type[Badge] | type[Key],
     entries: list[RoleHistoryEntry] | list[BadgeEntry] | list[KeyEntry],
     label: str,
 ) -> None:
-    valid_ids = {row.id for row in db.query(model).all()}
+    valid_ids = set(db.scalars(select(model.id)))
     for entry in entries:
         if entry.id not in valid_ids:
             raise HTTPException(
@@ -1320,7 +1320,7 @@ def get_roles_list(
     for a in query.order_by(MemberRole.startdate).all():
         assignments_by_role.setdefault(a.role_id, []).append(a)
 
-    result = []
+    result: list[dict[str, object]] = []
     for role in roles:
         role_assignments = assignments_by_role.get(role.id, [])
         vbw = next(
@@ -1420,11 +1420,12 @@ def generate_keys_download(db: Session) -> bytes:
     lines: list[str] = []
     for m in members:
         keys_map = m.get("keys")
-        held = [
-            str(name)
-            for name in key_names
-            if isinstance(keys_map, dict) and keys_map.get(name)
-        ]
+        key_flags = (
+            cast("dict[str | None, bool]", keys_map)
+            if isinstance(keys_map, dict)
+            else {}
+        )
+        held = [str(name) for name in key_names if key_flags.get(name)]
         lines.append(
             f"{m.get('nachname', '')}, {m.get('vorname', '')}: {', '.join(held)}"
         )

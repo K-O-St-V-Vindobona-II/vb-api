@@ -1,6 +1,6 @@
 import hashlib
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
 
 from botocore.exceptions import ClientError
@@ -17,12 +17,20 @@ from app.core.storage import (
 )
 from app.core.upload_images import inspect_upload_image
 from app.models.standesdb_image import StandesdbImage
+from app.schemas.standesdb import (
+    ImageListItem,
+    ImageListResponse,
+    ImageOwnerResponse,
+)
 
 if TYPE_CHECKING:
     import uuid
 
     from sqlalchemy import ColumnElement
     from sqlalchemy.orm import Query, Session
+
+    from app.models.contact import Contact
+    from app.models.member import Member
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -173,6 +181,36 @@ def get_images_for_owner(
         )
         .order_by(StandesdbImage.id)
         .all()
+    )
+
+
+def build_image_list_response(
+    db: Session,
+    owner_type: Literal["member", "contact"],
+    owner: Member | Contact,
+) -> ImageListResponse:
+    """The images of a member or contact, with the owner's default image."""
+    images = get_images_for_owner(db, owner_type, owner.id)
+    return ImageListResponse(
+        owner=ImageOwnerResponse(
+            type=owner_type,
+            id=owner.id,
+            cn=owner.cn,
+            org_id=owner.org_id,
+            default_image=owner.default_image,
+        ),
+        images=[
+            ImageListItem(
+                id=image.id,
+                type=image.type,
+                height=image.height,
+                width=image.width,
+                size=image.size,
+                description=image.description,
+                default=image.default,
+            )
+            for image in images
+        ],
     )
 
 

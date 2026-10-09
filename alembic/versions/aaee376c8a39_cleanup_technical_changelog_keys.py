@@ -6,7 +6,7 @@ Create Date: 2026-07-25 10:30:12.835049
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -37,7 +37,7 @@ def upgrade() -> None:
     """Remove pre-existing changelog rows for technical/audit columns.
 
     These rows predate the read/write filter added in this same change and
-    are pure noise in the Änderungshistorie (e.g. auth_lastsignal bumped on
+    are pure noise in the change history (e.g. auth_lastsignal bumped on
     every request via a raw bulk UPDATE that bypassed the diff mechanism).
     """
     conn = op.get_bind()

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.router_includes.standesdb import _decide_member_change_request_sync
 from app.db.database import SessionLocal, engine
 from app.models.member import Member
 from app.models.member_change_request import MemberChangeRequest
@@ -21,7 +20,7 @@ from app.models.org import Org
 from app.models.role import Role
 from app.models.state import State
 from app.schemas.standesdb import MemberChangeRequestDecisionRequest
-from app.services import member_change_request_service
+from app.services import member_change_request_service, standesdb_entry_service
 from tests.auth.test_refresh_serialised import (
     WAIT_SECONDS,
     _wait_until_a_request_waits_for_a_lock,
@@ -118,7 +117,7 @@ class TestConcurrentDecision:
             def second_decision() -> None:
                 second = SessionLocal()
                 try:
-                    outcome["result"] = _decide_member_change_request_sync(
+                    outcome["result"] = standesdb_entry_service.decide_change_request(
                         second, request_id, data, second.get(Member, admin_id)
                     )
                 except HTTPException as error:

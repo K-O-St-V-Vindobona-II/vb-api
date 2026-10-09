@@ -9,9 +9,10 @@ Three steps in fixed order:
 1. contacts_logs.contact_id Referrer-Cutover: a genuine existing FK
    (contacts_logs_contact_id_fkey, still pointing at the still-integer
    contacts.id) cut over to contacts.id_uuid, same ON DELETE/ON UPDATE
-   strategy - the one referrer of contacts left standing after Wave C,
-   never covered by any earlier slice (contacts_logs.modified_by, a
-   genuinely different column, was handled in 267386fa75f3).
+   strategy - the one referrer of contacts left standing after the
+   cutovers of the other referrers, not covered by any earlier revision
+   (contacts_logs.modified_by, a genuinely different column, was handled
+   in 267386fa75f3).
 2. contacts Final-Cutover: own PK moves from the additive id_uuid to id.
    All four referrers (contacts_logs.contact_id as of step 1,
    p4x_partners.contact_id, p4x_transactions.delegating_contact_id,
@@ -21,8 +22,8 @@ Three steps in fixed order:
    touching here.
 3. contacts.modified_by: a bare integer column with no ForeignKey() at
    all (like contacts_logs/members_logs.modified_by before 267386fa75f3)
-   gets a real FK to members.id_uuid. Same 0-as-"no member" legacy
-   sentinel (40/44 rows), converted to NULL first for the same reason.
+   gets a real FK to members.id_uuid. Same 0-as-"no member" sentinel
+   (40/44 rows), converted to NULL first for the same reason.
 
 downgrade() reverses step 3, then step 2 (dropping and recreating every
 referrer's FK around the PK revert, since Postgres refuses to drop a pkey

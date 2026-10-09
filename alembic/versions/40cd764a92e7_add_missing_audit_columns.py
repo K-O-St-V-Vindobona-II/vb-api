@@ -5,9 +5,9 @@ Revises: fdd134a00dd3
 Create Date: 2026-09-02 23:20:00.000000
 
 8 tables never got created_at/updated_at, the one audit-trail catalog
-point CLAUDE.md requires unconditionally outside genuine mapping tables
-(74d19e4af679 wired up set_updated_at() for 17 tables back in Welle 2
-Slice 3; these 8 were never added to that list). None are junction
+point the schema rules require unconditionally outside genuine mapping
+tables (74d19e4af679 wired up set_updated_at() for 17 tables; these 8
+were never added to that list). None are junction
 tables (badges_members/keys_members/members_roles - the actual mapping
 tables with no surrogate id - correctly stay exempt), so there's no
 structural reason for the gap; found via a direct information_schema
@@ -29,7 +29,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "40cd764a92e7"
-down_revision: str | None = "fdd134a00dd3"
+down_revision: str | Sequence[str] | None = "fdd134a00dd3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -273,15 +273,16 @@ def update_fee_member(
 
 
 # ---------------------------------------------------------------------------
-# Fee balance calculation (1:1 from Member::feeBalance)
+# Fee balance calculation
 # ---------------------------------------------------------------------------
 
 
 def _count_months(start_date: date, end_date: date) -> int:
-    """Exact replication of Member::countMonths() in PHP.
+    """Count the months from the first day of start_date's month to the last day
+    of end_date's month.
 
-    PHP: $start_date->firstOfMonth()->diff($end_date->lastOfMonth())
-    Then: $diff->y * 12 + $diff->m + $diff->d / 30, rounded.
+    The span is split into whole years, whole months and remaining days; the
+    result is years * 12 + months + days / 30, rounded.
     """
     first = start_date.replace(day=1)
     if end_date.month == 12:
@@ -334,48 +335,7 @@ def _get_fee_payments_sum(
     if not partner_ibans:
         return Decimal(0)
 
-    fee_category_id = _fee_category_id(db)
-    direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id,
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .all()
-    }
-
-    filter_ids = [
-        r[0]
-        for r in db.query(P4xCategoryFilter.id)
-        .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id,
-        )
-        .all()
-    ]
-    filter_tx_ids = (
-        {
-            r[0]
-            for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids),
-            )
-            .all()
-        }
-        if filter_ids
-        else set()
-    )
-
-    all_direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .distinct()
-        .all()
-    }
-    fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
+    fee_cat_tx_ids = _fee_category_tx_ids(db)
 
     if not fee_cat_tx_ids:
         return Decimal(0)
@@ -421,48 +381,7 @@ def _get_fee_payments_list(
     if not partner_ibans:
         return []
 
-    fee_category_id = _fee_category_id(db)
-    direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id,
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .all()
-    }
-
-    filter_ids = [
-        r[0]
-        for r in db.query(P4xCategoryFilter.id)
-        .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id,
-        )
-        .all()
-    ]
-    filter_tx_ids = (
-        {
-            r[0]
-            for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids),
-            )
-            .all()
-        }
-        if filter_ids
-        else set()
-    )
-
-    all_direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .distinct()
-        .all()
-    }
-    fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
+    fee_cat_tx_ids = _fee_category_tx_ids(db)
 
     if not fee_cat_tx_ids:
         return []
@@ -500,7 +419,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     start_date_str: str | None = None,
     end_date_str: str | None = None,
 ) -> FeeBalanceResult | None:
-    """Exact replication of Member::feeBalance() in PHP."""
+    """Calculate the fee balance of a member between two dates, or None."""
     if not is_fee_member(member):
         return None
 
@@ -624,14 +543,9 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
 # ---------------------------------------------------------------------------
 # Bulk fee balance list ("Saldenliste") - N+1-safe equivalent of calling
 # calculate_fee_balance(db, member) for every fee member and reading
-# end_balance. calculate_fee_balance() itself and its helpers
-# (_get_fee_payments_sum/_get_fee_payments_list) are deliberately left
-# untouched here - they back the well-tested single-member views/exports
-# and a related redesign of that function is intentionally on hold (see
-# feature/p4x-fee-interval-cutover). The functions below duplicate a small
-# amount of their logic on purpose to keep that surface completely
-# unaffected, in exchange for a bulk path with a constant query count
-# instead of one that scales with the number of fee members.
+# end_balance, with a constant query count instead of one that scales with
+# the number of fee members. The set of fee-category transaction ids
+# (_fee_category_tx_ids) is shared with the single-member helpers.
 # ---------------------------------------------------------------------------
 
 
@@ -738,11 +652,9 @@ def _build_member_states(
 
 
 def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
-    """Member-independent set of transaction ids in the fee category.
-    Deliberately duplicated from _get_fee_payments_sum/
-    _get_fee_payments_list rather than extracted from them - those
-    helpers back calculate_fee_balance() and are out of scope for
-    refactoring here."""
+    """Member-independent set of transaction ids in the fee category: the
+    direct assignments plus the filter hits of transactions that have no
+    direct assignment at all (a direct assignment overrides the filters)."""
     fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
@@ -759,7 +671,7 @@ def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
         .filter(P4xCategoryFilter.p4x_category_id == fee_category_id)
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)

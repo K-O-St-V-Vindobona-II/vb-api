@@ -15,7 +15,7 @@ Existing NULLs are set to the same defaults first, so an account that was open
 only by omission ends up locked. Rows with an explicit value keep it.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

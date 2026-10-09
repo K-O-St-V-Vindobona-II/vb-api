@@ -1,6 +1,6 @@
-"""Tests für calculate_permissions().
+"""Tests for calculate_permissions().
 
-Ableitung der Berechtigungen aus aktiven Rollen.
+Derives the permission set from a member's active roles.
 """
 
 from datetime import date, timedelta

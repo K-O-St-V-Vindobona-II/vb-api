@@ -3,7 +3,6 @@ import io
 import uuid
 import zipfile
 from datetime import date, timedelta
-from decimal import Decimal
 from typing import Annotated
 
 from fastapi import (
@@ -19,13 +18,11 @@ from fastapi import (
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.auth_guards import require_permission
-from app.api.deps import get_current_user
+from app.api.auth_guards import RequireP4xAdmin, RequireP4xView
+from app.api.deps import CurrentUser
 from app.core.datetime_utils import local_today
 from app.core.http_headers import attachment_disposition
 from app.db.database import get_db
-from app.models.member import Member
-from app.models.p4x_fee import P4xFee
 from app.schemas.p4x import (
     AccountResponse,
     AccountSaveRequest,
@@ -35,16 +32,12 @@ from app.schemas.p4x import (
     CategorySaveRequest,
     CategoryWithUsageResponse,
     DashboardResponse,
-    FeeBalanceCount,
     FeeBalanceListItem,
-    FeeBalanceResponse,
-    FeeBalanceSum,
     FeeCreateRequest,
     FeeMemberResponse,
     FeeMemberSearchResponse,
     FeeMemberSelfResponse,
     FeeMemberUpdateRequest,
-    FeeProgressEntry,
     FeeResponse,
     Filter2DirectPreviewResponse,
     Filter2DirectResultResponse,
@@ -91,7 +84,7 @@ MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 @p4x_router.get("/accounts")
 def get_dashboard(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> DashboardResponse:
     """Return all bank accounts with balances, plus a capped preview (PREVIEW_LIMIT
     transactions each) of the two warning categories - see /warnings/partner and
@@ -147,7 +140,7 @@ def get_dashboard(
 @p4x_router.get("/warnings/partner")
 def get_warnings_partner_list(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a partner assignment, paginated. Requires p4xView."""
@@ -166,7 +159,7 @@ def get_warnings_partner_list(
 @p4x_router.get("/warnings/category")
 def get_warnings_category_list(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions missing a category assignment, paginated. Requires p4xView."""
@@ -191,7 +184,7 @@ def get_warnings_category_list(
 def create_account(
     data: AccountSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> AccountResponse:
     """Create a new bank account. Requires p4xAdmin."""
     account = p4x_account_service.create_account(db, data)
@@ -203,7 +196,7 @@ def update_account(
     account_id: uuid.UUID,
     data: AccountSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> AccountResponse:
     """Update a bank account's details. Requires p4xAdmin."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
@@ -217,7 +210,7 @@ def update_account(
 def delete_account(
     account_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> None:
     """Delete a bank account. Requires p4xAdmin."""
     account = p4x_response_builders.get_account_or_404(db, account_id)
@@ -234,7 +227,7 @@ def import_transactions(
     account_id: uuid.UUID,
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> ImportResult:
     """Import bank transactions from a George-Bank JSON export (despite the CSV-sounding
     endpoint name - see p4x_import_service.parse_george_json). The uploaded filename
@@ -280,7 +273,7 @@ def get_transactions_by_month(
     year: Annotated[int, Path(ge=2000, le=2100)],
     month: Annotated[int, Path(ge=1, le=12)],
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     page: PageParam = 1,
 ) -> TransactionsByMonthResponse:
     """List transactions for a specific month, paginated, with the account's start/end
@@ -319,7 +312,7 @@ def get_transactions_by_partner(
     partner_type: PartnerType,
     partner_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific partner (member or contact, see
@@ -347,7 +340,7 @@ def get_transactions_by_category(
     account_id: uuid.UUID,
     category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions assigned to a specific category, paginated.
@@ -379,7 +372,7 @@ def get_transaction_raw(
     account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> TransactionRawResponse:
     """Return the original, unprocessed row for a transaction exactly as imported from
     the bank export. Requires p4xView."""
@@ -396,7 +389,7 @@ def get_transaction_attachment(
     account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> StreamingResponse:
     """Download a transaction's PDF attachment (e.g. a scanned receipt), if one was
     uploaded. 404 if none exists. Requires p4xView."""
@@ -426,7 +419,7 @@ def get_transaction_attachment(
 @p4x_router.get("/partner/search")
 def search_partners(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     q: str = "",
 ) -> list[PartnerSearchResult]:
     """Search transaction partners (members and contacts) by name, minimum 3 characters.
@@ -449,7 +442,7 @@ def set_transaction_partner(
     transaction_id: uuid.UUID,
     data: SetPartnerRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> TransactionResponse:
     """Assign a partner to a transaction, optionally with a delegating partner for
     payments made on someone else's behalf. Requires p4xAdmin."""
@@ -473,8 +466,7 @@ def set_transaction_partner(
         data.hasDelegatingPartner,
         delegating_dict,
     )
-    db.refresh(tx)
-    return p4x_response_builders.build_transaction_response(tx, db)
+    return p4x_response_builders.build_refreshed_transaction_response(db, tx)
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +478,7 @@ def set_transaction_partner(
 def update_transaction(
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
     comment: Annotated[str | None, Form()] = None,
     delete_attachment: Annotated[bool, Form()] = False,  # noqa: FBT002
     file: UploadFile | None = None,
@@ -518,7 +510,7 @@ def update_transaction(
 @p4x_router.get("/admin/categories")
 def list_categories(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> list[CategoryWithUsageResponse]:
     """List all transaction categories with their current usage counts.
     Requires p4xAdmin."""
@@ -530,7 +522,7 @@ def list_categories(
 def create_category(
     data: CategorySaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> CategoryWithUsageResponse:
     """Create a new transaction category. Requires p4xAdmin."""
     cat = p4x_category_service.create_category(db, data)
@@ -542,7 +534,7 @@ def update_category(
     category_id: uuid.UUID,
     data: CategorySaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> CategoryWithUsageResponse:
     """Update a transaction category's name, label, or colors. Requires p4xAdmin."""
     cat = p4x_response_builders.get_category_or_404(db, category_id)
@@ -556,7 +548,7 @@ def update_category(
 def delete_category_endpoint(
     category_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> None:
     """Delete a transaction category. Fails with 409 if the category is protected or
     still in use - see p4x_category_service.delete_category. Requires p4xAdmin."""
@@ -578,7 +570,7 @@ def delete_category_endpoint(
 @p4x_router.get("/admin/category-filters")
 def list_category_filters(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> list[CategoryFilterResponse]:
     """List all category auto-assignment filter rules (IBAN/amount/subject-based).
     Requires p4xAdmin."""
@@ -590,7 +582,7 @@ def list_category_filters(
 def create_category_filter(
     data: CategoryFilterSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> CategoryFilterResponse:
     """Create a new category auto-assignment filter rule. Requires p4xAdmin."""
     f = p4x_category_service.create_category_filter(db, data)
@@ -602,7 +594,7 @@ def update_category_filter(
     filter_id: uuid.UUID,
     data: CategoryFilterSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> CategoryFilterResponse:
     """Update a category filter rule. Requires p4xAdmin."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
@@ -616,7 +608,7 @@ def update_category_filter(
 def delete_category_filter_endpoint(
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> None:
     """Delete a category filter rule. Requires p4xAdmin."""
     f = p4x_response_builders.get_filter_or_404(db, filter_id)
@@ -627,7 +619,7 @@ def delete_category_filter_endpoint(
 def get_filter2direct_preview(
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> Filter2DirectPreviewResponse:
     """Preview which currently-unmatched transactions a filter rule would convert to
     permanent direct category assignments, without applying anything yet.
@@ -664,7 +656,7 @@ def get_filter2direct_preview(
 def process_filter2direct(
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> Filter2DirectResultResponse:
     """Apply a filter rule: convert every transaction it currently matches into a
     permanent direct category assignment - a one-time snapshot, not a live rule going
@@ -700,7 +692,7 @@ def set_category_direct_endpoint(
     transaction_id: uuid.UUID,
     data: list[dict[str, object]],
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> TransactionResponse:
     """Manually assign one or more categories to a transaction, overriding filter-based
     assignment. Requires p4xAdmin."""
@@ -712,23 +704,21 @@ def set_category_direct_endpoint(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error,
         )
-    db.refresh(tx)
-    return p4x_response_builders.build_transaction_response(tx, db)
+    return p4x_response_builders.build_refreshed_transaction_response(db, tx)
 
 
 @p4x_router.delete("/admin/transactions/{transaction_id}/unset-category-direct")
 def unset_category_direct_endpoint(
     transaction_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> TransactionResponse:
     """Remove a transaction's manual category assignment, falling back to filter-based
     assignment if any filter still matches. Requires p4xAdmin."""
     tx = p4x_response_builders.get_transaction_or_404(db, transaction_id)
 
     p4x_category_service.unset_category_direct(db, tx)
-    db.refresh(tx)
-    return p4x_response_builders.build_transaction_response(tx, db)
+    return p4x_response_builders.build_refreshed_transaction_response(db, tx)
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +733,7 @@ def get_transactions_by_filter(
     account_id: uuid.UUID,
     filter_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
     page: PageParam = 1,
 ) -> PaginatedTransactions:
     """List transactions currently matched by a specific category filter rule,
@@ -768,30 +758,22 @@ def get_transactions_by_filter(
 # ---------------------------------------------------------------------------
 
 
-def _build_fee_response(fee: P4xFee) -> FeeResponse:
-    return FeeResponse(
-        start=str(fee.start.replace(day=1)),
-        fee=fee.fee,
-        protected=bool(fee.protected),
-    )
-
-
 @p4x_router.get("/admin/fee-config")
 def list_fee_config(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> list[FeeResponse]:
     """List all membership fee amounts by their effective start month.
     Requires p4xAdmin."""
     fees = p4x_fee_balance_service.get_all_fees(db)
-    return [_build_fee_response(f) for f in fees]
+    return [p4x_response_builders.build_fee_response(f) for f in fees]
 
 
 @p4x_router.post("/admin/fee-config", status_code=status.HTTP_201_CREATED)
 def create_fee(
     data: FeeCreateRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> list[FeeResponse]:
     """Create a new fee amount effective from a given month. Requires p4xAdmin."""
     _, error = p4x_fee_balance_service.create_fee(db, data.year, data.month, data.fee)
@@ -801,14 +783,14 @@ def create_fee(
             detail=error,
         )
     fees = p4x_fee_balance_service.get_all_fees(db)
-    return [_build_fee_response(f) for f in fees]
+    return [p4x_response_builders.build_fee_response(f) for f in fees]
 
 
 @p4x_router.delete("/admin/fee-config/{start}")
 def delete_fee(
     start: str,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> list[FeeResponse]:
     """Delete a fee configuration entry by its start month. Requires p4xAdmin."""
     error = p4x_fee_balance_service.delete_fee(db, start)
@@ -818,7 +800,7 @@ def delete_fee(
             detail=error,
         )
     fees = p4x_fee_balance_service.get_all_fees(db)
-    return [_build_fee_response(f) for f in fees]
+    return [p4x_response_builders.build_fee_response(f) for f in fees]
 
 
 # ---------------------------------------------------------------------------
@@ -826,58 +808,10 @@ def delete_fee(
 # ---------------------------------------------------------------------------
 
 
-def _build_fee_member_response(
-    db: Session,
-    member: Member,
-) -> FeeMemberResponse:
-    balance_data = p4x_fee_balance_service.calculate_fee_balance(db, member)
-
-    balance = None
-    if balance_data:
-        balance = FeeBalanceResponse(
-            start_date=balance_data["start_date"],
-            start_balance=balance_data["start_balance"],
-            count=FeeBalanceCount(
-                fees=balance_data["count"]["fees"],
-                payments=balance_data["count"]["payments"],
-            ),
-            sum=FeeBalanceSum(
-                fees=balance_data["sum"]["fees"],
-                payments=balance_data["sum"]["payments"],
-            ),
-            end_date=balance_data["end_date"],
-            end_balance=balance_data["end_balance"],
-            progress=[
-                FeeProgressEntry(
-                    type=str(p["type"]),
-                    booking=str(p["booking"]),
-                    amount=Decimal(str(p["amount"])),
-                    balance=Decimal(str(p["balance"])),
-                )
-                for p in balance_data["progress"]
-            ],
-        )
-
-    init_date_raw = member.p4x_init_date or member.philistrierungsdatum
-    init_date_str: str | None = None
-    if init_date_raw:
-        init_date_str = str(init_date_raw.replace(day=1))
-
-    return FeeMemberResponse(
-        id=member.id,
-        cn=member.cn,
-        p4x_init_date=init_date_str,
-        p4x_init_balance=member.p4x_init_balance,
-        p4x_freed=bool(member.p4x_freed),
-        p4x_comment=member.p4x_comment,
-        balance=balance,
-    )
-
-
 @p4x_router.get("/fee-members/search")
 def search_fee_members(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
     q: str = "",
 ) -> FeeMemberSearchResponse:
     """Search fee-liable members by name, with each result's current payment status.
@@ -901,7 +835,7 @@ def search_fee_members(
 @p4x_router.get("/fee-members/me")
 def get_own_fee_member(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: CurrentUser,
 ) -> FeeMemberSelfResponse:
     """Return the authenticated member's own fee account (self-service).
 
@@ -911,21 +845,21 @@ def get_own_fee_member(
     """
     if not p4x_fee_balance_service.is_fee_member(current_user):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
-    full = _build_fee_member_response(db, current_user)
+    full = p4x_response_builders.build_fee_member_response(db, current_user)
     return FeeMemberSelfResponse.model_validate(full, from_attributes=True)
 
 
 @p4x_router.get("/fee-members/me/export")
 def export_own_fee_member(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: CurrentUser,
 ) -> Response:
     """Export the authenticated member's own fee account statement as an XLSX file. Same
     self-service scope as GET /fee-members/me - 404 if not a fee member or no account
     data exists yet."""
     if not p4x_fee_balance_service.is_fee_member(current_user):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
-    full = _build_fee_member_response(db, current_user)
+    full = p4x_response_builders.build_fee_member_response(db, current_user)
     if full.balance is None:
         raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(full)
@@ -941,26 +875,26 @@ def export_own_fee_member(
 def get_fee_member(
     member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> FeeMemberResponse:
     """Return detailed fee payment data (balance, payment history) for a specific
     member. 404 if the member isn't fee-liable. Requires p4xView."""
     member = p4x_response_builders.get_member_or_404(db, member_id)
     if not p4x_fee_balance_service.is_fee_member(member):
         raise HTTPException(status_code=404, detail="Kein Beitragsmitglied.")
-    return _build_fee_member_response(db, member)
+    return p4x_response_builders.build_fee_member_response(db, member)
 
 
 @p4x_router.get("/fee-members/{member_id}/export")
 def export_fee_member(
     member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> Response:
     """Export a specific member's fee account statement as an XLSX
     file. Requires p4xView."""
     member = p4x_response_builders.get_member_or_404(db, member_id)
-    response = _build_fee_member_response(db, member)
+    response = p4x_response_builders.build_fee_member_response(db, member)
     if response.balance is None:
         raise HTTPException(status_code=404, detail="Keine Kontodaten vorhanden.")
     xlsx_bytes = p4x_summary_service.generate_fee_member_xlsx(response)
@@ -978,21 +912,20 @@ def update_fee_member(
     member_id: uuid.UUID,
     data: FeeMemberUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> FeeMemberResponse:
     """Update a member's fee exemption status, initial balance/date, or admin-internal
     comment. Requires p4xAdmin."""
     member = p4x_response_builders.get_member_or_404(db, member_id)
 
     p4x_fee_balance_service.update_fee_member(db, member, data.model_dump())
-    db.refresh(member)
-    return _build_fee_member_response(db, member)
+    return p4x_response_builders.build_refreshed_fee_member_response(db, member)
 
 
 @p4x_router.get("/fee-balances")
 def get_fee_balances(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> list[FeeBalanceListItem]:
     """List the current fee balance for every fee-liable member (not just debtors).
     Requires p4xView."""
@@ -1016,7 +949,7 @@ def get_fee_balances(
 @p4x_router.get("/sumup/balance")
 def get_sumup_balance(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xView"))],
+    _user: RequireP4xView,
 ) -> SumUpBalanceResponse:
     """Return the SumUp card-terminal's current balance and its most recent
     transactions. Requires p4xView."""
@@ -1032,7 +965,7 @@ def get_sumup_balance(
 def download_summary(
     data: SummaryOrderRequest,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("p4xAdmin"))],
+    _user: RequireP4xAdmin,
 ) -> Response:
     """Generate a financial summary report for a date range: an XLSX workbook plus every
     referenced transaction's PDF attachment, bundled as a ZIP. Requires p4xAdmin."""

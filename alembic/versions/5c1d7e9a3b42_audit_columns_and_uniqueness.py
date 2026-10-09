@@ -25,7 +25,7 @@ Three schema gaps, closed together:
    in case would block it, so the migration stops with a list of them.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

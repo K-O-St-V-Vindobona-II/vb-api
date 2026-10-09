@@ -124,8 +124,8 @@ class TestFilterEngineSubjectModes:
 
     def test_starts_mode_is_case_insensitive(self, db_session):
         """Regression test: Postgres LIKE is case-sensitive, unlike the
-        legacy MySQL system's default collation. A filter written in a
-        different case than the transaction subject must still match."""
+        predecessor system's database default collation. A filter written
+        in a different case than the transaction subject must still match."""
         account, cat, _txs = _seed_data(db_session)
         f = P4xCategoryFilter(
             name="starts_case_test",

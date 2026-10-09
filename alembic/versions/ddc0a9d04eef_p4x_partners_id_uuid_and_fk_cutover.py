@@ -15,7 +15,7 @@ CASCADE strategy it had before - a P4xPartner row is a financial/
 accounting link, not owned content, so a referenced entity may never be
 silently detached.
 
-Unlike the previous (archive) slice, all four FK columns here carry a
+Unlike the archive table before it, all four FK columns here carry a
 genuine plain lookup index (ix_p4x_partners_member_id and friends,
 verified against the live schema before writing this migration) -
 dropping each column drops its index automatically, so every cutover
@@ -32,10 +32,10 @@ p4x_transactions.delegating_member_id/delegating_contact_id/
 delegating_p4x_account_id/delegating_p4x_specialcontact_id are a
 structurally similar but entirely separate exclusive-arc set on a
 different table, deliberately out of scope here - that table's own
-UUID cutover is a later slice. The application-code cutover in this
-slice's accompanying commit therefore has to bridge both id flavors for
-a short transitional period (see p4x_partner_service.find_partner_entity
-vs. find_partner_entity_by_legacy_id).
+UUID cutover is a separate revision (c963591a4c7a). The application-code
+cutover accompanying this revision therefore has to bridge both id
+flavors for a short transitional period (see p4x_partner_service.find_partner_entity
+vs. the pre-cutover application-side lookup path).
 """
 
 import uuid

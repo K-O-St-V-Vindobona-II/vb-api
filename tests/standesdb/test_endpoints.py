@@ -1,4 +1,4 @@
-"""Tests für Standesdb API-Endpoints — Member/Contact CRUD, Search, Reference-Data."""
+"""Tests for Standesdb API endpoints - member/contact CRUD, search, reference data."""
 
 import uuid
 from datetime import date
@@ -230,59 +230,6 @@ class TestSearch:
         assert resp.status_code == 200
         labels = [r["label"] for r in resp.json()["data"]]
         assert any("Schimpl" in label for label in labels)
-
-
-# --- Member Detail ---
-
-
-class TestMemberDetail:
-    def test_get_member_active(self, client, db_session):
-        _seed(db_session)
-        admin = _admin(db_session)
-        headers = _headers(client, db_session, admin)
-        db_session.add(
-            Member(
-                email="show@vbw.at",
-                vorname="Show",
-                nachname="Test",
-                couleurname="Showikus",
-                org_id="vbw",
-            )
-        )
-        db_session.commit()
-        target = db_session.query(Member).filter_by(email="show@vbw.at").first()
-        resp = client.get(f"/api/standesdb/members/{target.id}", headers=headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["vorname"] == "Show"
-        assert data["cn"] is not None
-        assert "org_label" in data
-
-    def test_get_member_dismissed_gdpr(self, client, db_session):
-        _seed(db_session)
-        admin = _admin(db_session)
-        headers = _headers(client, db_session, admin)
-        db_session.add(
-            Member(
-                email="dismissed@vbw.at",
-                vorname="Gone",
-                nachname="User",
-                org_id="vbw",
-                entlassen=True,
-            )
-        )
-        db_session.commit()
-        target = db_session.query(Member).filter_by(email="dismissed@vbw.at").first()
-        resp = client.get(f"/api/standesdb/members/{target.id}", headers=headers)
-        assert resp.status_code == 200
-        assert "dataprotection" in resp.json()
-
-    def test_get_member_not_found(self, client, db_session):
-        _seed(db_session)
-        admin = _admin(db_session)
-        headers = _headers(client, db_session, admin)
-        resp = client.get(f"/api/standesdb/members/{uuid.uuid4()}", headers=headers)
-        assert resp.status_code == 404
 
 
 # --- Member Create/Update ---

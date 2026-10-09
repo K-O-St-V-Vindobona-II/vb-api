@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.base import StrictInputModel, UtcDatetime
+from app.schemas.base import IdLabelOption, StrictInputModel, UtcDatetime
 
 PERM_REGEX = re.compile(r"[a-z]{3}_[a-z]{2}")
 # Upper bounds for list inputs: distinct org/state pairs are few, and a move
@@ -89,23 +89,13 @@ class ArchivePermissionsBlock(BaseModel):
     parent: list[str]
 
 
-class ArchiveOrgOption(BaseModel):
-    id: str
-    label: str
-
-
-class ArchiveStateOption(BaseModel):
-    id: str
-    label: str
-
-
 class ArchiveSets(BaseModel):
     """Reference data for the permission editor - empty for a non-admin
     caller on GET /dirs/{id} (see get_dir_detail()), always populated on
     the root listing (GET /dirs)."""
 
-    orgs: list[ArchiveOrgOption]
-    states: list[ArchiveStateOption]
+    orgs: list[IdLabelOption]
+    states: list[IdLabelOption]
 
 
 class ArchiveExtensionStat(BaseModel):

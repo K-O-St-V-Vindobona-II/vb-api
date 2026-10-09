@@ -71,7 +71,7 @@ def test_all_members_without_yes_sends_nothing(answer: str | BaseException) -> N
 def test_to_sends_without_confirmation() -> None:
     send, code = _run(
         ["--date", "2026-07-14", "--send", "--to", "t@v.at"],
-        answer=AssertionError("no prompt"),
+        answer=AssertionError("no question asked"),
     )
     assert code is None
     assert send.call_args.kwargs["bcc_emails"] == ["t@v.at"]

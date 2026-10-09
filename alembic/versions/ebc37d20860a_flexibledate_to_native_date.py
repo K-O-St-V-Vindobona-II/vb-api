@@ -6,7 +6,7 @@ Create Date: 2026-07-22 22:38:25.187095
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -20,8 +20,9 @@ depends_on: str | Sequence[str] | None = None
 
 # (table, column, nullable) for every column previously typed as the
 # now-deleted app.models.types.FlexibleDate (a TypeDecorator whose DB-level
-# impl was plain String/VARCHAR, kept only to parse the legacy SQLite text
-# formats '2006-01-09' and '2006-01-09 00:00:00'). Switched to a native
+# impl was plain String/VARCHAR, kept only to parse the two date-and-time
+# text formats the predecessor system's export used ('2006-01-09' and
+# '2006-01-09 00:00:00'). Switched to a native
 # Postgres DATE column — a pure storage-type tightening, unrelated to the
 # separate *_accuracy "fuzzy date" columns (year/month/day precision),
 # which are untouched by this migration.

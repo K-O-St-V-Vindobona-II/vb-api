@@ -1,11 +1,11 @@
-"""Tests für die Änderungs-Benachrichtigungsmail nach Member/Contact-Save.
+"""Tests for the change-notification email sent after a member/contact save.
 
-Geprüft werden:
-- Member anlegen → Email mit change_type="store" wird getriggert
-- Member bearbeiten mit Änderung → Email mit change_type="update"
-- Member bearbeiten ohne Änderung → KEINE Email
-- Empfänger: nur Members mit passender Permission + nicht-leerer Email
-- Contact anlegen/bearbeiten → Email mit entry_type="contact"
+Covered:
+- Creating a member -> email with change_type="store" is triggered
+- Editing a member with a change -> email with change_type="update"
+- Editing a member without a change -> NO email
+- Recipients: only members with the matching permission and a non-empty email
+- Creating/editing a contact -> email with entry_type="contact"
 """
 
 from datetime import date
@@ -88,7 +88,7 @@ def _member_payload(**overrides):
     return base
 
 
-# ─── Empfänger-Ermittlung ──────────────────────────────
+# ─── Recipient resolution ───────────────────────────────
 
 
 class TestGetEmailsWithPermission:

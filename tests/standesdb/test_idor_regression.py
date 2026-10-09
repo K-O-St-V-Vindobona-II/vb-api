@@ -1,4 +1,4 @@
-"""Regression tests for Slice 6 of the backend remediation plan.
+"""Regression tests for the shared member and contact directory.
 
 vbw and vbn deliberately share one read-only member/contact directory -
 any authenticated member of either org can read the other org's entries.

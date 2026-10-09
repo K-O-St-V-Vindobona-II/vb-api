@@ -4,8 +4,8 @@ Revision ID: bfe999a46f89
 Revises: 2727a9187d6e
 Create Date: 2026-09-02 15:00:00.000000
 
-Own-PK-only Final-Cutover: p4x_accounts completed its Phase A in an
-earlier slice and has no outgoing FK of its own left to cut over. All
+Own-PK-only Final-Cutover: p4x_accounts completed its Phase A in
+e0a57d5a7522 and has no outgoing FK of its own left to cut over. All
 four referrers (p4x_category_filters.p4x_account_id,
 p4x_partners.p4x_account_id, p4x_transactions.p4x_account_id,
 p4x_transactions.delegating_p4x_account_id) already point at id_uuid, so

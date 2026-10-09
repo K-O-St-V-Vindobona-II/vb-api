@@ -25,7 +25,7 @@ writes to.
 
 request_logs.id itself is deliberately untouched here - it's exposed
 via GET /tracking/activity/{log_id} and stays an integer path param;
-converting it is out of this slice's scope.
+converting it is out of this revision's scope.
 """
 
 from typing import Sequence
@@ -147,7 +147,7 @@ def upgrade() -> None:
 
     # 1. Backfill request_logs' two new FK columns via chunked joins,
     #    against the parents' id_uuid columns (both already exist and
-    #    are fully populated from earlier Phase A slices).
+    #    are fully populated by the earlier Phase A revisions).
     op.add_column(TABLE, sa.Column("member_id_uuid", sa.Uuid(), nullable=True))
     _chunked_join_backfill("member_id", "member_id_uuid", "members", "id_uuid")
     op.add_column(

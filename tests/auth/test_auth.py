@@ -57,13 +57,13 @@ def test_login_unknown_email(client, test_user):  # noqa: ARG001
 
 
 def test_verify_password_edge_cases():
-    """Tests the hash verification edge cases including Laravel legacy hashes."""
+    """Tests the hash verification edge cases, including a predecessor-system hash."""
     # 1. Missing hash
     assert verify_password("pass", None) is False
 
-    # 2. Legacy Laravel $2y$ hash (valid hash for the word 'password')
-    legacy_hash = "$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"
-    assert verify_password("password", legacy_hash) is True
+    # 2. A $2y$ hash from the predecessor system (valid hash for the word 'password')
+    predecessor_hash = "$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"
+    assert verify_password("password", predecessor_hash) is True
 
     # 3. Invalid format causing bcrypt exception
     assert verify_password("pass", "invalid_hash_format") is False

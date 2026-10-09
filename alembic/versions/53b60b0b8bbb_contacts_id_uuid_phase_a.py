@@ -5,11 +5,12 @@ Revises: a908d5613d52
 Create Date: 2026-09-01 15:35:00.000000
 
 Phase A (additive prep) of the schema-wide UUID-PK migration for the
-contacts table, the second Layer-0-Parent - same pattern as
+contacts table, a parent table without outgoing foreign keys to other
+tables of the series - same pattern as
 a908d5613d52_members_and_client_user_agents_id_uuid_.py. No API contract
 changes: the old integer `id` stays the primary key, `id_uuid` is purely
 an additive, nullable-then-backfilled column. Final-Cutover follows in
-slice 29, once every referrer table (contacts_logs, p4x_transactions,
+3f82fd850390, once every referrer table (contacts_logs, p4x_transactions,
 p4x_partners, standesdb_images) has cut over onto this column.
 """
 

@@ -10,7 +10,7 @@ an existing FK, but adding a genuinely missing one. Both now reference
 members.id_uuid, not members.id - members itself won't have a UUID
 primary key until its own Final-Cutover.
 
-Data cleanup first: both columns hold 0 as a legacy "no member
+Data cleanup first: both columns hold 0 as a "no member
 attributed" sentinel from the predecessor system (680/700 contacts_logs
 rows, 13446/15750 members_logs rows) - a value that never matches any
 real members.id, which the read side already treats as falsy/absent

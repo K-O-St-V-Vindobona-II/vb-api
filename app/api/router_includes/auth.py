@@ -1,22 +1,22 @@
 from typing import Annotated
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, oauth2_scheme
+from app.api.deps import CurrentUser, oauth2_scheme
 from app.core.arq_pool import get_arq_pool
 from app.core.rate_limit import limiter
 from app.core.security import (
+    REFRESH_COOKIE_NAME,
+    REFRESH_COOKIE_PATH,
     REFRESH_TOKEN_LIFETIME_DAYS,
     build_refresh_cookie_value,
-    parse_refresh_cookie,
 )
 from app.db.database import get_db
-from app.models.member import Member
 from app.schemas.auth import (
     ForgotPasswordRequest,
     GoogleLinkRequest,
@@ -25,12 +25,10 @@ from app.schemas.auth import (
     StatusMessageResponse,
 )
 from app.services import auth_service
-from app.services.auth_service import AccountNotLinkedError, GoogleAuthUnavailableError
 
 auth_router = APIRouter()
 
 COOKIE_MAX_AGE = REFRESH_TOKEN_LIFETIME_DAYS * 86400
-COOKIE_PATH = "/api/auth"
 
 
 def _build_login_response(
@@ -45,12 +43,12 @@ def _build_login_response(
         }
     )
     response.set_cookie(
-        key="refresh_token",
+        key=REFRESH_COOKIE_NAME,
         value=build_refresh_cookie_value(session_id, refresh_secret),
         httponly=True,
         secure=True,
         samesite="lax",
-        path=COOKIE_PATH,
+        path=REFRESH_COOKIE_PATH,
         max_age=COOKIE_MAX_AGE,
     )
     return response
@@ -125,14 +123,7 @@ def reset_password(
 
     Rate limit: 5/min.
     """
-    try:
-        auth_service.execute_password_reset(db, data.email, data.token, data.password)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from None
-
+    auth_service.execute_password_reset(db, data.email, data.token, data.password)
     return StatusMessageResponse(
         status="ok",
         message="Passwort wurde erfolgreich aktualisiert.",
@@ -150,24 +141,7 @@ def login_with_google(
 
     Rate limit: 10/min.
     """
-    try:
-        member = auth_service.authenticate_google_user(db, data.credential)
-    except AccountNotLinkedError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="ACCOUNT_NOT_LINKED",
-        ) from None
-    except GoogleAuthUnavailableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        ) from None
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-        ) from None
-
+    member = auth_service.authenticate_google_user(db, data.credential)
     access_token, session_id, refresh_secret = auth_service.create_user_session(
         db, member
     )
@@ -185,21 +159,9 @@ def link_google_account(
 
     Rate limit: 5/min.
     """
-    try:
-        member = auth_service.link_google_account(
-            db, data.credential, data.email, data.password
-        )
-    except GoogleAuthUnavailableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        ) from None
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-        ) from None
-
+    member = auth_service.link_google_account(
+        db, data.credential, data.email, data.password
+    )
     access_token, session_id, refresh_secret = auth_service.create_user_session(
         db, member
     )
@@ -209,7 +171,7 @@ def link_google_account(
 @auth_router.delete("/google/link")
 def unlink_google_account(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: CurrentUser,
 ) -> StatusMessageResponse:
     """Remove the Google OAuth link from the current user's account."""
     auth_service.unlink_google_account(db, current_user.id)
@@ -225,26 +187,9 @@ def refresh(request: Request, db: Annotated[Session, Depends(get_db)]) -> JSONRe
 
     Rotates the refresh token on each use. Rate limit: 10/min.
     """
-    cookie_value = request.cookies.get("refresh_token")
-    if not cookie_value:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No refresh token",
-        )
-
-    try:
-        session_id, refresh_secret = parse_refresh_cookie(cookie_value)
-        access_token, new_secret = auth_service.refresh_session(
-            db, session_id, refresh_secret
-        )
-    except ValueError:
-        response = JSONResponse(
-            status_code=401,
-            content={"detail": "Session expired or invalid."},
-        )
-        response.delete_cookie("refresh_token", path=COOKIE_PATH)
-        return response
-
+    access_token, session_id, new_secret = auth_service.refresh_from_cookie(
+        db, request.cookies.get(REFRESH_COOKIE_NAME)
+    )
     return _build_login_response(access_token, session_id, new_secret)
 
 
@@ -259,5 +204,5 @@ def logout(
     response = JSONResponse(
         content={"status": "ok", "message": "Erfolgreich abgemeldet."}
     )
-    response.delete_cookie("refresh_token", path=COOKIE_PATH)
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
     return response

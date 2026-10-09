@@ -9,6 +9,10 @@ from sqlalchemy import func
 from app.core.storage import S3_PATH_PUBLIC_GALLERY, StorageClient
 from app.core.upload_images import inspect_upload_image
 from app.models.public_gallery_image import PublicGalleryImage
+from app.schemas.public_gallery import (
+    GalleryImageAdminResponse,
+    GalleryImagePublicResponse,
+)
 from app.services.reorder_service import find_reorder_neighbor
 
 if TYPE_CHECKING:
@@ -55,6 +59,34 @@ def get_presigned_url(img: PublicGalleryImage, storage: StorageClient) -> str:
         expires_in=3600,
         filename=f"vindobona2-galerie-{img.id}.{img.extension}",
         content_type=img.content_type,
+    )
+
+
+def build_admin_response(
+    img: PublicGalleryImage, storage: StorageClient
+) -> GalleryImageAdminResponse:
+    return GalleryImageAdminResponse(
+        id=img.id,
+        url=get_presigned_url(img, storage),
+        caption=img.caption,
+        sort_order=img.sort_order,
+        is_published=img.is_published,
+        width=img.width,
+        height=img.height,
+        size=img.size,
+        created_at=img.created_at,
+    )
+
+
+def build_public_response(
+    img: PublicGalleryImage, storage: StorageClient
+) -> GalleryImagePublicResponse:
+    return GalleryImagePublicResponse(
+        id=img.id,
+        url=get_presigned_url(img, storage),
+        caption=img.caption,
+        width=img.width,
+        height=img.height,
     )
 
 

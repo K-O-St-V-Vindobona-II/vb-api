@@ -1,9 +1,8 @@
-"""Regression tests for Slice 5 of the backend remediation plan: several
-p4x service flows used to commit multiple times mid-flow instead of once
-at the end. Each test forces a failure in the second half of the flow and
-verifies that a subsequent rollback() discards ALL of it - proving the
-flow is now a single atomic transaction instead of partially persisting
-work before the failure.
+"""Regression tests: several p4x service flows used to commit multiple
+times mid-flow instead of once at the end. Each test forces a failure in
+the second half of the flow and verifies that a subsequent rollback()
+discards ALL of it - proving the flow is now a single atomic transaction
+instead of partially persisting work before the failure.
 """
 
 import json

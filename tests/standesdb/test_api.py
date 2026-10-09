@@ -190,7 +190,9 @@ def test_get_member_active(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["cn"] == "Detail Test v/o Detl"
+    assert data["vorname"] == "Detail"
     assert data["org_id"] == "vbw"
+    assert "org_label" in data
     assert "roles_history" in data
     assert "tree" in data
 

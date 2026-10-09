@@ -20,7 +20,7 @@ Both checks of existing data run first: when one fails, nothing is changed and
 no lock is taken.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

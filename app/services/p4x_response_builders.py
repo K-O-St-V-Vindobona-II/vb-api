@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
@@ -17,16 +18,29 @@ from app.schemas.p4x import (
     CategoryFilterResponse,
     CategoryFilterShortResponse,
     CategoryWithUsageResponse,
+    FeeBalanceCount,
+    FeeBalanceResponse,
+    FeeBalanceSum,
+    FeeMemberResponse,
+    FeeProgressEntry,
+    FeeResponse,
     PartnerRef,
     TransactionResponse,
 )
-from app.services import p4x_account_service, p4x_category_service, p4x_partner_service
+from app.services import (
+    p4x_account_service,
+    p4x_category_service,
+    p4x_fee_balance_service,
+    p4x_partner_service,
+)
 
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
     from sqlalchemy.orm import Session
+
+    from app.models.p4x_fee import P4xFee
 
 
 def _filter_hit_counts(db: Session, filter_ids: set[uuid.UUID]) -> dict[uuid.UUID, int]:
@@ -304,6 +318,14 @@ def get_category_or_404(
     return cat
 
 
+def build_refreshed_transaction_response(
+    db: Session, tx: P4xTransaction
+) -> TransactionResponse:
+    """Reload a transaction that a service just changed and build its response."""
+    db.refresh(tx)
+    return build_transaction_response(tx, db)
+
+
 def update_transaction_and_build_response(
     db: Session,
     tx: P4xTransaction,
@@ -315,5 +337,68 @@ def update_transaction_and_build_response(
     p4x_partner_service.update_transaction_meta(
         db, tx, comment, file_bytes, delete_attachment
     )
-    db.refresh(tx)
-    return build_transaction_response(tx, db)
+    return build_refreshed_transaction_response(db, tx)
+
+
+def build_fee_response(fee: P4xFee) -> FeeResponse:
+    return FeeResponse(
+        start=str(fee.start.replace(day=1)),
+        fee=fee.fee,
+        protected=bool(fee.protected),
+    )
+
+
+def build_fee_member_response(
+    db: Session,
+    member: Member,
+) -> FeeMemberResponse:
+    balance_data = p4x_fee_balance_service.calculate_fee_balance(db, member)
+
+    balance = None
+    if balance_data:
+        balance = FeeBalanceResponse(
+            start_date=balance_data["start_date"],
+            start_balance=balance_data["start_balance"],
+            count=FeeBalanceCount(
+                fees=balance_data["count"]["fees"],
+                payments=balance_data["count"]["payments"],
+            ),
+            sum=FeeBalanceSum(
+                fees=balance_data["sum"]["fees"],
+                payments=balance_data["sum"]["payments"],
+            ),
+            end_date=balance_data["end_date"],
+            end_balance=balance_data["end_balance"],
+            progress=[
+                FeeProgressEntry(
+                    type=str(p["type"]),
+                    booking=str(p["booking"]),
+                    amount=Decimal(str(p["amount"])),
+                    balance=Decimal(str(p["balance"])),
+                )
+                for p in balance_data["progress"]
+            ],
+        )
+
+    init_date_raw = member.p4x_init_date or member.philistrierungsdatum
+    init_date_str: str | None = None
+    if init_date_raw:
+        init_date_str = str(init_date_raw.replace(day=1))
+
+    return FeeMemberResponse(
+        id=member.id,
+        cn=member.cn,
+        p4x_init_date=init_date_str,
+        p4x_init_balance=member.p4x_init_balance,
+        p4x_freed=bool(member.p4x_freed),
+        p4x_comment=member.p4x_comment,
+        balance=balance,
+    )
+
+
+def build_refreshed_fee_member_response(
+    db: Session, member: Member
+) -> FeeMemberResponse:
+    """Reload a member that a service just changed and build its fee response."""
+    db.refresh(member)
+    return build_fee_member_response(db, member)

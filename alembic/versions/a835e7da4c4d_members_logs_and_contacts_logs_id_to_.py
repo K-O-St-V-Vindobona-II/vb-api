@@ -15,7 +15,7 @@ split, one migration per table is enough.
 """
 
 import uuid
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

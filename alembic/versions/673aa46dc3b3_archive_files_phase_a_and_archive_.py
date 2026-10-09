@@ -4,10 +4,10 @@ Revision ID: 673aa46dc3b3
 Revises: 191cba0a57bd
 Create Date: 2026-09-01 19:00:00.000000
 
-Slices 15+16 bundled - same archive domain, same additive/join-backfill
-pattern as every prior slice in this series.
+Two parts bundled - same archive domain, same additive/join-backfill
+pattern as every other revision of this series.
 
-archive_files (its own Final-Cutover follows in a later slice, once every
+archive_files (its own Final-Cutover follows in 115c679b7348, once every
 other referrer of its own future id has been considered):
 1. Phase A on its own primary key - additive id_uuid, set-based backfill,
    unique index. The self-referencing-style

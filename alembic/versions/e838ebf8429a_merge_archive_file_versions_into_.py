@@ -6,7 +6,7 @@ Create Date: 2026-08-01 21:53:18.983820
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -23,11 +23,13 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.execute("SET LOCAL lock_timeout = '5s'")
 
-    # File versioning was removed as a feature during the SQLite->Postgres
+    # File versioning was removed as a feature during the predecessor
+    # system's move to Postgres
     # migration: upload_file() is the only creator of ArchiveFile rows and
     # always creates exactly one ArchiveFile + one ArchiveFileVersion + one
     # ArchiveStoreItem atomically. Of 27,927 files, only 1 ever had more than
-    # one version (a legacy artifact). archive_file_versions now only adds
+    # one version (a row from before this table enforced one version per
+    # file). archive_file_versions now only adds
     # indirection for a 1:1 relationship - replaced with a direct FK.
     op.add_column(
         "archive_files",
@@ -42,7 +44,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
     )
 
-    # Per file: prefer the active version, else (legacy data missing the
+    # Per file: prefer the active version, else (older rows missing the
     # active flag) the lowest id - mirrors archive_service._active_store_item()'s
     # fallback exactly, but deterministically.
     op.execute(

@@ -47,8 +47,8 @@ podman exec vb-api python scripts/check_s3_integrity.py
 
 CLI wrapper around `backup_service.run_backup()` to manually trigger a
 PostgreSQL backup to S3 — the same operation the scheduled `db_backup` job
-(see `app/core/scheduler.py`) runs automatically every `BACKUP_INTERVAL_DAYS`
-days. Useful before risky operations (e.g. a cutover or a restore rehearsal)
+(see `app/core/scheduler.py`) runs automatically once a day at `BACKUP_HOUR`
+(production only). Useful before risky operations (e.g. a cutover or a restore rehearsal)
 where you want an on-demand, up-to-date backup rather than waiting for the
 next scheduled run. Retention cleanup (deleting backups older than
 `BACKUP_RETENTION_DAYS`) is opt-in via `--cleanup`, so a manual backup never
@@ -104,7 +104,7 @@ podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [-
 Self-contained, two-step downsync onto the local non-prod stage — no
 delegation to another script. Step 1 mirrors the **entire** production
 `vindobona2-at` AWS S3 bucket into local Garage: an exact 1:1 clone, since
-source and dest already share the same key structure (no legacy prefix
+source and dest already share the same key structure (no key
 remapping needed, unlike the retired `downsync_from_prod_aws.py`). Objects
 that exist locally but not in the prod source are deleted (mirror mode)
 unless `--no-delete` is passed. Step 2 restores the local PostgreSQL
@@ -118,7 +118,7 @@ it only ever reads local storage, which is why step 1 must run before step
 two operations that are each individually destructive against whichever
 stage they target. Asks for an interactive "yes" confirmation before doing
 anything, unless `--yes` is passed. `podman exec` without `-it` has no TTY
-attached, so the prompt has no stdin to read from — it now fails fast with
+attached, so the confirmation question has no stdin to read from - it now fails fast with
 a clear error telling you to add `-it` or pass `--yes`, instead of hanging.
 
 Must run **inside the container** — `pg_restore` and `alembic` are only
@@ -134,13 +134,13 @@ python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
 # Via podman exec - no TTY attached by default, so pick one:
-podman exec -it vb-api python scripts/downsync_prod.py   # interactive prompt
+podman exec -it vb-api python scripts/downsync_prod.py   # interactive confirmation
 podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
 ```
 
 **Parameters:**
 - `--dry-run` — S3 step: print what would be copied/deleted without performing the sync. DB step: only print the backup that's currently newest in local Garage (i.e. what a real run would restore), without downloading/restoring it.
-- `--yes` — skip the interactive confirmation prompt.
+- `--yes` - skip the interactive confirmation.
 - `--skip-db` — skip the DB restore step entirely.
 - `--skip-s3` — skip the S3 mirror step entirely (prod AWS credentials are then not loaded at all, since the DB step only needs local storage).
 - `--no-delete` — S3 step only: sync new/changed files but do not delete local orphans.
@@ -177,7 +177,7 @@ recent to touch.
 
 `archive_store_item_id` is not unique on `ArchiveFile` — several files
 (active and/or soft-deleted) can reference the same underlying S3 object
-(content dedup inherited from the legacy migration). Every listing therefore
+(content dedup inherited from the original data migration). Every listing therefore
 classifies each file's **S3 impact**:
 - **duplicate** — an active file still references the same content; purging
   this file never touches S3.
@@ -189,12 +189,12 @@ classifies each file's **S3 impact**:
 
 **`purge <id>`** — **destructive, S3-relevant.** First re-checks that the
 given id is currently soft-deleted (i.e. actually purgeable — rejected
-otherwise, before any prompt is shown, nothing deleted). Only after that
+otherwise, before any question is asked, nothing deleted). Only after that
 check passes does it ask for interactive confirmation (with an
 impact-specific note or warning, depending on the category above, and the
-confirmation prompt itself states whether this purge affects "DB only" or
+confirmation question itself states whether this purge affects "DB only" or
 "DB AND S3"); there is no flag to skip it. `podman exec` without `-it` has
-no TTY for that prompt — it fails fast with a clear error pointing to `-it`
+no TTY for that question - it fails fast with a clear error pointing to `-it`
 instead of hanging (same for `purge-duplicates`'s batch confirmation below,
 both share the same confirmation helper). The database row is then
 hard-deleted first (cascading its comments) and committed — only *after*
@@ -224,7 +224,7 @@ deleting S3 data. Any remaining `shared`/`sole` files in that directory
 automatically.
 
 **`restore <file_id>`** — reversible, non-destructive. Clears `deleted_at`,
-undoing a soft-delete. Runs **immediately, without a confirmation prompt** —
+undoing a soft-delete. Runs **immediately, without a confirmation question** -
 unlike purge, restoring is safe and trivially undoable again via the GUI.
 Errors (id not found, or not currently soft-deleted) go to stderr with exit
 code 1.
@@ -289,6 +289,35 @@ podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 
 
 ---
 
+## `trigger_chronicles.py`
+
+CLI wrapper to manually trigger a chronicle-mail run for an arbitrary
+reference date, for end-to-end validation in test/dev before trusting the
+real weekly Tuesday job. Safe by default: without `--send` only a dry-run
+summary (recipient count and entries per organization/status/field) is
+printed and no SMTP connection is made.
+
+**Usage:**
+```bash
+# Inside the container
+python scripts/trigger_chronicles.py [--date YYYY-MM-DD] [--send (--to ADDRESS | --all-members)]
+
+# Via podman exec
+podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31
+podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --to test@example.org
+podman exec -it vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --all-members
+```
+
+**Parameters:**
+- `--date` - reference date (YYYY-MM-DD) the anniversary week is computed from; defaults to today in the configured timezone.
+- `--send` - actually deliver the mail via SMTP. Requires either `--to` or `--all-members`.
+- `--to ADDRESS` - send only to this single test address (recommended in shared test/dev environments).
+- `--all-members` - with `--send`: send to **every opted-in member**. **Real recipients:** this asks for a typed `yes` that names the stage and the recipient count, and needs a terminal (`podman exec -it`), otherwise it aborts.
+
+**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), `APP_ENVIRONMENT` (shown in the confirmation), and the `SMTP_*` vars used by the mailer when `--send` is passed.
+
+---
+
 # Scripts (Deutsch)
 
 Betriebs-Scripts für das Backend. Alle Scripts werden manuell ausgeführt
@@ -339,8 +368,8 @@ podman exec vb-api python scripts/check_s3_integrity.py
 
 CLI-Wrapper um `backup_service.run_backup()`, um manuell ein PostgreSQL-
 Backup nach S3 anzustoßen — dieselbe Operation, die der geplante
-`db_backup`-Job (siehe `app/core/scheduler.py`) automatisch alle
-`BACKUP_INTERVAL_DAYS` Tage ausführt. Nützlich vor riskanten Operationen
+`db_backup`-Job (siehe `app/core/scheduler.py`) automatisch einmal täglich um
+`BACKUP_HOUR` ausführt (nur in Produktion). Nützlich vor riskanten Operationen
 (z. B. einem Cutover oder einer Restore-Generalprobe), wenn man ein
 aktuelles Backup auf Abruf braucht, statt auf den nächsten geplanten Lauf zu
 warten. Die Retention-Bereinigung (Löschen von Backups älter als
@@ -400,7 +429,7 @@ Autarker, zweistufiger Downsync auf die lokale Non-Prod-Stage — keine
 Delegation an ein anderes Skript. Schritt 1 spiegelt den **kompletten**
 produktiven AWS-S3-Bucket `vindobona2-at` 1:1 in den lokalen Garage-Storage: ein
 exakter Klon, da Quelle und Ziel bereits dieselbe Key-Struktur nutzen (kein
-Legacy-Prefix-Remapping mehr nötig, anders als beim entfernten
+Key-Remapping mehr nötig, anders als beim entfernten
 `downsync_from_prod_aws.py`). Objekte, die lokal existieren, aber nicht in
 der Prod-Quelle, werden gelöscht (Mirror-Modus), außer `--no-delete` wird
 übergeben. Schritt 2 stellt die lokale PostgreSQL-Datenbank aus dem jetzt
@@ -476,7 +505,7 @@ anzufassen.
 
 `archive_store_item_id` ist auf `ArchiveFile` nicht eindeutig — mehrere
 Dateien (aktiv und/oder soft-gelöscht) können dasselbe S3-Objekt
-referenzieren (Content-Dedup, ein Erbe der Legacy-Migration). Jede Auflistung
+referenzieren (Content-Dedup, ein Erbe der ursprünglichen Datenübernahme). Jede Auflistung
 klassifiziert deshalb die **S3-Auswirkung** pro Datei:
 - **duplicate** — mindestens eine aktive Datei referenziert denselben Inhalt
   noch; das Purgen dieser Datei berührt S3 nie.
@@ -531,7 +560,7 @@ bearbeitet.
 
 **`restore <file_id>`** — reversibel, nicht-destruktiv. Setzt `deleted_at`
 zurück, macht ein Soft-Delete rückgängig. Läuft **sofort, ohne
-Bestätigungs-Prompt** — anders als Purge ist Restore ungefährlich und
+Bestätigungsabfrage** - anders als Purge ist Restore ungefährlich und
 jederzeit über die GUI wieder rückgängig zu machen. Fehler (ID nicht
 gefunden, oder nicht aktuell soft-gelöscht) gehen auf stderr, Exit-Code 1.
 
@@ -594,3 +623,33 @@ podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 
 - `urlpath <id>` — rein lesend, siehe oben.
 
 **Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars.
+
+---
+
+## `trigger_chronicles.py`
+
+CLI-Wrapper, um einen Chronik-Mail-Lauf manuell für ein beliebiges
+Referenzdatum anzustoßen - zur Ende-zu-Ende-Prüfung in Test/Dev, bevor man
+dem echten wöchentlichen Dienstags-Job vertraut. Standardmäßig ungefährlich:
+ohne `--send` wird nur eine Trockenlauf-Zusammenfassung (Empfängeranzahl und
+Einträge je Organisation/Status/Feld) ausgegeben, es wird keine SMTP-Verbindung
+aufgebaut.
+
+**Aufruf:**
+```bash
+# Im Container
+python scripts/trigger_chronicles.py [--date JJJJ-MM-TT] [--send (--to ADRESSE | --all-members)]
+
+# Via podman exec
+podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31
+podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --to test@example.org
+podman exec -it vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --all-members
+```
+
+**Parameter:**
+- `--date` - Referenzdatum (JJJJ-MM-TT), aus dem die Jubiläumswoche berechnet wird; Standard ist heute in der konfigurierten Zeitzone.
+- `--send` - die Mail tatsächlich per SMTP versenden. Erfordert entweder `--to` oder `--all-members`.
+- `--to ADRESSE` - nur an diese einzelne Testadresse senden (in gemeinsam genutzten Test-/Dev-Umgebungen empfohlen).
+- `--all-members` - mit `--send`: an **jedes Mitglied mit Zustimmung** senden. **Echte Empfänger:** verlangt ein getipptes `yes`, das Stage und Empfängeranzahl nennt, und braucht ein Terminal (`podman exec -it`), sonst bricht das Skript ab.
+
+**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), `APP_ENVIRONMENT` (wird in der Bestätigung angezeigt) sowie die `SMTP_*`-Vars des Mailers, wenn `--send` übergeben wird.

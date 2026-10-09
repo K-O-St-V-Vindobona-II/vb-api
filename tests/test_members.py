@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from app.core.config import get_settings
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -159,6 +160,30 @@ class TestReadCurrentUserIsFeeMember:
 
         assert resp.status_code == 200
         assert resp.json()["is_fee_member"] is False
+
+
+class TestReadCurrentUserIdleTimeout:
+    def test_reports_the_idle_timeout_the_server_enforces(self, client, db_session):
+        db_session.add(State(id="up", label="UP", order=1))
+        db_session.commit()
+        member = Member(
+            email="idle-timeout@vindobona.at",
+            org_id="vbw",
+            state_id="up",
+            auth_locked=False,
+        )
+        db_session.add(member)
+        db_session.commit()
+        token, _, _ = create_user_session(db_session, member)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.get("/api/members/me", headers=headers)
+
+        assert resp.status_code == 200
+        assert (
+            resp.json()["session_idle_timeout"]
+            == get_settings().session_idle_timeout_minutes
+        )
 
 
 class TestMemberIdUuidDefault:

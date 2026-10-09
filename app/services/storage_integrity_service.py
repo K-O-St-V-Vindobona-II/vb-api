@@ -30,8 +30,8 @@ class IntegrityReport:
     soft-deleted).
     """
 
-    missing: list[str] = field(default_factory=list)
-    orphans: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list[str])
+    orphans: list[str] = field(default_factory=list[str])
 
     @property
     def is_healthy(self) -> bool:

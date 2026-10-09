@@ -182,7 +182,7 @@ def filter_contacts(
 ) -> list[Contact]:
     orgs = db.query(Org).all()
 
-    conditions = []
+    conditions: list[ColumnElement[bool]] = []
     for org in orgs:
         key = f"{org.id}_contacts"
         if filter_data.get(key):
@@ -206,11 +206,20 @@ def filter_contacts(
     return query.order_by(Contact.name).all()
 
 
+def _render_pdf(html_content: str) -> bytes:
+    # WeasyPrint declares most write_pdf parameters without a type.
+    pdf_bytes = HTML(string=html_content).write_pdf()  # pyright: ignore[reportUnknownMemberType]
+    if pdf_bytes is None:
+        msg = "PDF generation returned no data."
+        raise RuntimeError(msg)
+    return pdf_bytes
+
+
 def generate_mailing_list(
     members: list[Member],
     contacts: list[Contact],
 ) -> bytes:
-    entries = []
+    entries: list[str] = []
     for m in members:
         email = (m.email or "").strip()
         if email:
@@ -650,11 +659,7 @@ def generate_labels(
 
     template = _jinja_env.get_template("labels.html")
     html_content = template.render(pages=pages)
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    if pdf_bytes is None:
-        msg = "PDF generation returned no data."
-        raise RuntimeError(msg)
-    return pdf_bytes
+    return _render_pdf(html_content)
 
 
 def generate_booklet(
@@ -681,8 +686,4 @@ def generate_booklet(
         members=member_data,
         contacts=contact_data,
     )
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    if pdf_bytes is None:
-        msg = "PDF generation returned no data."
-        raise RuntimeError(msg)
-    return pdf_bytes
+    return _render_pdf(html_content)

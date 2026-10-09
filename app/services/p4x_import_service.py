@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -44,7 +44,9 @@ class ParsedTransactionEntry(TypedDict):
 class ParseResult:
     success: bool
     message: str
-    entries: list[ParsedTransactionEntry] = field(default_factory=list)
+    entries: list[ParsedTransactionEntry] = field(
+        default_factory=list[ParsedTransactionEntry]
+    )
 
 
 class _CorruptEntryError(ValueError):
@@ -57,14 +59,19 @@ _MAX_PRECISION = 9
 _MAX_ABSOLUTE_AMOUNT = Decimal(10) ** 10
 
 
+def _child(node: object, key: str, path: tuple[str, ...]) -> object:
+    """Value of `key` inside `node`, or a corrupt-entry error naming `path`."""
+    if not isinstance(node, dict) or key not in node:
+        msg = f"missing field: {'.'.join(path)}"
+        raise _CorruptEntryError(msg)
+    return cast("dict[str, object]", node)[key]
+
+
 def _field(struct: dict[str, object], *path: str) -> object:
     """Value at `path` inside one entry, or a corrupt-entry error naming it."""
     node: object = struct
     for key in path:
-        if not isinstance(node, dict) or key not in node:
-            msg = f"missing field: {'.'.join(path)}"
-            raise _CorruptEntryError(msg)
-        node = node[key]
+        node = _child(node, key, path)
     return node
 
 
@@ -114,18 +121,19 @@ def _parse_entry(struct: object) -> ParsedTransactionEntry:
     if not isinstance(struct, dict):
         msg = "entry is not an object"
         raise _CorruptEntryError(msg)
+    entry = cast("dict[str, object]", struct)
 
-    booking = _booking_date(struct, "booking")
-    valuation = _booking_date(struct, "valuation")
-    if not isinstance(_field(struct, "partnerAccount"), dict):
+    booking = _booking_date(entry, "booking")
+    valuation = _booking_date(entry, "valuation")
+    if not isinstance(_field(entry, "partnerAccount"), dict):
         # The bank sends null for entries without a counter account (cash).
-        struct["partnerAccount"] = {"iban": ""}
-    iban = str(_field(struct, "partnerAccount", "iban")).strip()
-    _field(struct, "amount")
+        entry["partnerAccount"] = {"iban": ""}
+    iban = str(_field(entry, "partnerAccount", "iban")).strip()
+    _field(entry, "amount")
     amount = _parse_amount(
-        _field(struct, "amount", "value"), _field(struct, "amount", "precision")
+        _field(entry, "amount", "value"), _field(entry, "amount", "precision")
     )
-    if "reference" not in struct and "receiverReference" not in struct:
+    if "reference" not in entry and "receiverReference" not in entry:
         msg = "missing field: reference or receiverReference"
         raise _CorruptEntryError(msg)
 
@@ -135,9 +143,9 @@ def _parse_entry(struct: object) -> ParsedTransactionEntry:
             "valuation": valuation,
             "iban": iban,
             "amount": f"{amount:.2f}",
-            "subject": _subject(struct),
+            "subject": _subject(entry),
         },
-        "raw": json.dumps(struct),
+        "raw": json.dumps(entry),
     }
 
 
@@ -156,7 +164,7 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:
         return ParseResult(success=False, message="failed to parse given raw json data")
 
     try:
-        entries = [_parse_entry(struct) for struct in data]
+        entries = [_parse_entry(struct) for struct in cast("list[object]", data)]
     except _CorruptEntryError as exc:
         return ParseResult(
             success=False,
@@ -171,15 +179,16 @@ def _parse_date_string(date_str: str) -> date:
 
 
 # ---------------------------------------------------------------------------
-# SHA256 hash (must match PHP Carbon toJSON + json_encode behavior)
+# SHA256 hash of a transaction. The format must not change: the stored hashes
+# were computed over exactly this text.
 # ---------------------------------------------------------------------------
 
 
 def _date_to_carbon_json(booking_date: date, original_date_str: str) -> str:
-    """Convert a date to Carbon 3's toJSON() UTC format.
+    """Format a booking date as the UTC timestamp the stored hashes use.
 
-    Carbon::parse() preserves the original timezone, then toJSON() converts to
-    UTC and formats as 'YYYY-MM-DDTHH:MM:SS.000000Z'.
+    The original UTC offset of the bank's text is applied first, then the time
+    is converted to UTC and written as 'YYYY-MM-DDTHH:MM:SS.000000Z'.
     """
     m = re.match(
         r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?([+-])(\d{2})(\d{2})",
@@ -197,8 +206,10 @@ def _date_to_carbon_json(booking_date: date, original_date_str: str) -> str:
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%S") + ".000000Z"
 
 
-def _php_json_encode(obj: list[str]) -> str:
-    """Replicate PHP's default json_encode behavior."""
+def _json_encode_escaping_slashes(obj: list[str]) -> str:
+    """Encode as compact ASCII JSON with escaped slashes.
+
+    That is the exact text the stored hashes were computed over."""
     s = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
     return s.replace("/", "\\/")
 
@@ -210,7 +221,7 @@ def compute_transaction_hash(
     amount_str: str,
     subject: str,
 ) -> str:
-    payload = _php_json_encode(
+    payload = _json_encode_escaping_slashes(
         [
             booking_carbon_json,
             valuation_carbon_json,

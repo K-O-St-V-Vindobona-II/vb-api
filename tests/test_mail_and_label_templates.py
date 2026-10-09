@@ -1,5 +1,6 @@
 """Reset link encoding, capped member-image report and label layout."""
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -95,6 +96,13 @@ class TestResetMail:
 
         assert "email=max%2Bverein%40x.at" in text
         assert "token=tok" in text
+
+    def test_the_footer_shows_the_current_year(self):
+        with patch("app.core.mailer.local_today", return_value=date(2031, 5, 1)):
+            message, _logged = self._sent("max@x.at", "tok")
+        html = message.get_payload()[1].get_payload(decode=True).decode()
+
+        assert "&copy; 2031 Vindobona" in html
 
     def test_the_stored_copy_keeps_the_placeholder_and_the_encoded_address(self):
         _message, logged = self._sent("max+verein@x.at", "secret-token")

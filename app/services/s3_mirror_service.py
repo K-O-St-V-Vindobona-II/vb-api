@@ -1,8 +1,7 @@
 """Generic prefix mirror between two S3-compatible buckets that share the
-same key structure — used by scripts/downsync_prod.py to clone the
-production AWS bucket into local Garage. Unlike the retired
-downsync_from_prod_aws.py, no key remapping is needed here: source and
-dest are expected to organize objects identically, so this is a plain
+same key structure, used by scripts/downsync_prod.py to clone the production
+AWS bucket into local Garage. Source and destination organize objects
+identically, so no key remapping is needed: this is a plain
 list-diff-copy-delete mirror.
 """
 
@@ -24,10 +23,10 @@ class MirrorResult:
     """Outcome of mirroring one prefix (or the whole bucket) from source
     into dest."""
 
-    synced: list[str] = field(default_factory=list)
+    synced: list[str] = field(default_factory=list[str])
     skipped: int = 0
-    deleted: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list[str])
+    errors: list[str] = field(default_factory=list[str])
 
     @property
     def has_errors(self) -> bool:

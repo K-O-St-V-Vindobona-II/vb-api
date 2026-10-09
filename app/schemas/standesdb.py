@@ -471,9 +471,11 @@ class MemberSaveRequest(TrimmedInputModel):
     chroniclemail: bool = False
     auth_locked: bool = True
 
-    roles_history: list[RoleHistoryEntry] = Field(default_factory=list)
-    badges: list[BadgeEntry] = Field(default_factory=list)
-    keys: list[KeyEntry] = Field(default_factory=list)
+    roles_history: list[RoleHistoryEntry] = Field(
+        default_factory=list[RoleHistoryEntry]
+    )
+    badges: list[BadgeEntry] = Field(default_factory=list[BadgeEntry])
+    keys: list[KeyEntry] = Field(default_factory=list[KeyEntry])
 
     @field_validator("vortitel", "nachtitel")
     @classmethod

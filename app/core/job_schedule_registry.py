@@ -179,7 +179,7 @@ def _describe_trigger(entry: JobScheduleEntry) -> str:
     for continuity with the trigger strings this endpoint returned before
     this migration. Nothing parses this format; the frontend just
     displays it as opaque text."""
-    parts = []
+    parts: list[str] = []
     if entry.day is not None:
         parts.append(f"day='{entry.day}'")
     if entry.weekday is not None:
@@ -199,7 +199,7 @@ def applicable_entries(
     web container (introspection only) must apply identically.
     """
     is_production = app_environment == "production"
-    result = []
+    result: list[JobScheduleEntry] = []
     for entry in JOB_REGISTRY:
         if entry.scope == "production_only" and not is_production:
             continue

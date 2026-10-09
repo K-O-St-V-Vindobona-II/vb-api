@@ -1,5 +1,7 @@
 """Pure unit tests for Pydantic validators in app/schemas/standesdb.py."""
 
+from datetime import date, datetime
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -642,3 +644,15 @@ class TestBlankAndTrimmedValues:
     def test_trimming_applies_before_the_length_check(self) -> None:
         member = MemberSaveRequest(**_valid_member_data(vortitel=" " + "A" * 32 + " "))
         assert member.vortitel == "A" * 32
+
+
+class TestSelfServiceFieldsAreJsonNative:
+    """Proposed changes are stored as JSONB without conversion, so no
+    self-service field may be a date or datetime."""
+
+    def test_no_field_holds_a_date(self):
+        dumped = MemberSelfServiceSaveRequest(**_valid_self_service_data()).model_dump(
+            mode="python"
+        )
+
+        assert all(not isinstance(value, date | datetime) for value in dumped.values())

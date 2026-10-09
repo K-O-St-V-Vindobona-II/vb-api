@@ -4,11 +4,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.auth_guards import require_permission
+from app.api.auth_guards import RequirePublicContentEditor
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
-from app.models.member import Member
-from app.models.public_gallery_image import PublicGalleryImage
 from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_gallery import (
     GalleryImageAdminResponse,
@@ -21,27 +19,6 @@ from app.services import public_gallery_service
 # (see public_site.py for the unauthenticated counterpart).
 public_gallery_admin_router = APIRouter()
 
-RequirePublicContentEditor = Annotated[
-    Member, Depends(require_permission("publicContentEditor"))
-]
-
-
-def _to_admin_response(
-    img: PublicGalleryImage,
-    storage: StorageClient,
-) -> GalleryImageAdminResponse:
-    return GalleryImageAdminResponse(
-        id=img.id,
-        url=public_gallery_service.get_presigned_url(img, storage),
-        caption=img.caption,
-        sort_order=img.sort_order,
-        is_published=img.is_published,
-        width=img.width,
-        height=img.height,
-        size=img.size,
-        created_at=img.created_at,
-    )
-
 
 @public_gallery_admin_router.get("/images")
 def list_images(
@@ -51,7 +28,7 @@ def list_images(
 ) -> list[GalleryImageAdminResponse]:
     """List all gallery images (published and unpublished), in display order."""
     images = public_gallery_service.list_admin_images(db)
-    return [_to_admin_response(img, storage) for img in images]
+    return [public_gallery_service.build_admin_response(img, storage) for img in images]
 
 
 @public_gallery_admin_router.post("/images", status_code=status.HTTP_201_CREATED)
@@ -66,7 +43,7 @@ def upload_image(
     img = public_gallery_service.upload_image(
         db, file, caption, current_user.id, storage
     )
-    return _to_admin_response(img, storage)
+    return public_gallery_service.build_admin_response(img, storage)
 
 
 @public_gallery_admin_router.put("/images/{image_id}")
@@ -80,7 +57,7 @@ def update_image(
     """Update a gallery image's caption or publish state."""
     img = public_gallery_service.get_image_or_404(db, image_id)
     public_gallery_service.update_image(db, img, data.caption, data.is_published)
-    return _to_admin_response(img, storage)
+    return public_gallery_service.build_admin_response(img, storage)
 
 
 @public_gallery_admin_router.post("/images/{image_id}/move")

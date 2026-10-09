@@ -21,7 +21,7 @@ files are scattered across many directories.
 
 `archive_store_item_id` is not unique on `ArchiveFile` — several files
 (active and/or soft-deleted) can reference the same underlying S3 object
-(content dedup inherited from the legacy migration). Every listing therefore
+(content dedup inherited from the original data migration). Every listing therefore
 also classifies each file's S3 impact:
   - duplicate: an active file still references the same content — purging
     this file never touches S3.
@@ -34,9 +34,9 @@ also classifies each file's S3 impact:
 `purge <file_id>` is DESTRUCTIVE and S3-relevant. The given file id (a UUID)
 must currently be soft-deleted (i.e. actually purgeable — appear in `list`) —
 anything else is
-rejected before any prompt is shown, and nothing is deleted. Only after that
+rejected before any question is shown, and nothing is deleted. Only after that
 check passes does the script ask for interactive confirmation; there is no
-flag to skip it. The confirmation prompt itself states whether this
+flag to skip it. The confirmation question itself states whether this
 particular purge affects "DB only" or "DB AND S3" — the underlying S3
 object (and any cached thumbnails) is only removed once no other file
 version anywhere still references the same content hash — see
@@ -59,7 +59,7 @@ processed automatically; use `purge <id>` for those individually.
 deleted_at, undoing a soft-delete. Non-destructive and reversible (the file
 can simply be soft-deleted again via the GUI), so — unlike
 `purge`/`purge-duplicates` — it runs immediately without a confirmation
-prompt. Only SOLE files (see the IMPACT column in `list` — no other active
+question. Only SOLE files (see the IMPACT column in `list` — no other active
 or soft-deleted file references the same content) may be restored this way;
 anything else is rejected. Takes any number of ids and works through them
 one after another: an id that can't be restored (not found, not
@@ -262,9 +262,9 @@ def _print_impact_note(candidate: PurgeCandidate) -> None:
         )
 
 
-def _ask_yes(prompt: str) -> bool:
+def _ask_yes(question: str) -> bool:
     try:
-        answer = input(prompt)
+        answer = input(question)
     except EOFError:
         print(
             "ERROR: no interactive terminal attached to confirm "
@@ -281,11 +281,11 @@ def _confirm(candidate: PurgeCandidate) -> None:
         if candidate.impact is PurgeImpact.SOLE
         else "DB only (S3 object stays)"
     )
-    prompt = (
+    question = (
         f'Type "yes" to permanently delete file {candidate.file_id} '
         f'("{candidate.filename}" in "{candidate.path}") from {scope}: '
     )
-    if not _ask_yes(prompt):
+    if not _ask_yes(question):
         print("Aborted.")
         sys.exit(0)
 
@@ -335,12 +335,12 @@ def _purge_duplicates_batch(
     Returns (purged_count, skipped_count, had_error).
     """
     total_size = sum(c.size for c in duplicates)
-    prompt = (
+    question = (
         f'Type "yes" to permanently delete these {len(duplicates)} '
         f"duplicate file(s) ({_human_size(total_size)}) from DB — S3 "
         "objects are not affected: "
     )
-    if not _ask_yes(prompt):
+    if not _ask_yes(question):
         print("Duplicate batch skipped.")
         return 0, 0, False
 

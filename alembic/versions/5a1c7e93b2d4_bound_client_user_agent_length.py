@@ -16,7 +16,7 @@ run `ALTER TABLE client_user_agents VALIDATE CONSTRAINT
 client_user_agents_string_check` afterwards.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 from alembic import op
 

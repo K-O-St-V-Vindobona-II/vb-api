@@ -1,4 +1,4 @@
-"""Tests für GET /api/standesdb/keys — Schlüsselliste."""
+"""Tests for GET /api/standesdb/keys - the key list."""
 
 from datetime import date
 from typing import TYPE_CHECKING

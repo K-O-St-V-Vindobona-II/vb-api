@@ -1,12 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-import app.db.base
-from app.api.router import api_router
+import app.db.base  # pyright: ignore[reportUnusedImport] - registers all models
+from app.api.error_handlers import register_auth_error_handlers
+from app.api.router import OPENAPI_TAGS, api_router
 from app.core.logging_config import setup_logging
 
 setup_logging()
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
@@ -59,8 +60,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Application shutdown complete.")
 
 
-from app.api.router import OPENAPI_TAGS
-
 app = FastAPI(
     title="VB API",
     description=(
@@ -81,8 +80,8 @@ app = FastAPI(
         "`POST /api/auth/login`.\n\n"
         "Pass it in the `Authorization` header:\n"
         "```\nAuthorization: Bearer <access_token>\n```\n\n"
-        "Tokens expire after 60 minutes. Use `POST /api/auth/refresh` "
-        "to obtain a new token pair.\n\n"
+        f"Tokens expire after {settings.session_lifetime_minutes} minutes. "
+        "Use `POST /api/auth/refresh` to obtain a new token pair.\n\n"
         "## Rate Limiting\n\n"
         "Authentication endpoints are rate-limited (see individual endpoint "
         "descriptions). Exceeding the limit returns `429 Too Many Requests`."
@@ -117,12 +116,18 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Register SlowAPI Rate Limiter ---
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-async def _validation_error_handler(
-    _request: Request, exc: ValidationError
-) -> JSONResponse:
+async def _rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """Narrow Starlette's generic handler contract to the one exception type
+    this handler is registered for."""
+    return _rate_limit_exceeded_handler(request, cast("RateLimitExceeded", exc))
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+
+async def _validation_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Give a bare pydantic ValidationError (e.g. raised in service code,
     as opposed to FastAPI's own RequestValidationError for request
     parsing) the same {"detail": [...]} response shape that FastAPI's
@@ -133,7 +138,9 @@ async def _validation_error_handler(
     error, the input of a validation failure raised in service code may be
     data read from the database rather than data the caller sent.
     """
-    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    errors = cast("ValidationError", exc).errors(
+        include_url=False, include_context=False, include_input=False
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=jsonable_encoder({"detail": errors}),
@@ -160,6 +167,7 @@ async def _unhandled_exception_handler(
     )
 
 
+register_auth_error_handlers(app)
 app.add_exception_handler(ValidationError, _validation_error_handler)
 app.add_exception_handler(Exception, _unhandled_exception_handler)
 

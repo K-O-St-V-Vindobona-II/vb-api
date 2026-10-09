@@ -9,7 +9,7 @@ gets its own Final-Cutover (Phase A+C) AND both of its members FKs
 (member_id, resolved_by) cut over in the same migration - same reasoning
 as bc095b5fb813's three leaf tables. Both FKs now point at
 members(id_uuid), not members(id) - members itself won't have a UUID
-primary key until its own Final-Cutover (slice 32) - with the exact
+primary key until its own Final-Cutover (e097221b6c5f) - with the exact
 ondelete/onupdate strategy each FK had before.
 
 member_id carries two indexes that both get rebuilt on the new column:
@@ -17,7 +17,7 @@ the plain lookup index (ix_member_change_requests_member_id) AND the
 partial unique index enforcing "at most one pending request per member"
 (member_change_requests_member_pending_uniq, WHERE status = 'pending') -
 a real business rule, not just a redundant duplicate like the ones
-dropped-and-not-rebuilt in earlier slices. Dropping a column drops every
+dropped-and-not-rebuilt in earlier revisions. Dropping a column drops every
 index defined on it, so both must be explicitly recreated.
 """
 

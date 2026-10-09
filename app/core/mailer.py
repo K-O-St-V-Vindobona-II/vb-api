@@ -7,13 +7,15 @@ from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlencode
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings, require_setting
-from app.core.datetime_utils import get_app_timezone
+from app.core.datetime_utils import get_app_timezone, local_today
+from app.core.field_labels import field_label
 from app.db.database import SessionLocal
 from app.models.sent_email import SentEmail
 
@@ -30,6 +32,9 @@ _jinja_env = Environment(
     loader=FileSystemLoader(str(_templates_dir)),
     autoescape=select_autoescape(["html"]),
 )
+# Jinja types its globals as the union of its own defaults, which a plain
+# function is not part of although templates call any callable stored there.
+cast("dict[str, object]", _jinja_env.globals)["field_label"] = field_label
 
 
 _LOG_REDACTION = "[redacted]"
@@ -206,11 +211,11 @@ def send_reset_email(to_email: str, token: str) -> None:
     reset_link = _reset_link(frontend_url, token, to_email)
 
     template = _jinja_env.get_template("password_reset.html")
-    html_content = template.render(reset_link=reset_link)
+    html_content = template.render(reset_link=reset_link, year=local_today().year)
     # The sent-mail log is readable by administrators, so it must never hold a
     # working token: the stored copy carries a placeholder in its place.
     logged_link = _reset_link(frontend_url, _LOG_REDACTION, to_email)
-    logged_html = template.render(reset_link=logged_link)
+    logged_html = template.render(reset_link=logged_link, year=local_today().year)
 
     text_content = (
         f"Hallo!\n\n"
@@ -340,7 +345,7 @@ def _format_diff_value(
     if value is None:
         return "-"
     if isinstance(value, list):
-        return ", ".join(str(v) for v in value) or "-"
+        return ", ".join(str(v) for v in cast("list[object]", value)) or "-"
     if not key.endswith("datum"):
         return str(value)
     parsed = _as_date(value)
@@ -389,7 +394,7 @@ def send_entry_changed_email(
     for key, values in diff.items():
         if key.endswith("_accuracy"):
             continue
-        text_lines.append(f"{key}:")
+        text_lines.append(f"{field_label(key)}:")
         text_lines.append(f"  alt: {_format_diff_value(key, values.get('old'), diff)}")
         text_lines.append(f"  neu: {_format_diff_value(key, values.get('new'), diff)}")
         text_lines.append("")

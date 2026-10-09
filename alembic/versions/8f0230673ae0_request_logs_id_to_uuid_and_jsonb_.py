@@ -11,7 +11,7 @@ now that the activity-log feature backing that endpoint is being rewritten
 from scratch anyway. No other table has a foreign key onto request_logs.id
 (it is a leaf/audit table), so - unlike most tables in the earlier
 UUID-PK series - this needs no separate Phase A / Final-Cutover split and
-no Referrer-Cutover slice elsewhere.
+no Referrer-Cutover revision elsewhere.
 
 client_ips/request_input/response_content also move from TEXT (holding
 manually json.dumps()-encoded text) to native JSONB. client_ips carries two
@@ -24,7 +24,7 @@ migration) and are cast directly.
 """
 
 import uuid
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

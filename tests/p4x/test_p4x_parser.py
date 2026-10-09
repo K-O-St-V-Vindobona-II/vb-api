@@ -3,7 +3,7 @@ from datetime import date
 
 from app.services.p4x_import_service import (
     _date_to_carbon_json,
-    _php_json_encode,
+    _json_encode_escaping_slashes,
     compute_transaction_hash,
     parse_george_json,
 )
@@ -216,23 +216,23 @@ class TestCarbonJsonFormat:
         assert result == "2026-01-01T00:00:00.000000Z"
 
 
-class TestPhpJsonEncode:
+class TestPredecessorJsonEncode:
     def test_escapes_unicode(self):
-        result = _php_json_encode(["ü"])
+        result = _json_encode_escaping_slashes(["ü"])
         assert "\\u00fc" in result
 
     def test_escapes_slash(self):
-        result = _php_json_encode(["a/b"])
+        result = _json_encode_escaping_slashes(["a/b"])
         assert "a\\/b" in result
 
     def test_compact_format(self):
-        result = _php_json_encode([1, 2, 3])
+        result = _json_encode_escaping_slashes([1, 2, 3])
         assert result == "[1,2,3]"
 
 
 class TestSha256Hash:
     def test_known_hash(self):
-        """Verified against PHP: first transaction in legacy DB."""
+        """Verified against the predecessor system (its first transaction)."""
         booking_carbon = "2015-01-01T23:00:00.000000Z"
         valuation_carbon = "2015-01-01T23:00:00.000000Z"
         iban = "AT342011100032605714"

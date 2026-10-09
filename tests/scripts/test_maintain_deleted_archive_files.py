@@ -3,7 +3,7 @@
 purge_file()/restore_file()/list_deleted_files()/active_duplicates_*()
 themselves are already covered by tests/test_archive_maintenance_service.py
 — these tests only exercise the CLI wrapper's own logic (subcommand
-parsing, confirmation prompts, exit codes, output formatting).
+parsing, confirmation questions, exit codes, output formatting).
 
 File ids and directory ids are both UUIDs (archive_files' and archive_dirs'
 own Final-Cutovers). `_uid(n)`/`_fake_uuid(n)` below build a deterministic,
@@ -103,7 +103,7 @@ def test_unknown_command_is_rejected_by_argparse() -> None:
     assert exc_info.value.code == 2
 
 
-def test_list_prints_candidates_without_prompting_and_exits_zero(capsys) -> None:
+def test_list_prints_candidates_without_asking_and_exits_zero(capsys) -> None:
     mock_db = MagicMock()
 
     with (
@@ -280,7 +280,7 @@ def test_purge_with_malformed_id_is_rejected_by_argparse() -> None:
     assert exc_info.value.code == 2
 
 
-def test_purge_with_id_not_in_list_errors_without_prompting(capsys) -> None:
+def test_purge_with_id_not_in_list_errors_without_asking(capsys) -> None:
     mock_db = MagicMock()
 
     with (
@@ -341,7 +341,7 @@ def test_purge_aborts_on_missing_tty(capsys) -> None:
     assert "no interactive terminal" in capsys.readouterr().out
 
 
-def test_purge_with_matching_id_prompts_and_purges_on_yes() -> None:
+def test_purge_with_matching_id_asks_and_purges_on_yes() -> None:
     mock_db = MagicMock()
     candidates = [_candidate(file_id=1), _candidate(file_id=2)]
     result = PurgeResult(
@@ -480,8 +480,8 @@ def test_purge_confirm_shows_duplicate_note(capsys) -> None:
     out = capsys.readouterr().out
     assert "2 active file(s)" in out
     assert "will NOT be deleted" in out
-    prompt = mock_input.call_args[0][0]
-    assert "DB only" in prompt
+    question = mock_input.call_args[0][0]
+    assert "DB only" in question
     mock_purge_file.assert_not_called()
 
 
@@ -503,8 +503,8 @@ def test_purge_confirm_shows_shared_note(capsys) -> None:
     out = capsys.readouterr().out
     assert "3 other" in out
     assert "removed once the last referencing file is purged" in out
-    prompt = mock_input.call_args[0][0]
-    assert "DB only" in prompt
+    question = mock_input.call_args[0][0]
+    assert "DB only" in question
 
 
 def test_purge_confirm_shows_sole_warning(capsys) -> None:
@@ -522,8 +522,8 @@ def test_purge_confirm_shows_sole_warning(capsys) -> None:
 
     out = capsys.readouterr().out
     assert "WARNING: this is the ONLY reference" in out
-    prompt = mock_input.call_args[0][0]
-    assert "DB AND S3" in prompt
+    question = mock_input.call_args[0][0]
+    assert "DB AND S3" in question
 
 
 class TestPurgeDuplicatesCommand:
@@ -583,7 +583,7 @@ class TestPurgeDuplicatesCommand:
         assert exc_info.value.code == 0
         assert mock_purge_file.call_count == 2
 
-    def test_declining_batch_prompt_purges_nothing(self) -> None:
+    def test_declining_batch_question_purges_nothing(self) -> None:
         mock_db = MagicMock()
         candidates = [_candidate(file_id=1, active_sibling_count=1)]
 
@@ -651,7 +651,7 @@ class TestPurgeDuplicatesCommand:
         assert exc_info.value.code == 1
         assert "unexpectedly" in capsys.readouterr().err
 
-    def test_no_duplicates_reports_remainder_without_prompting(self, capsys) -> None:
+    def test_no_duplicates_reports_remainder_without_asking(self, capsys) -> None:
         mock_db = MagicMock()
         shared = _candidate(file_id=2, other_deleted_sibling_count=1)
         sole = _candidate(file_id=3)
@@ -678,7 +678,7 @@ class TestPurgeDuplicatesCommand:
 
     def test_remainder_is_reported_but_not_processed(self, capsys) -> None:
         """The removed walkthrough is gone for good: purge-duplicates must
-        only ever prompt once (the batch prompt) and only ever purge the
+        only ever ask once (the batch question) and only ever purge the
         duplicate candidates — shared/sole files are left untouched, just
         reported with a count."""
         mock_db = MagicMock()
@@ -707,7 +707,7 @@ class TestPurgeDuplicatesCommand:
             _run_main(["purge-duplicates", _fake_uuid(7)])
 
         assert exc_info.value.code == 0
-        mock_input.assert_called_once()  # only the batch prompt, no walkthrough
+        mock_input.assert_called_once()  # only the batch question, no walkthrough
         mock_purge_file.assert_called_once()
         assert mock_purge_file.call_args.args[2] == _uid(1)
         out = capsys.readouterr().out
@@ -728,7 +728,7 @@ class TestRestoreCommand:
 
         assert exc_info.value.code == 2
 
-    def test_success_without_confirmation_prompt(self, capsys) -> None:
+    def test_success_without_confirmation_question(self, capsys) -> None:
         mock_db = MagicMock()
         location = FileLocation(
             file_id=_uid(42), path="Fotos", name="bild", extension="jpg", deleted=False

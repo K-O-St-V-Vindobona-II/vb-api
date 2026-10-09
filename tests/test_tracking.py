@@ -160,12 +160,12 @@ class TestEmailTemplates:
     def test_unknown_template_keys_excluded(self, client, db_session):
         _seed(db_session)
         headers, _ = _login_admin(db_session)
-        _insert_sent_email(db_session, "legacy-junk")
+        _insert_sent_email(db_session, "unregistered-junk")
         resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
         data = resp.json()
         assert len(data) == 11
         keys = {t["template_key"] for t in data}
-        assert "legacy-junk" not in keys
+        assert "unregistered-junk" not in keys
 
     def test_requires_permission(self, client, db_session):
         _seed(db_session)

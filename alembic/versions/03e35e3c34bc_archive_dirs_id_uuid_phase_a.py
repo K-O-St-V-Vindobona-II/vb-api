@@ -5,11 +5,12 @@ Revises: 53b60b0b8bbb
 Create Date: 2026-09-01 16:05:00.000000
 
 Phase A (additive prep) of the schema-wide UUID-PK migration for
-archive_dirs, a third Layer-0-Parent - same pattern as
+archive_dirs, a parent table without outgoing foreign keys to other
+tables of the series - same pattern as
 53b60b0b8bbb_contacts_id_uuid_phase_a.py. Only the real primary key gets
 `id_uuid` here; the self-referencing `archive_dir_id` column (currently a
 bare integer with a `0` sentinel for "root", no real FK) is deliberately
-left untouched until its Final-Cutover in slice 28, which also converts
+left untouched until its Final-Cutover (2727a9187d6e), which also converts
 that sentinel to NULL - doing it piecemeal here would leave a confusing
 half-migrated state. No API contract changes: the old integer `id` stays
 the primary key.

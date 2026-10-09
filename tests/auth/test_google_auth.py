@@ -7,6 +7,7 @@ import pytest
 from google.auth.exceptions import TransportError
 
 from app.core.rate_limit import limiter
+from app.models.enums import OauthProvider
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.services import auth_service
@@ -39,7 +40,7 @@ def test_google_login_unlinked_returns_404(
 ):
     """
     Tests that a valid Google token WITHOUT a binding
-    returns 404 (prompting the frontend to link).
+    returns 404 (asking the frontend to link).
     """
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-client-id-123")
     mock_verify.return_value = {"sub": "google-remote-id-999", "name": "Google Tester"}
@@ -179,7 +180,7 @@ def _link_via_google(db, email):
 
 
 class TestGoogleLoginAtomicity:
-    """Regression tests for Slice 5: authenticate_google_user()/
+    """Regression tests: authenticate_google_user()/
     link_google_account() used to commit their binding update on their
     own, separately from create_user_session()'s commit - two commits for
     one logical "log the user in" operation. Now the binding update only
@@ -452,3 +453,30 @@ class TestVisibleMessagesStayTheSame:
         assert resp.status_code == 200
         binding = db_session.query(MembersOauth2Binding).one()
         assert binding.remote_name == "Unknown"
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+def test_google_login_of_a_member_without_an_address_is_a_401(
+    mock_verify, client, monkeypatch, db_session
+):
+    """A bound member without an e-mail address cannot get an access token
+    (its subject is the address); the answer is a 401, not an unhandled 500."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-client-id-123")
+    mock_verify.return_value = {"sub": "google-remote-id-777", "name": "No Address"}
+    member = Member(email=None, auth_locked=False)
+    db_session.add(member)
+    db_session.commit()
+    db_session.add(
+        MembersOauth2Binding(
+            member_id=member.id,
+            provider=OauthProvider.GOOGLE,
+            remote_id="google-remote-id-777",
+            remote_name="No Address",
+        )
+    )
+    db_session.commit()
+
+    response = client.post("/api/auth/google", json={"credential": "x.y.z"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Member hat keine E-Mail-Adresse."}

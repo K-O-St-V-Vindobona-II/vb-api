@@ -5,7 +5,7 @@ Revises: dd8661641df7
 Create Date: 2026-09-02 10:00:00.000000
 
 Three independent own-PK-only Final-Cutovers, bundled because all three
-already completed their Phase A in earlier slices (archive_store_items in
+already completed their Phase A in earlier revisions (archive_store_items in
 31b5c04b297d, badges/keys in e2f6d45fab87) and none has any outgoing FK of
 its own left to cut over - archive_store_items.created_by already
 references members.id_uuid. Every referrer that already points at one of

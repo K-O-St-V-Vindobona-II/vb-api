@@ -30,7 +30,6 @@ from app.core.security import (
     SESSION_IDLE_TIMEOUT_MINUTES,
 )
 from app.core.storage import get_storage
-from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import SessionLocal
 from app.models.auth_session import AuthSession
 from app.models.client_user_agent import ClientUserAgent
@@ -75,7 +74,7 @@ class MailRun:
     """Outcome of a job that sends one mail per member."""
 
     sent: int = 0
-    failed: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list[str])
 
     @property
     def exit_code(self) -> int:
@@ -136,7 +135,7 @@ def job_cleanup() -> None:
         ).delete()
 
         tracking_cutoff = now - timedelta(
-            days=TRACKING_RETENTION_MONTHS * 30,
+            days=get_settings().tracking_retention_months * 30,
         )
         deleted_logs = (
             db.query(RequestLog)

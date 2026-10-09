@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, literal, select
@@ -108,7 +108,7 @@ def _own_permissions(
     dir_obj: ArchiveDir,
     perm_sets: _PermSets,
 ) -> list[str]:
-    result = []
+    result: list[str] = []
     # Skip permissions referencing deleted orgs/states
     for p in dir_obj.archive_permissions:
         if p.org_id in perm_sets.orgs and p.state_id in perm_sets.states:
@@ -257,11 +257,20 @@ def _dir_short(d: ArchiveDir) -> dict[str, object]:
     }
 
 
+def _requested_permissions(data: dict[str, object]) -> list[str]:
+    """The permission keys of a create/update payload (none when absent or
+    not a list)."""
+    raw = data.get("permissions", [])
+    if not isinstance(raw, list):
+        return []
+    return [str(p) for p in cast("list[object]", raw)]
+
+
 def build_path(
     db: Session,
     dir_obj: ArchiveDir,
 ) -> list[dict[str, object]]:
-    path = []
+    path: list[dict[str, object]] = []
     current: ArchiveDir | None = dir_obj
     while current is not None:
         path.append({"id": current.id, "name": current.name})
@@ -489,9 +498,7 @@ def create_dir(
 
     now = _now()
     desc_raw = data.get("description")
-    perms_raw = data.get("permissions", [])
-    perms = list(perms_raw) if isinstance(perms_raw, list) else []
-    pairs = _parse_permissions(db, [str(p) for p in perms])
+    pairs = _parse_permissions(db, _requested_permissions(data))
     dir_obj = ArchiveDir(
         name=str(data["name"]),
         description=str(desc_raw) if desc_raw is not None else None,
@@ -520,9 +527,7 @@ def update_dir(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Verzeichnis nicht gefunden.",
         )
-    perms_raw = data.get("permissions", [])
-    perms = list(perms_raw) if isinstance(perms_raw, list) else []
-    pairs = _parse_permissions(db, [str(p) for p in perms])
+    pairs = _parse_permissions(db, _requested_permissions(data))
     dir_obj.name = str(data["name"])
     desc_raw = data.get("description")
     dir_obj.description = str(desc_raw) if desc_raw is not None else None
@@ -1502,7 +1507,7 @@ def search_archive(
     """
     admin = is_archive_admin(user)
     perm_sets = _load_perm_sets(db)
-    trashed = frozenset() if admin else _trashed_dir_ids(db)
+    trashed: frozenset[uuid.UUID] = frozenset() if admin else _trashed_dir_ids(db)
 
     tsquery_text = build_prefix_tsquery_text(db, query)
     ranked_results: list[tuple[float, dict[str, object]]] = []

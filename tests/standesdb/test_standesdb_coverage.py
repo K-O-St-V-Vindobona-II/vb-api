@@ -445,8 +445,8 @@ class TestChangelog:
     def test_member_changelog_excludes_technical_fields(self, client, db_session):
         """Technical/audit bookkeeping keys (e.g. auth_lastsignal, bumped on
         every request via a raw bulk UPDATE that bypasses the diff
-        mechanism) must never show up in the Änderungshistorie, even if
-        legacy rows for them already exist in the DB."""
+        mechanism) must never show up in the changelog, even if
+        older rows for them already exist in the DB."""
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)

@@ -315,7 +315,7 @@ class TestCategoryHexColor:
 
 
 # ---------------------------------------------------------------------------
-# Money fields — decimal_places=2 (Welle 2 Slice 5: float -> Numeric)
+# Money fields - decimal_places=2 (the columns are NUMERIC, not float)
 # ---------------------------------------------------------------------------
 
 

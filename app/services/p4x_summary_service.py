@@ -107,7 +107,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         )
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)

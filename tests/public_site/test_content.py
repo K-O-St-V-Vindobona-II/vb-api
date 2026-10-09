@@ -774,7 +774,7 @@ class TestSocialLinkUuidDefault:
 
 class TestAboutTabUuidDefault:
     """Same guard as TestSocialLinkUuidDefault, for the second UUID-PK
-    migration slice (see ad4d9aeff7b8_public_site_content_ids_to_uuid.py).
+    migration revision (see ad4d9aeff7b8_public_site_content_ids_to_uuid.py).
     slot is unique and CHECK-constrained to the 3 known values, so this
     replaces one of the already-seeded rows rather than adding a 4th."""
 

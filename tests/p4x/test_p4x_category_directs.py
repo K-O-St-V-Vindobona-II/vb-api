@@ -273,11 +273,10 @@ class TestUnsetCategoryDirect:
 
 
 class TestActiveDirectUniqueIndex:
-    """Regression tests for Slice 6 of the backend remediation plan: a
-    partial unique index on (p4x_transaction_id, p4x_category_id) WHERE
-    deleted_at IS NULL closes a race condition where two concurrent
-    set-category-direct requests for the same pair could otherwise both
-    succeed."""
+    """Regression tests: a partial unique index on (p4x_transaction_id,
+    p4x_category_id) WHERE deleted_at IS NULL closes a race condition where
+    two concurrent set-category-direct requests for the same pair could
+    otherwise both succeed."""
 
     def test_second_active_direct_for_same_pair_is_rejected(self, db_session):
         _account, cat, tx = _seed(db_session)

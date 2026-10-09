@@ -8,9 +8,12 @@ grouping directly.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import Query
 
 from app.core.security import create_access_token
 from app.models.client_user_agent import ClientUserAgent
@@ -278,6 +281,41 @@ class TestListDaysWithActivity:
 
     def test_empty_month_returns_empty_list(self, db_session) -> None:
         assert list_days_with_activity(db_session, 2020, 1) == []
+
+    def test_rows_read_do_not_scale_with_the_number_of_requests(
+        self, db_session
+    ) -> None:
+        """The overview needs each (day, member) pair once, so the database
+        reduces the month's requests instead of sending one row per request."""
+        member = _create_member(db_session)
+        for minute in range(100):
+            db_session.add(
+                RequestLog(
+                    client_ip="127.0.0.1",
+                    client_ips=["127.0.0.1"],
+                    member_id=member.id,
+                    request_method="GET",
+                    request_path="/api/test",
+                    response_status=200,
+                    memory_usage=0,
+                    created_at=datetime(2026, 6, 15, 8, 0, tzinfo=UTC)
+                    + timedelta(minutes=minute),
+                )
+            )
+        db_session.commit()
+        real_all = Query.all
+        row_counts: list[int] = []
+
+        def counting_all(query: Query[Any]) -> list[Any]:
+            rows = real_all(query)
+            row_counts.append(len(rows))
+            return rows
+
+        with patch.object(Query, "all", counting_all):
+            groups = list_days_with_activity(db_session, 2026, 6)
+
+        assert len(groups) == 1
+        assert row_counts[0] == 1
 
     def test_query_count_does_not_scale_with_distinct_members(
         self, db_session, count_queries
