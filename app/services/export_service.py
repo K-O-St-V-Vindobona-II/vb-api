@@ -612,7 +612,7 @@ def _member_label_entry(m: Member) -> dict[str, str | int]:
     anschrift, plz_ort, land = _resolve_delivery_address(m)
     return {
         "anrede": getattr(m, "anrede", None) or "",
-        "name": m.cn_full,
+        "name": m.postal_name,
         "address": anschrift,
         "plz_ort": plz_ort,
         "land": land,

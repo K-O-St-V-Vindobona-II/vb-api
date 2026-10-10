@@ -243,14 +243,25 @@ class Member(Base):
         return " ".join(name.split())
 
     @property
-    def cn_full(self) -> str:
+    def _titled_name(self) -> str:
         parts = [
             self.vortitel or "",
             self.vorname or "",
             self.nachname or "",
             self.nachtitel or "",
         ]
-        name = " ".join(p for p in parts if p).strip()
+        return " ".join(p for p in parts if p).strip()
+
+    @property
+    def postal_name(self) -> str:
+        """The name as written on a postal label: titles and real name, never
+        the couleur name. Only a member without any real name falls back to
+        the couleur name, so that the label is not blank."""
+        return " ".join((self._titled_name or self.couleurname or "").split())
+
+    @property
+    def cn_full(self) -> str:
+        name = self._titled_name
         if name and self.couleurname:
             prefix = "wl." if (self.verstorben or self.entlassen) else "v/o"
             name = f"{name} {prefix} {self.couleurname}"
