@@ -12,12 +12,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypedDict
 
 from app.db.database import SessionLocal
+from app.models.enums import JobId
 from app.models.scheduled_task_run import ScheduledTaskRun
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-    from app.models.enums import JobId
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +53,20 @@ def record_job_run(
         finally:
             db.close()
     except Exception:
-        # CodeQL flags job_id here as clear-text logging of sensitive data
-        # purely because of the JobId.BIRTHDAY_MAILS member name - it
-        # traces the enum member's identifier, not its actual value or any
-        # real date-of-birth data. job_id is always one of nine internal
-        # job identifiers (e.g. "cleanup", "birthday_mails"), never a
-        # value derived from member PII. False positive.
-        logger.exception(  # lgtm[py/clear-text-logging-sensitive-data]
-            "Failed to record run history for job %s", job_id
-        )
+        # A failed history write must never abort the job that finished. The
+        # job logs its own result, so the message needs no job identifier.
+        logger.exception("Failed to record run history for a scheduled job")
 
 
 def list_job_runs(db: Session, job_id: str, page: int, page_size: int) -> PaginatedRuns:
     """job_id stays a plain str here (unlike record_job_run's JobId): this
     is fed straight from the systemAdmin API's path parameter, an
-    unvalidated client-supplied value — an unknown id simply matches no
-    rows rather than needing router-level enum coercion."""
+    unvalidated client-supplied value. The column is a native database enum,
+    which raises an error (not "no rows") when compared with a string that is
+    not one of its members, so an unknown id is answered with an empty page
+    before the query."""
+    if job_id not in JobId:
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
     query = db.query(ScheduledTaskRun).filter(ScheduledTaskRun.job_id == job_id)
     total = query.count()
     items = (

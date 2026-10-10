@@ -1,15 +1,12 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.auth_guards import require_permission
-from app.core.mailer import render_template
-from app.core.tasks import TRACKING_RETENTION_MONTHS
+from app.api.auth_guards import RequireSystemAdmin
+from app.core.config import get_settings
 from app.db.database import get_db
-from app.models.member import Member
-from app.models.sent_email import SentEmail
 from app.schemas.base import PaginatedResponse
 from app.schemas.tracking import (
     EmailTemplatePreview,
@@ -18,120 +15,25 @@ from app.schemas.tracking import (
     SentEmailListItem,
     TrackingConfigResponse,
 )
-from app.services import tracking_service
+from app.services import email_preview_service, tracking_service
 
 tracking_router = APIRouter()
 
 
 @tracking_router.get("/config")
 def get_tracking_config(
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
 ) -> TrackingConfigResponse:
     """Return the tracking data retention period in months."""
-    return TrackingConfigResponse(retention_months=TRACKING_RETENTION_MONTHS)
-
-
-def _format_preview_value(
-    _key: str,
-    value: str | None,
-    _diff: dict[str, dict[str, str | None]],
-) -> str:
-    return value if value is not None else "-"
-
-
-TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
-    "password-reset": {
-        "reset_link": "https://intern.vindobona2.at/reset-password?token=abc123",
-    },
-    "entry-changed": {
-        "modifier_cn": "Max Mustermann v/o Testikus",
-        "entry_type": "member",
-        "entry_cn": "Franz Beispiel v/o Musterknabe",
-        "change_type": "update",
-        "diff": {
-            "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
-            "email": {"old": "alt@example.com", "new": "neu@example.com"},
-        },
-        "format_value": _format_preview_value,
-    },
-    "member-change-request-submitted": {
-        "member_cn": "Franz Beispiel v/o Musterknabe",
-        "diff": {
-            "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
-            "email": {"old": "alt@example.com", "new": "neu@example.com"},
-        },
-        "format_value": _format_preview_value,
-    },
-    "member-change-request-resolved": {
-        "approved": {
-            "email": {"old": "alt@example.com", "new": "neu@example.com"},
-        },
-        "rejected": {
-            "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
-        },
-        "format_value": _format_preview_value,
-    },
-    "own-image-changed": {
-        "member_cn": "Franz Beispiel v/o Musterknabe",
-        "action_label": "ein neues Profilbild hochgeladen",
-        "action": "upload",
-    },
-    "birthday": {
-        "name": "Max Mustermann v/o Testikus",
-        "age": 25,
-    },
-    "debtor_reminder": {
-        "name": "Max Mustermann v/o Testikus",
-        "fee": "15,00",
-        "debt": "90,00",
-        "target": "30. Juni 2026",
-        "sender_name": "Franz Beispiel v/o Musterknabe",
-    },
-    "chronicles": {
-        "start": "30. Juni 2026",
-        "end": "6. Juli 2026",
-        "anniversaries": {
-            "vbw": {
-                "lebend": {
-                    "geburtsdatum": [
-                        {
-                            "cn": "Max Mustermann v/o Testikus",
-                            "date": "1. Juli",
-                            "years": 50,
-                        },
-                    ],
-                    "aufnahmedatum": [
-                        {
-                            "cn": "Franz Beispiel v/o Musterknabe",
-                            "date": "3. Juli",
-                            "years": 10,
-                        },
-                    ],
-                },
-            },
-        },
-    },
-    "archive_health_check": {
-        "missing": ["archive/store/abc123"],
-        "orphans": ["archive/store/def456"],
-        "unsorted_count": 3,
-    },
-    "standesdb_health_check": {
-        "missing": [],
-        "orphans": ["standesdb/images/def456"],
-    },
-    "public-contact-form": {
-        "name": "Max Mustermann",
-        "email": "max@example.com",
-        "message": "Hallo, ich interessiere mich für Vindobona II.",
-    },
-}
+    return TrackingConfigResponse(
+        retention_months=get_settings().tracking_retention_months
+    )
 
 
 @tracking_router.get("/sent-emails/templates")
 def get_email_templates(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
 ) -> list[EmailTemplateStats]:
     """List all registered email templates with send counts and last-sent timestamps."""
     return tracking_service.get_email_templates(db)
@@ -140,41 +42,18 @@ def get_email_templates(
 @tracking_router.get("/sent-emails/templates/{template_key}/preview")
 def get_email_template_preview(
     template_key: str,
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
 ) -> EmailTemplatePreview:
     """Render an email template with dummy data for live preview."""
-    entry = next(
-        (
-            t
-            for t in tracking_service.EMAIL_TEMPLATE_REGISTRY
-            if t["key"] == template_key
-        ),
-        None,
-    )
-    if not entry:
-        raise HTTPException(status_code=404, detail="Template nicht gefunden")
-
-    preview_data = TEMPLATE_PREVIEW_DATA.get(template_key)
-    if not preview_data:
-        raise HTTPException(
-            status_code=404,
-            detail="Keine Vorschaudaten verfügbar",
-        )
-
-    html = render_template(entry["file"], **preview_data)
-    return EmailTemplatePreview(
-        template_key=template_key,
-        template_name=entry["name"],
-        html=html,
-    )
+    return email_preview_service.build_preview(template_key)
 
 
-@tracking_router.get("/sent-emails/{email_id}", response_model=SentEmailDetail)
+@tracking_router.get("/sent-emails/{email_id}")
 def get_sent_email_detail(
     email_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
-) -> SentEmail:
+    _user: RequireSystemAdmin,
+) -> SentEmailDetail:
     """Return full details of a sent email including body and headers."""
     return tracking_service.get_sent_email_detail(db, email_id)
 
@@ -183,12 +62,12 @@ def get_sent_email_detail(
 def list_sent_emails(
     db: Annotated[Session, Depends(get_db)],
     *,
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    year: int | None = None,
-    month: int | None = None,
-    search: str | None = None,
+    year: Annotated[int | None, Query(ge=2000, le=2100)] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    search: Annotated[str | None, Query(max_length=200)] = None,
 ) -> PaginatedResponse[SentEmailListItem]:
     """List sent emails with optional year/month and text search filters (paginated)."""
     return PaginatedResponse[SentEmailListItem].model_validate(

@@ -6,7 +6,7 @@ Create Date: 2026-07-21 22:06:05.994085
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -492,6 +492,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.alter_column(
         "standesdb_images",
         "deleted_at",

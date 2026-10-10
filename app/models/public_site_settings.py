@@ -36,7 +36,7 @@ class PublicSiteSettings(Base):
             name="public_site_settings_singleton_check",
         ),
         CheckConstraint(
-            "char_length(about_video_heading) > 0",
+            "about_video_heading ~ '[^[:space:]]'",
             name="public_site_settings_heading_check",
         ),
         CheckConstraint(
@@ -48,7 +48,7 @@ class PublicSiteSettings(Base):
             name="public_site_settings_calendar_id_check",
         ),
         CheckConstraint(
-            "char_length(gallery_heading) > 0",
+            "gallery_heading ~ '[^[:space:]]'",
             name="public_site_settings_gallery_heading_check",
         ),
     )

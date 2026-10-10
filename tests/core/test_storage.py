@@ -348,3 +348,145 @@ class TestGetStorageSingleton:
             mock_ensure.assert_not_called()
         finally:
             storage_module._storage = old_singleton
+
+
+def _client_error(code: str, operation: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": "x"}}, operation)
+
+
+def _storage(**kwargs) -> storage_module.StorageClient:
+    return storage_module.StorageClient(
+        endpoint_url="https://s3.amazonaws.com",
+        access_key="testing",
+        secret_key="testing",
+        bucket="timeout-test-bucket",
+        **kwargs,
+    )
+
+
+class TestClientTimeouts:
+    """An object store that accepts a connection and never answers must not hold
+    a request thread for minutes."""
+
+    def test_the_client_has_short_timeouts_and_bounded_retries(self):
+        config = _storage()._client.meta.config
+
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 60
+        assert config.retries["total_max_attempts"] == 3
+        assert config.retries["mode"] == "standard"
+
+    def test_the_public_client_has_the_same_limits(self):
+        storage = _storage(public_endpoint_url="https://files.example.org")
+        assert storage._public_client is not storage._client
+
+        config = storage._public_client.meta.config
+
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 60
+        assert config.retries["total_max_attempts"] == 3
+
+    def test_requests_are_still_signed_with_version_4(self):
+        assert _storage()._client.meta.config.signature_version == "s3v4"
+
+
+class TestExistsErrors:
+    @pytest.mark.parametrize("code", ["404", "NoSuchKey", "NoSuchBucket", "NotFound"])
+    def test_a_missing_object_is_reported_as_missing(self, code):
+        storage = _storage()
+        with patch.object(
+            storage._client,
+            "head_object",
+            side_effect=_client_error(code, "HeadObject"),
+        ):
+            assert storage.exists("some/key") is False
+
+    @pytest.mark.parametrize("code", ["AccessDenied", "403", "500", "SlowDown"])
+    def test_any_other_error_is_raised_instead_of_reported_as_missing(self, code):
+        storage = _storage()
+        with (
+            patch.object(
+                storage._client,
+                "head_object",
+                side_effect=_client_error(code, "HeadObject"),
+            ),
+            pytest.raises(ClientError) as raised,
+        ):
+            storage.exists("some/key")
+
+        assert raised.value.response["Error"]["Code"] == code
+
+    def test_an_error_without_a_code_is_raised(self):
+        storage = _storage()
+        with (
+            patch.object(
+                storage._client,
+                "head_object",
+                side_effect=ClientError({}, "HeadObject"),
+            ),
+            pytest.raises(ClientError),
+        ):
+            storage.exists("some/key")
+
+
+class TestEnsureBucketErrors:
+    @pytest.mark.parametrize("code", ["404", "NoSuchBucket", "NotFound"])
+    def test_a_missing_bucket_is_created(self, code):
+        storage = _storage()
+        with (
+            patch.object(
+                storage._client,
+                "head_bucket",
+                side_effect=_client_error(code, "HeadBucket"),
+            ),
+            patch.object(storage._client, "create_bucket") as mock_create,
+        ):
+            storage.ensure_bucket_exists()
+
+        mock_create.assert_called_once_with(Bucket="timeout-test-bucket")
+
+    @pytest.mark.parametrize("code", ["403", "AccessDenied", "500"])
+    def test_any_other_error_is_raised_and_nothing_is_created(self, code):
+        storage = _storage()
+        with (
+            patch.object(
+                storage._client,
+                "head_bucket",
+                side_effect=_client_error(code, "HeadBucket"),
+            ),
+            patch.object(storage._client, "create_bucket") as mock_create,
+            pytest.raises(ClientError) as raised,
+        ):
+            storage.ensure_bucket_exists()
+
+        assert raised.value.response["Error"]["Code"] == code
+        mock_create.assert_not_called()
+
+
+def _grayscale_png(width: int, height: int) -> bytes:
+    buf = io.BytesIO()
+    PILImage.new("L", (width, height)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class TestPixelLimit:
+    def test_the_limit_is_the_documented_value(self):
+        assert PILImage.MAX_IMAGE_PIXELS == 50_000_000
+
+    def test_a_file_above_twice_the_limit_is_refused(self):
+        # 100,020,001 pixels in a few hundred bytes: far more than the limit
+        # allows to be decoded.
+        data = _grayscale_png(10_001, 10_001)
+        assert len(data) < 1_000_000
+
+        with pytest.raises(PILImage.DecompressionBombError):
+            generate_thumbnail(data, 100)
+
+    def test_a_large_photo_below_the_hard_cap_still_works_with_a_warning(self):
+        data = _grayscale_png(8_000, 8_000)
+
+        with pytest.warns(PILImage.DecompressionBombWarning):
+            thumbnail, content_type = generate_thumbnail(data, 100)
+
+        assert content_type == "image/jpeg"
+        assert PILImage.open(io.BytesIO(thumbnail)).width == 100

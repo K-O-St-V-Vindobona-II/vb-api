@@ -1,7 +1,7 @@
 """Tests for backup_service — run_backup, run_restore, cleanup_old_backups."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
@@ -11,8 +11,10 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 
+from app.core.datetime_utils import local_now
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient
 from app.services.backup_service import (
+    _build_pg_env,
     _parse_backup_timestamp,
     _parse_db_url,
     _retry_transient_s3,
@@ -23,7 +25,7 @@ from app.services.backup_service import (
 
 BACKUP_BUCKET = "backup-tests"
 PG_URL = "postgresql://user:secret@localhost:5432/testdb"
-SQLITE_URL = "sqlite:///test.db"
+NON_POSTGRES_URL = "mysql://user:secret@localhost:3306/testdb"
 FAKE_PG_DUMP = "/usr/bin/pg_dump"
 FAKE_PG_RESTORE = "/usr/bin/pg_restore"
 FAKE_PSQL = "/usr/bin/psql"
@@ -204,7 +206,7 @@ class TestRunBackup:
     def test_run_backup_not_postgres(self):
         storage = MagicMock(spec=StorageClient)
         with (
-            patch.dict(os.environ, {"DATABASE_URL": SQLITE_URL}),
+            patch.dict(os.environ, {"DATABASE_URL": NON_POSTGRES_URL}),
             pytest.raises(RuntimeError, match="Backup requires PostgreSQL"),
         ):
             run_backup(storage)
@@ -549,6 +551,51 @@ class TestRunRestore:
         assert restored == newest
         mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
 
+    def test_run_restore_latest_ignores_the_environment_prefix(self, backup_bucket):
+        storage = _make_storage()
+        _put_backup(storage, "production-2026-09-01_03-00-00.dump")
+        newest = "development-2026-09-20_03-00-00.dump"
+        _put_backup(storage, newest)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+            patch.object(storage, "download", wraps=storage.download) as mock_download,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"1")
+            restored = run_restore(storage, backup_name=None)
+
+        assert restored == newest
+        mock_download.assert_called_once_with(key=f"{S3_PATH_DB_BACKUPS}/{newest}")
+
+    def test_run_restore_latest_ignores_names_without_a_timestamp(self, backup_bucket):
+        storage = _make_storage()
+        _put_backup(storage, "zzz-notes.txt")
+        valid = "test-2026-07-15_03-00-00.dump"
+        _put_backup(storage, valid)
+
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            patch(PATCH_WHICH, side_effect=_which_side_effect),
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "unlink"),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"1")
+            restored = run_restore(storage, backup_name=None)
+
+        assert restored == valid
+
+    def test_run_restore_latest_finds_nothing_among_undated_names(self, backup_bucket):
+        storage = _make_storage()
+        _put_backup(storage, "zzz-notes.txt")
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": PG_URL}),
+            pytest.raises(RuntimeError, match="No backups found"),
+        ):
+            run_restore(storage, backup_name=None)
+
     def test_run_restore_no_backups(self, backup_bucket):
         storage = _make_storage()
         with (
@@ -560,7 +607,7 @@ class TestRunRestore:
     def test_run_restore_not_postgres(self):
         storage = MagicMock(spec=StorageClient)
         with (
-            patch.dict(os.environ, {"DATABASE_URL": SQLITE_URL}),
+            patch.dict(os.environ, {"DATABASE_URL": NON_POSTGRES_URL}),
             pytest.raises(RuntimeError, match="Backup requires PostgreSQL"),
         ):
             run_restore(storage)
@@ -849,6 +896,51 @@ class TestCleanupOldBackups:
         deleted = cleanup_old_backups(storage, retention_days=1)
 
         assert deleted == [old_manual]
+
+
+class TestRetentionFloor:
+    @pytest.mark.parametrize("days", [0, -1, -30])
+    def test_retention_below_one_day_is_refused_and_deletes_nothing(
+        self, backup_bucket, days
+    ):
+        storage = _make_storage()
+        name = "test-2020-01-01_03-00-00.dump"
+        _put_backup(storage, name)
+
+        with pytest.raises(ValueError, match="at least 1 day"):
+            cleanup_old_backups(storage, retention_days=days)
+
+        assert storage.exists(f"{S3_PATH_DB_BACKUPS}/{name}")
+
+    def test_backup_written_now_survives_a_one_day_retention(self, backup_bucket):
+        storage = _make_storage()
+        fresh = f"test-{local_now().strftime('%Y-%m-%d_%H-%M-%S')}.dump"
+        stale = "test-2020-01-01_03-00-00.dump"
+        _put_backup(storage, fresh)
+        _put_backup(storage, stale)
+
+        deleted = cleanup_old_backups(storage, retention_days=1)
+
+        assert deleted == [stale]
+        assert storage.exists(f"{S3_PATH_DB_BACKUPS}/{fresh}")
+
+    def test_one_day_retention_keeps_yesterday_and_drops_the_day_before(
+        self, backup_bucket
+    ):
+        storage = _make_storage()
+        stamp = "%Y-%m-%d_%H-%M-%S"
+        recent = f"test-{(local_now() - timedelta(hours=12)).strftime(stamp)}.dump"
+        old = f"test-{(local_now() - timedelta(hours=36)).strftime(stamp)}.dump"
+        _put_backup(storage, recent)
+        _put_backup(storage, old)
+
+        assert cleanup_old_backups(storage, retention_days=1) == [old]
+
+
+class TestPgSubprocessEnvironment:
+    def test_only_the_password_is_handed_to_the_database_tools(self):
+        with patch.dict(os.environ, {"SECRET_KEY": "s3cret", "S3_SECRET_KEY": "k"}):
+            assert _build_pg_env("pw") == {"PGPASSWORD": "pw"}
 
 
 class TestListKeys:

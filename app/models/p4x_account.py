@@ -5,7 +5,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Numeric, Uuid, text
+from sqlalchemy import CheckConstraint, Date, DateTime, Index, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -40,18 +40,27 @@ class P4xAccount(Base):
             "bic IS NULL OR bic ~ '^[A-Za-z0-9]{1,11}$'",
             name="p4x_accounts_bic_check",
         ),
+        # One account per IBAN among the accounts that are not deleted, and
+        # blanks do not make a different IBAN: the check above allows them.
+        # A deleted account keeps its row and must not block the IBAN.
+        Index(
+            "p4x_accounts_iban_active_key",
+            text("replace(iban, ' ', '')"),
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")
     )
-    iban: Mapped[str] = mapped_column(unique=True)
+    iban: Mapped[str]
     bic: Mapped[str | None]
     label: Mapped[str | None]
     init_date: Mapped[datetime.date | None] = mapped_column(Date)
     init_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
-    created_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime(timezone=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)

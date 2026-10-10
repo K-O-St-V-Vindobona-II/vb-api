@@ -20,9 +20,9 @@ from app.services.auth_service import create_user_session
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
         ]
     )
     db.commit()

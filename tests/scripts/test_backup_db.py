@@ -105,7 +105,7 @@ def test_run_backup_runtime_error_exits_one(capsys) -> None:
         patch.object(
             backup_db,
             "run_backup",
-            side_effect=RuntimeError("Backup requires PostgreSQL. Got: sqlite..."),
+            side_effect=RuntimeError("Backup requires PostgreSQL. Got: mysql..."),
         ),
         pytest.raises(SystemExit) as exc_info,
     ):

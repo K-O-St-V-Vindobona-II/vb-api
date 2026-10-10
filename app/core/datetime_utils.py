@@ -11,12 +11,12 @@ activation windows and "today" statistics.
 
 DB storage (TIMESTAMPTZ columns) stays UTC regardless of this convention --
 see Settings.app_timezone's own docstring in app/core/config.py. The
-db_backup/downsync scheduled jobs' own *trigger timing* (which hour they
-fire) also stays UTC-anchored on purpose (see BACKUP_HOUR in
-app/core/scheduler.py) -- but the *filename* a backup gets once it runs
-goes through local_now() like any other human-facing timestamp (see
-run_backup() in app/services/backup_service.py), precisely so an admin
-reading backup names doesn't have to mentally convert UTC to Vienna time.
+db_backup/downsync scheduled jobs fire at wall-clock hours in the application
+timezone (the worker gives every cron job get_app_timezone(), see
+app/worker.py; BACKUP_HOUR lives in app/core/job_schedule_registry.py), and
+the *filename* a backup gets once it runs uses the same convention through
+local_now() (see run_backup() in app/services/backup_service.py), so an admin
+reading backup names never has to convert between UTC and local time.
 """
 
 from datetime import UTC, date, datetime, timedelta

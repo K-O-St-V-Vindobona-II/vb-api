@@ -3,27 +3,34 @@
 import io
 import uuid
 from datetime import UTC, date, datetime
+from unittest.mock import MagicMock, patch
 
 import bcrypt
+import pytest
+from botocore.exceptions import ClientError
+from fastapi import HTTPException, UploadFile
 from PIL import Image as PILImage
+from starlette.datastructures import Headers
 
+from app.core.storage import S3_PATH_PUBLIC_GALLERY
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.role import Role
+from app.services import public_gallery_service
 from app.services.auth_service import create_user_session
 
 
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=1,
+                sort_order=1,
             ),
         ]
     )
@@ -435,3 +442,63 @@ class TestPublicGalleryImageIdDefault:
 
         assert isinstance(img.id, uuid.UUID)
         assert img.id.version == 7
+
+
+class TestGalleryServiceHardening:
+    def test_upload_reads_at_most_one_byte_past_the_limit(self):
+        raw = io.BytesIO(b"x" * (public_gallery_service.MAX_FILE_SIZE + 10))
+        spy = MagicMock(wraps=raw)
+        upload = UploadFile(file=spy, filename="big.jpg", headers=Headers())
+
+        with pytest.raises(HTTPException) as exc:
+            public_gallery_service.upload_image(
+                MagicMock(), upload, None, None, MagicMock()
+            )
+
+        assert exc.value.status_code == 422
+        assert "8 MB" in exc.value.detail
+        spy.read.assert_called_once_with(public_gallery_service.MAX_FILE_SIZE + 1)
+
+    def test_file_of_exactly_the_limit_passes_the_size_check(self):
+        raw = io.BytesIO(b"x" * public_gallery_service.MAX_FILE_SIZE)
+        upload = UploadFile(file=raw, filename="big.jpg", headers=Headers())
+
+        with pytest.raises(HTTPException) as exc:
+            public_gallery_service.upload_image(
+                MagicMock(), upload, None, None, MagicMock()
+            )
+
+        assert "JPEG" in exc.value.detail
+
+    def test_row_is_deleted_before_the_storage_object(self):
+        calls = []
+        db, storage, image = MagicMock(), MagicMock(), MagicMock(sha256_hash="ab" * 32)
+        db.commit.side_effect = lambda: calls.append("commit")
+        storage.delete.side_effect = lambda _key: calls.append("storage")
+
+        public_gallery_service.delete_image(db, image, storage)
+
+        assert calls == ["commit", "storage"]
+        db.delete.assert_called_once_with(image)
+        storage.delete.assert_called_once_with(f"{S3_PATH_PUBLIC_GALLERY}/{'ab' * 32}")
+
+    def test_failed_commit_keeps_the_storage_object(self):
+        db, storage, image = MagicMock(), MagicMock(), MagicMock(sha256_hash="ab" * 32)
+        db.commit.side_effect = RuntimeError("database down")
+
+        with pytest.raises(RuntimeError):
+            public_gallery_service.delete_image(db, image, storage)
+
+        storage.delete.assert_not_called()
+
+    def test_storage_failure_after_the_commit_is_logged_not_raised(self):
+        db, storage, image = MagicMock(), MagicMock(), MagicMock(sha256_hash="ab" * 32)
+        storage.delete.side_effect = ClientError(
+            {"Error": {"Code": "500"}}, "DeleteObject"
+        )
+
+        with patch.object(public_gallery_service, "logger") as log:
+            public_gallery_service.delete_image(db, image, storage)
+
+        db.commit.assert_called_once()
+        log.warning.assert_called_once()

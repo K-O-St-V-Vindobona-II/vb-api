@@ -29,9 +29,17 @@ div.label {
 div.recipient {
     padding-top: 4mm;
     padding-left: 4mm;
+    padding-right: 3mm;
     font-style: italic;
     font-size: 8pt;
     line-height: 9pt;
+    overflow-wrap: anywhere;
+}
+/* Long names or street lines would push the last recipient lines out of the
+   label box, where they are clipped silently: such labels use a denser type. */
+div.recipient.dense {
+    font-size: 7pt;
+    line-height: 7.5pt;
 }
 div.sender {
     padding-top: 2mm;
@@ -48,7 +56,8 @@ div.sender {
 <div class="page">
 {% for label in page %}
 <div class="label" style="left: {{ label.col * 7 }}cm; top: {{ label.row * 3.6 + 0.4 }}cm;">
-    <div class="recipient">
+    {% set dense = label.name|length > 40 or label.address|length > 40 %}
+    <div class="recipient{{ ' dense' if dense }}">
         {% if label.anrede %}<div>{{ label.anrede }}</div>{% endif %}
         <div>{{ label.name }}</div>
         {% if label.address %}<div>{{ label.address }}</div>{% endif %}

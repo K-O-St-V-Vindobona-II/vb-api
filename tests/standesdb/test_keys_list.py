@@ -1,4 +1,4 @@
-"""Tests für GET /api/standesdb/keys — Schlüsselliste."""
+"""Tests for GET /api/standesdb/keys - the key list."""
 
 from datetime import date
 from typing import TYPE_CHECKING
@@ -21,15 +21,15 @@ if TYPE_CHECKING:
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
         ]
     )
     db.commit()
     db.add_all(
         [
-            Role(id="x", group="chc", label="Senior", order=0),
+            Role(id="x", group="chc", label="Senior", sort_order=0),
             Key(name="Bude"),
             Key(name="ChC"),
             Key(name="Post"),

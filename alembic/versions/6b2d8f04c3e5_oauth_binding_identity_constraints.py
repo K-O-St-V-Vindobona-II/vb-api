@@ -15,7 +15,7 @@ The migration stops with a clear message if duplicates already exist; resolve
 them first (the query in the guard lists them).
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql

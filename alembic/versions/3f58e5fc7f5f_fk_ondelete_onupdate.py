@@ -6,7 +6,7 @@ Create Date: 2026-07-21 19:57:08.088382
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 from alembic import op
 
@@ -137,8 +137,8 @@ def upgrade() -> None:
     # members_parent_id_fkey is absent on historically-grown Dev/Prod (added
     # to the model after those tables were created; create_all() never
     # retrofits constraints onto existing tables), but present on databases
-    # built fresh from REV3 (e.g. CI). IF EXISTS keeps this migration valid
-    # for both starting states.
+    # built fresh from the schema baseline (e.g. CI). IF EXISTS keeps this
+    # migration valid for both starting states.
     op.execute("ALTER TABLE members DROP CONSTRAINT IF EXISTS members_parent_id_fkey")
     op.drop_constraint("members_org_id_fkey", "members", type_="foreignkey")
     op.create_foreign_key(
@@ -388,6 +388,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.drop_constraint(
         "p4x_transactions_p4x_account_id_fkey", "p4x_transactions", type_="foreignkey"
     )

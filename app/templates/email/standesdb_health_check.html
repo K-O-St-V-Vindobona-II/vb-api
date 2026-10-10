@@ -1,17 +1,22 @@
 <!DOCTYPE html>
 <html>
-<head></head>
+<head><meta charset="utf-8"></head>
 <body>
+{# A report of thousands of keys would be a mail of hundreds of kilobytes. #}
+{% set max_listed = 100 %}
 <p>Wöchentliche Konsistenzprüfung der Standesdatenbank-Bilder:</p>
 
 {% if missing %}
 <p><strong style="color: red;">{{ missing|length }} fehlende Datei(en)</strong>
 (in der Datenbank referenziert, aber nicht in S3 vorhanden):</p>
 <ul>
-{% for key in missing %}
+{% for key in missing[:max_listed] %}
   <li>{{ key }}</li>
 {% endfor %}
 </ul>
+{% if missing|length > max_listed %}
+<p>… und {{ missing|length - max_listed }} weitere.</p>
+{% endif %}
 {% else %}
 <p>Keine fehlenden Dateien.</p>
 {% endif %}
@@ -20,10 +25,13 @@
 <p>{{ orphans|length }} verwaiste(s) S3-Objekt(e) (kein Datenbank-Verweis,
 nur zur Information — keine automatische Löschung):</p>
 <ul>
-{% for key in orphans %}
+{% for key in orphans[:max_listed] %}
   <li>{{ key }}</li>
 {% endfor %}
 </ul>
+{% if orphans|length > max_listed %}
+<p>… und {{ orphans|length - max_listed }} weitere.</p>
+{% endif %}
 {% else %}
 <p>Keine verwaisten Objekte.</p>
 {% endif %}

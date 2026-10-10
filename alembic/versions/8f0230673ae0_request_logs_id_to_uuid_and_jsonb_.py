@@ -11,7 +11,7 @@ now that the activity-log feature backing that endpoint is being rewritten
 from scratch anyway. No other table has a foreign key onto request_logs.id
 (it is a leaf/audit table), so - unlike most tables in the earlier
 UUID-PK series - this needs no separate Phase A / Final-Cutover split and
-no Referrer-Cutover slice elsewhere.
+no Referrer-Cutover revision elsewhere.
 
 client_ips/request_input/response_content also move from TEXT (holding
 manually json.dumps()-encoded text) to native JSONB. client_ips carries two
@@ -24,7 +24,7 @@ migration) and are cast directly.
 """
 
 import uuid
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -69,10 +69,9 @@ def upgrade() -> None:
     _batched_uuid_backfill()
     op.alter_column(TABLE, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
     op.drop_constraint(f"{TABLE}_pkey", TABLE, type_="primary")
     op.drop_column(TABLE, "id")

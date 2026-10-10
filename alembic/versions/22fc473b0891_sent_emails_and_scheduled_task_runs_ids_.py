@@ -6,7 +6,7 @@ Create Date: 2026-09-01 14:47:36.460104
 
 Two more structurally isolated leaf tables (no incoming foreign keys),
 bundled into one migration using the same Phase A + Phase C in one step,
-CONCURRENTLY-index-straight-to-primary-key pattern as
+unique-index-straight-to-primary-key pattern as
 61330e9e0ca8_public_site_social_links_id_to_uuid.py.
 
 scheduled_task_runs revisits 9f8ff3c10cb2_scheduled_task_runs_id_to_
@@ -20,7 +20,6 @@ migration series; dropped here rather than recreated on the new column,
 since the promoted unique index already covers the same lookups.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -34,35 +33,17 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLES = ("sent_emails", "scheduled_task_runs")
-BATCH_SIZE = 5000
-
-
-def _batched_uuid_backfill(table: str) -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(f"SELECT id FROM {table} WHERE id_uuid IS NULL LIMIT :limit"),  # noqa: S608
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {table} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
 
 
 def _cutover_to_uuid(table: str) -> None:
     # --- Phase A: additive prep -------------------------------------------
     op.add_column(table, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill(table)
+    op.execute(f"UPDATE {table} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(table, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
     # --- Phase C: final cutover (no referrer table to wait for) -----------
     op.drop_constraint(f"{table}_pkey", table, type_="primary")

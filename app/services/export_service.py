@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from sqlalchemy import ColumnElement, or_
+from sqlalchemy.orm import selectinload
 from weasyprint import HTML
 
 from app.core.datetime_utils import local_today
@@ -18,7 +19,6 @@ from app.core.storage import (
 )
 from app.models.contact import Contact
 from app.models.member import Member
-from app.models.member_badge import MemberBadge
 from app.models.org import Org
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
@@ -110,9 +110,21 @@ def _write_row(ws: Worksheet, row_idx: int, values: list[str]) -> None:
         cell.data_type = "s"
 
 
+def _format_recipient(name: str, email: str) -> str:
+    """One `"Name" <address>` entry of the mailing list.
+
+    The name is a quoted string: a backslash or a double quote inside it is
+    escaped, so a name such as `Max", <x@y.at>, "Tarn` stays one display name
+    and cannot add a second recipient to a list that is pasted into a mail
+    client.
+    """
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}" <{email}>'
+
+
 def get_export_config(db: Session) -> dict[str, object]:
-    orgs = db.query(Org).order_by(Org.order).all()
-    states = db.query(State).order_by(State.order).all()
+    orgs = db.query(Org).order_by(Org.sort_order).all()
+    states = db.query(State).order_by(State.sort_order).all()
     return {
         "modules": AVAILABLE_MODULES,
         "orgs": [{"id": o.id, "label": o.label} for o in orgs],
@@ -139,7 +151,13 @@ def filter_members(
     if not conditions:
         return []
 
-    query = db.query(Member).filter(or_(*conditions))
+    # The exports read every member's badges and default image; loading both
+    # for the whole result in one extra query each avoids one query per member.
+    query = (
+        db.query(Member)
+        .options(selectinload(Member.member_badges), selectinload(Member.images))
+        .filter(or_(*conditions))
+    )
     query = query.filter(Member.entlassen == False)  # noqa: E712
 
     if not filter_data.get("include_disabled_delivery"):
@@ -164,7 +182,7 @@ def filter_contacts(
 ) -> list[Contact]:
     orgs = db.query(Org).all()
 
-    conditions = []
+    conditions: list[ColumnElement[bool]] = []
     for org in orgs:
         key = f"{org.id}_contacts"
         if filter_data.get(key):
@@ -175,7 +193,9 @@ def filter_contacts(
     if not conditions:
         return []
 
-    query = db.query(Contact).filter(or_(*conditions))
+    query = (
+        db.query(Contact).options(selectinload(Contact.images)).filter(or_(*conditions))
+    )
     query = query.filter(Contact.deleted_at.is_(None))
 
     if not filter_data.get("include_disabled_delivery"):
@@ -186,19 +206,28 @@ def filter_contacts(
     return query.order_by(Contact.name).all()
 
 
+def _render_pdf(html_content: str) -> bytes:
+    # WeasyPrint declares most write_pdf parameters without a type.
+    pdf_bytes = HTML(string=html_content).write_pdf()  # pyright: ignore[reportUnknownMemberType]
+    if pdf_bytes is None:
+        msg = "PDF generation returned no data."
+        raise RuntimeError(msg)
+    return pdf_bytes
+
+
 def generate_mailing_list(
     members: list[Member],
     contacts: list[Contact],
 ) -> bytes:
-    entries = []
+    entries: list[str] = []
     for m in members:
         email = (m.email or "").strip()
         if email:
-            entries.append(f'"{m.cn}" <{email}>')
+            entries.append(_format_recipient(m.cn, email))
     for c in contacts:
         email = (c.email or "").strip()
         if email:
-            entries.append(f'"{c.cn}" <{email}>')
+            entries.append(_format_recipient(c.cn, email))
     return ", \n".join(entries).encode("utf-8")
 
 
@@ -461,13 +490,11 @@ def _build_org_dates(member: Member) -> list[tuple[str, str]]:
 
 
 def _classify_badges(
-    db: Session,
-    member_id: uuid.UUID,
+    member: Member,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    badges = db.query(MemberBadge).filter(MemberBadge.member_id == member_id).all()
     jubelbaender: list[dict[str, str]] = []
     ehrenzeichen: list[dict[str, str]] = []
-    for mb in badges:
+    for mb in member.member_badges:
         if not mb.badge:
             continue
         entry: dict[str, str] = {
@@ -510,7 +537,7 @@ def _prepare_member_data(
             parent_cn = parent.cn_full
 
     org_dates = _build_org_dates(member)
-    jubelbaender, ehrenzeichen = _classify_badges(db, member.id)
+    jubelbaender, ehrenzeichen = _classify_badges(member)
     addr_anschrift, addr_plz_ort, addr_land = _resolve_delivery_address(member)
 
     return {
@@ -632,11 +659,7 @@ def generate_labels(
 
     template = _jinja_env.get_template("labels.html")
     html_content = template.render(pages=pages)
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    if pdf_bytes is None:
-        msg = "PDF generation returned no data."
-        raise RuntimeError(msg)
-    return pdf_bytes
+    return _render_pdf(html_content)
 
 
 def generate_booklet(
@@ -663,8 +686,4 @@ def generate_booklet(
         members=member_data,
         contacts=contact_data,
     )
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    if pdf_bytes is None:
-        msg = "PDF generation returned no data."
-        raise RuntimeError(msg)
-    return pdf_bytes
+    return _render_pdf(html_content)

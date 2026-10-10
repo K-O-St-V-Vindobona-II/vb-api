@@ -27,7 +27,7 @@ two apart.
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from arq import Retry, cron, func
 from arq.connections import RedisSettings
@@ -66,6 +66,8 @@ from app.core.worker_logging import describe_job_origin, install_task_origin_log
 from app.models.enums import JobId
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from arq.cron import CronJob
     from arq.typing import WorkerCoroutine
 
@@ -73,47 +75,64 @@ install_task_origin_log_filter()
 
 logger = logging.getLogger(__name__)
 
+# arq hands every task one context dict; only `job_id` is read here.
+type WorkerContext = dict[str, object]
 
-async def task_health_check(ctx: dict[str, Any]) -> str:  # noqa: ARG001 -- ctx is arq's required task signature
+# Jobs that rewrite the database or the S3 mirror must never overlap, whether a
+# nightly run, a manual trigger or a double click started them. The worker is
+# one process with one event loop, so an in-process lock is enough.
+_MAINTENANCE_LOCK = asyncio.Lock()
+
+
+async def task_health_check(ctx: WorkerContext) -> str:  # noqa: ARG001 -- ctx is arq's required task signature
     """Trivial task with no external dependencies, useful to confirm the
     worker is actually processing jobs (e.g. via `enqueue_job` from a
     shell) independent of any real job's business logic."""
     return "ok"
 
 
-async def task_cleanup(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_cleanup(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_cleanup)
 
 
-async def task_refresh_category_filter_hits(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_refresh_category_filter_hits(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_refresh_category_filter_hits)
 
 
-async def task_birthday_mails(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_birthday_mails(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_birthday_mails)
 
 
-async def task_debtor_reminder(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_debtor_reminder(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_debtor_reminder)
 
 
-async def task_standesdb_chronicles(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_standesdb_chronicles(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_standesdb_chronicles)
 
 
-async def task_archive_health_check(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_archive_health_check(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_archive_health_check)
 
 
-async def task_standesdb_health_check(ctx: dict[str, Any]) -> None:  # noqa: ARG001
+async def task_standesdb_health_check(ctx: WorkerContext) -> None:  # noqa: ARG001
     await asyncio.to_thread(job_standesdb_health_check)
 
 
-async def task_db_backup(ctx: dict[str, Any]) -> None:  # noqa: ARG001
-    await asyncio.to_thread(job_db_backup)
+async def _run_exclusively(name: str, job: Callable[[], None]) -> None:
+    """Runs a database/S3 maintenance job unless another one is running."""
+    if _MAINTENANCE_LOCK.locked():
+        logger.warning("%s skipped: another maintenance job is still running.", name)
+        return
+    async with _MAINTENANCE_LOCK:
+        await asyncio.to_thread(job)
 
 
-async def task_downsync(ctx: dict[str, Any]) -> None:
+async def task_db_backup(ctx: WorkerContext) -> None:  # noqa: ARG001
+    await _run_exclusively("task_db_backup", job_db_backup)
+
+
+async def task_downsync(ctx: WorkerContext) -> None:
     """Shared by the nightly non-production cron entry (see
     build_cron_jobs()) AND the manual `POST /api/system/downsync/trigger`
     endpoint (`arq_pool.enqueue_job("task_downsync")`) — one execution
@@ -126,15 +145,16 @@ async def task_downsync(ctx: dict[str, Any]) -> None:
     not. This function logs its own origin explicitly instead, since
     `ctx["job_id"]` still carries the real distinction.
     """
+    job_id = cast("str", ctx["job_id"])
     logger.info(
         "[%s] task_downsync starting (job_id=%s)",
-        describe_job_origin(ctx["job_id"]),
-        ctx["job_id"],
+        describe_job_origin(job_id),
+        job_id,
     )
-    await asyncio.to_thread(job_downsync)
+    await _run_exclusively("task_downsync", job_downsync)
 
 
-async def task_send_reset_email(ctx: dict[str, Any], email: str, token: str) -> None:  # noqa: ARG001
+async def task_send_reset_email(ctx: WorkerContext, email: str, token: str) -> None:  # noqa: ARG001
     await asyncio.to_thread(send_reset_email, email, token)
 
 
@@ -166,7 +186,7 @@ async def task_send_contact_form_email(
 
 
 async def task_send_entry_changed_email(
-    ctx: dict[str, Any],  # noqa: ARG001
+    ctx: WorkerContext,  # noqa: ARG001
     to_emails: list[str],
     entry_type: str,
     entry_cn: str,
@@ -187,7 +207,7 @@ async def task_send_entry_changed_email(
 
 
 async def task_send_member_change_request_submitted_email(
-    ctx: dict[str, Any],  # noqa: ARG001
+    ctx: WorkerContext,  # noqa: ARG001
     to_emails: list[str],
     member_cn: str,
     diff: dict[str, dict[str, object]],
@@ -198,7 +218,7 @@ async def task_send_member_change_request_submitted_email(
 
 
 async def task_send_member_change_request_resolved_email(
-    ctx: dict[str, Any],  # noqa: ARG001
+    ctx: WorkerContext,  # noqa: ARG001
     to_email: str,
     diff: dict[str, dict[str, object]],
     field_decisions: dict[str, str],
@@ -209,7 +229,7 @@ async def task_send_member_change_request_resolved_email(
 
 
 async def task_send_own_image_changed_email(
-    ctx: dict[str, Any],  # noqa: ARG001
+    ctx: WorkerContext,  # noqa: ARG001
     to_emails: list[str],
     member_cn: str,
     action: str,
@@ -295,3 +315,11 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(cast("str", get_settings().valkey_url))
     job_serializer = serialize_job
     job_deserializer = deserialize_job
+    # arq refreshes the health-check key that `arq --check` reads only once per
+    # interval (default 3600 s), so a dead worker stayed "healthy" for up to an
+    # hour. 30 s keeps the container health check honest.
+    health_check_interval = 30
+    # The default of 300 s ends the wait for a job (not its thread) after five
+    # minutes: a long backup or downsync would be reported as failed while it is
+    # still running. Nothing here should run longer than an hour.
+    job_timeout = 3600

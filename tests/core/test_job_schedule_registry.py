@@ -18,6 +18,7 @@ from app.core.job_schedule_registry import (
     applicable_entries,
     get_scheduled_jobs,
 )
+from app.models.enums import JobId
 
 
 class TestApplicableEntries:
@@ -95,6 +96,13 @@ class TestGetScheduledJobs:
 
 
 class TestJobRegistryEntries:
+    def test_every_job_id_has_exactly_one_registry_entry(self):
+        """A JobId without an entry never runs; a duplicate entry would
+        register the same job twice."""
+        registered_ids = [entry.id for entry in JOB_REGISTRY]
+
+        assert sorted(registered_ids) == sorted(JobId)
+
     def test_registry_has_exactly_nine_jobs(self):
         assert len(JOB_REGISTRY) == 9
 

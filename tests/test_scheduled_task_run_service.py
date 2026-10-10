@@ -17,9 +17,10 @@ properly isolated.
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import DataError, IntegrityError
 
 from app.db.database import SessionLocal
@@ -69,6 +70,19 @@ class TestScheduledTaskRunConstraints:
         with pytest.raises(DataError):
             db_session.commit()
 
+    def test_database_enum_labels_match_the_job_id_members(self, db_session):
+        """The `job_id` ENUM type is created by a migration while the
+        application binds to the JobId class: adding a member to one
+        without a migration for the other would fail every run record of
+        that job only at runtime, so both lists must stay identical."""
+        labels = (
+            db_session.execute(text("SELECT unnest(enum_range(NULL::job_id))::text"))
+            .scalars()
+            .all()
+        )
+
+        assert sorted(labels) == sorted(job_id.value for job_id in JobId)
+
     def test_negative_exit_code_rejected(self, db_session):
         started = datetime.now(UTC)
         db_session.add(
@@ -106,6 +120,43 @@ class TestScheduledTaskRunConstraints:
         db_session.refresh(run)
 
         assert round(float(run.duration_seconds)) == 5
+
+
+class TestRecordJobRunFailure:
+    """A failed history write is logged and never reaches the job."""
+
+    MESSAGE = "Failed to record run history for a scheduled job"
+
+    def test_a_session_that_cannot_be_opened_is_logged_without_the_job_id(self):
+        with (
+            patch(
+                "app.services.scheduled_task_run_service.SessionLocal",
+                side_effect=RuntimeError("database down"),
+            ),
+            patch("app.services.scheduled_task_run_service.logger") as log,
+        ):
+            record_job_run(
+                JobId.BIRTHDAY_MAILS, datetime.now(UTC), exit_code=0, output="ok"
+            )
+
+        log.exception.assert_called_once_with(self.MESSAGE)
+
+    def test_a_failing_commit_is_logged_and_the_session_is_closed(self):
+        session = MagicMock()
+        session.commit.side_effect = RuntimeError("commit failed")
+        with (
+            patch(
+                "app.services.scheduled_task_run_service.SessionLocal",
+                return_value=session,
+            ),
+            patch("app.services.scheduled_task_run_service.logger") as log,
+        ):
+            record_job_run(
+                JobId.DEBTOR_REMINDER, datetime.now(UTC), exit_code=1, output=None
+            )
+
+        log.exception.assert_called_once_with(self.MESSAGE)
+        session.close.assert_called_once_with()
 
 
 @pytest.mark.usefixtures("_cleanup_real_runs")
@@ -258,3 +309,14 @@ class TestScheduledTaskRunUuidDefault:
 
         assert isinstance(run.id, uuid.UUID)
         assert run.id.version == 7
+
+
+class TestListJobRunsUnknownJob:
+    def test_history_of_an_unknown_job_is_an_empty_page(self, db_session):
+        result = list_job_runs(db_session, "nonsense", page=2, page_size=10)
+
+        assert result == {"items": [], "total": 0, "page": 2, "page_size": 10}
+
+    @pytest.mark.parametrize("job_id", ["", "CLEANUP", "cleanup ", "cleanup;--"])
+    def test_near_misses_of_a_real_id_are_unknown_too(self, db_session, job_id):
+        assert list_job_runs(db_session, job_id, page=1, page_size=25)["total"] == 0

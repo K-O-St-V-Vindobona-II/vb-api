@@ -10,6 +10,7 @@ WORKDIR /app
 # and restore into that server across a major-version upgrade.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 \
+    libharfbuzz-subset0 \
     curl ca-certificates gnupg postgresql-common \
     && sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get install -y --no-install-recommends postgresql-client-18 \
@@ -22,7 +23,7 @@ FROM python:3.14-slim AS builder
 WORKDIR /build
 
 COPY requirements.lock .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.lock
 
 
 FROM base AS dev
@@ -34,10 +35,13 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
+# The same pins as CI (requirements-dev.lock), so a tool cannot behave
+# differently in the dev container than in the pipeline.
+COPY requirements-dev.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements-dev.lock
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header"]
+# --forwarded-allow-ips '*': see the note at the end of the prod stage.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header", "--forwarded-allow-ips", "*"]
 
 
 FROM base AS prod
@@ -49,7 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --no-create-home app
 
 COPY --from=builder /install /usr/local
-COPY --chown=app:app . .
+# The code stays owned by root and is only readable for the application user,
+# so a process that runs as that user cannot rewrite it, whatever the runtime
+# options of the container are.
+COPY . .
 
 RUN chmod +x docker-entrypoint.sh
 
@@ -89,7 +96,18 @@ CMD ["gunicorn", "main:app", \
      "--graceful-timeout", "30", \
      "--worker-tmp-dir", "/tmp", \
      "--access-logfile", "-", \
+     "--forwarded-allow-ips", "*", \
      "--no-control-socket"]
+# --forwarded-allow-ips '*': the rate limiter keys on the client address that
+# the server resolves from X-Forwarded-For, and the server applies that header
+# only for peers on this list. The reverse proxy reaches the container through
+# the port the pod publishes on the host's loopback interface, and under
+# rootless networking the container sees such a connection as coming from the
+# host's own public address, not from 127.0.0.1 - a list of loopback addresses
+# never matches, the header is ignored and every visitor shares one limit.
+# Trusting any peer is safe only while that port stays published on the
+# loopback interface alone (nothing but processes of the host can connect) and
+# the proxy replaces the header instead of appending to a client-supplied one.
 # --no-control-socket: this feature (gunicorn >= 25.1.0) is for gunicornc,
 # a CLI tool for runtime worker management - unused here (Podman/systemd
 # own the container lifecycle instead). Without this flag, gunicorn tries

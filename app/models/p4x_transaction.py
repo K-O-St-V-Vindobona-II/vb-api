@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -14,9 +15,16 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    literal_column,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    column_property,
+    deferred,
+    mapped_column,
+    relationship,
+)
 
 from app.db.database import Base
 
@@ -75,9 +83,22 @@ class P4xTransaction(Base):
         index=True,
     )
     comment: Mapped[str | None]
-    raw: Mapped[str | None] = mapped_column(Text)
-    attachment: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The bank entry and the attachment (a base64 PDF of up to 3 MB) can be
+    # large; deferring them keeps a page of transactions from loading all of
+    # them. They load on first access, which only the raw and download
+    # routes and the summary export do.
+    raw: Mapped[str | None] = deferred(mapped_column(Text))
+    attachment: Mapped[str | None] = deferred(mapped_column(Text))
+    has_attachment: Mapped[bool] = column_property(
+        literal_column(
+            "(p4x_transactions.attachment IS NOT NULL"
+            " AND p4x_transactions.attachment <> '')",
+            type_=Boolean,
+        )
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -98,10 +119,6 @@ class P4xTransaction(Base):
         viewonly=True,
         lazy="joined",
     )
-
-    @property
-    def has_attachment(self) -> bool:
-        return bool(self.attachment)
 
     @property
     def delegating_partner_type(self) -> str | None:

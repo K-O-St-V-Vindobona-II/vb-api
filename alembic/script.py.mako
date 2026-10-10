@@ -1,28 +1,42 @@
 """${message}
 
 Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
+Revises:${" " + comma(down_revision) if down_revision else ""}
 Create Date: ${create_date}
 
 """
-from typing import Sequence, Union
+
+from typing import Sequence
+% if "sa." in ((upgrades or "") + (downgrades or "")) or imports:
+
+% if "sa." in ((upgrades or "") + (downgrades or "")):
+import sqlalchemy as sa
+% endif
+% if imports:
+${imports}
+% endif
+% endif
 
 from alembic import op
-import sqlalchemy as sa
-${imports if imports else ""}
 
 # revision identifiers, used by Alembic.
-revision: str = ${repr(up_revision)}
-down_revision: Union[str, Sequence[str], None] = ${repr(down_revision)}
-branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
-depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+revision: str = ${repr(up_revision).replace("'", '"')}
+down_revision: str | Sequence[str] | None = ${repr(down_revision).replace("'", '"')}
+branch_labels: str | Sequence[str] | None = ${repr(branch_labels).replace("'", '"')}
+depends_on: str | Sequence[str] | None = ${repr(depends_on).replace("'", '"')}
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    ${upgrades if upgrades else "pass"}
+    op.execute("SET LOCAL lock_timeout = '5s'")
+% if upgrades:
+    ${upgrades}
+% endif
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    ${downgrades if downgrades else "pass"}
+    op.execute("SET LOCAL lock_timeout = '5s'")
+% if downgrades:
+    ${downgrades}
+% endif

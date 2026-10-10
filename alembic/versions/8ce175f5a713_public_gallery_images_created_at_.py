@@ -6,7 +6,7 @@ Create Date: 2026-09-16 17:16:47.594775
 
 public_gallery_images has had created_at/updated_at columns and the
 shared set_updated_at() trigger (wired up in 74d19e4af679_updated_at_
-trigger.py) since Migration Wave 2, but unlike every other audited table
+trigger.py) since that revision, but unlike every other table with audit columns
 it never got a server_default=now() on either column - the only table
 in the schema where every INSERT still depended on the application
 supplying both timestamps explicitly. Closing that gap the same way
@@ -15,7 +15,7 @@ backfill needed here since the columns already existed and are already
 populated on every row.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

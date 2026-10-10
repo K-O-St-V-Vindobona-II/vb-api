@@ -25,7 +25,7 @@ writes to.
 
 request_logs.id itself is deliberately untouched here - it's exposed
 via GET /tracking/activity/{log_id} and stays an integer path param;
-converting it is out of this slice's scope.
+converting it is out of this revision's scope.
 """
 
 from typing import Sequence
@@ -134,11 +134,11 @@ def _revert_client_user_agents_own_id() -> None:
     )
     op.create_primary_key("client_user_agents_pkey", "client_user_agents", ["id"])
     op.create_index("ix_client_user_agents_id", "client_user_agents", ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE UNIQUE INDEX CONCURRENTLY client_user_agents_id_uuid_key "
-            "ON client_user_agents (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(
+        "client_user_agents_id_uuid_key", "client_user_agents", ["id_uuid"], unique=True
+    )
 
 
 def upgrade() -> None:
@@ -147,7 +147,7 @@ def upgrade() -> None:
 
     # 1. Backfill request_logs' two new FK columns via chunked joins,
     #    against the parents' id_uuid columns (both already exist and
-    #    are fully populated from earlier Phase A slices).
+    #    are fully populated by the earlier Phase A revisions).
     op.add_column(TABLE, sa.Column("member_id_uuid", sa.Uuid(), nullable=True))
     _chunked_join_backfill("member_id", "member_id_uuid", "members", "id_uuid")
     op.add_column(

@@ -19,7 +19,7 @@ class ArchiveFileComment(Base):
     __tablename__ = "archive_file_comments"
     __table_args__ = (
         CheckConstraint(
-            "content IS NULL OR length(content) BETWEEN 1 AND 1000",
+            "char_length(content) BETWEEN 5 AND 1000",
             name="archive_file_comments_content_check",
         ),
     )
@@ -31,12 +31,14 @@ class ArchiveFileComment(Base):
         ForeignKey("archive_files.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
-    content: Mapped[str | None]
+    content: Mapped[str]
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration

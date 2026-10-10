@@ -1,7 +1,8 @@
 """Proves the FK ondelete/onupdate constraints (Alembic revision
 3f58e5fc7f5f) are actually enforced by the database — the reason the whole
-test suite was moved off SQLite onto real PostgreSQL. SQLite never enforces
-foreign keys by default, so none of this was ever exercised before."""
+test suite was moved onto real PostgreSQL. The prior test-database engine
+never enforced foreign keys by default, so none of this was ever exercised
+before."""
 
 import datetime
 import uuid
@@ -32,7 +33,6 @@ from app.models.org import Org
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
-from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.request_log import RequestLog
@@ -291,23 +291,6 @@ class TestFkInsertEnforcement:
             db_session.commit()
         db_session.rollback()
 
-    def test_inserting_a_summary_order_with_unknown_ordered_by_is_rejected(
-        self, db_session
-    ):
-        """p4x_summary_orders.ordered_by -> members.id (Alembic
-        revision bc095b5fb813)."""
-        db_session.add(
-            P4xSummaryOrder(
-                ordered_by=uuid.uuid4(),
-                email="fk-test@vindobona.at",
-                summary_start=datetime.date(2020, 1, 1),
-                summary_end=datetime.date(2020, 1, 2),
-            )
-        )
-        with pytest.raises(IntegrityError):
-            db_session.commit()
-        db_session.rollback()
-
     def test_inserting_a_gallery_image_with_unknown_created_by_is_rejected(
         self, db_session
     ):
@@ -548,8 +531,8 @@ class TestStandesdbImageExclusiveArc:
 class TestStandesdbImageCreatedByFk:
     """standesdb_images.created_by -> members.id - a genuinely
     missing FK added directly (not a Referrer-Cutover of an existing
-    one), same class of fix as slice 20's contacts_logs/members_logs
-    .modified_by and slice 22's request_logs FKs."""
+    one), same class of fix as 267386fa75f3's contacts_logs/members_logs
+    .modified_by and e186839a1e80's request_logs FKs."""
 
     def test_inserting_with_unknown_created_by_is_rejected(self, db_session):
         member = Member(vorname="Test", nachname="User")
@@ -599,7 +582,7 @@ class TestP4xPartnerExclusiveArc:
     link, not owned content. member_id/contact_id each reference their
     target's id_uuid column (Alembic revision ddc0a9d04eef), not its own
     still-integer id - members/contacts each keep their own Final-Cutover
-    for a later slice. p4x_account_id/p4x_special_contact_id reference
+    for a later revision. p4x_account_id/p4x_special_contact_id reference
     their target's own UUID primary key directly."""
 
     def test_two_columns_set_is_rejected(self, db_session):

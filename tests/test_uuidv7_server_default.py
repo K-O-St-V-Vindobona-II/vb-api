@@ -136,6 +136,7 @@ def _make_p4x_category_filter(session: Session) -> uuid.UUID:
         name="uuidv7-test",
         p4x_account_id=_make_p4x_account(session),
         subject_mode="contains",
+        subject="uuidv7-test",
         p4x_category_id=_make_p4x_category(session),
     )
     session.add(category_filter)
@@ -169,7 +170,8 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "archive_store_item_id": f"'{_make_archive_store_item(s)}'"
     },
     "archive_file_comments": lambda s: {
-        "archive_file_id": f"'{_make_archive_file(s)}'"
+        "archive_file_id": f"'{_make_archive_file(s)}'",
+        "content": "'uuidv7 test'",
     },
     "archive_permissions": lambda s: {
         "archive_dir_id": f"'{_make_archive_dir(s)}'",
@@ -212,6 +214,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "remote_id": "'uuidv7-test-remote'",
         "remote_name": "'uuidv7-test-name'",
     },
+    "badges": lambda _s: {"name": "'uuidv7 test'"},
     "p4x_accounts": lambda _s: {
         "iban": "'AT000000000000000000'",
         "init_balance": "0",
@@ -236,16 +239,11 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
         "name": "'uuidv7-test'",
         "p4x_account_id": f"'{_make_p4x_account(s)}'",
         "subject_mode": "'contains'",
+        "subject": "'uuidv7-test'",
         "p4x_category_id": f"'{_make_p4x_category(s)}'",
     },
     "p4x_partners": lambda s: {"member_id": f"'{_make_member(s)}'"},
-    "p4x_summary_orders": lambda s: {
-        "ordered_by": f"'{_make_member(s)}'",
-        "email": "'uuidv7-test@vindobona.at'",
-        "summary_start": "'2026-01-01'",
-        "summary_end": "'2026-01-31'",
-        "finished_ok": "false",
-    },
+    "p4x_special_contacts": lambda _s: {"cn": "'uuidv7-test'"},
     "p4x_transactions": lambda s: {
         "sha256_hash": "'uuidv7-tx-direct-test'",
         "booking": "'2026-01-01'",
@@ -301,7 +299,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
     "standesdb_images": lambda s: {
         "sha256_hash": "'uuidv7-standesdb-test'",
         "owner_member_id": f"'{_make_member(s)}'",
-        '"default"': "false",
+        "is_default": "false",
     },
 }
 

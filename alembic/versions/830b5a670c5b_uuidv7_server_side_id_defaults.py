@@ -13,7 +13,7 @@ This only changes the column's DEFAULT clause; no data is touched, and no
 row's existing id changes.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 from alembic import op
 

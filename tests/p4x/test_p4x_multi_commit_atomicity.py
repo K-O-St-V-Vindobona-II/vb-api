@@ -1,9 +1,8 @@
-"""Regression tests for Slice 5 of the backend remediation plan: several
-p4x service flows used to commit multiple times mid-flow instead of once
-at the end. Each test forces a failure in the second half of the flow and
-verifies that a subsequent rollback() discards ALL of it - proving the
-flow is now a single atomic transaction instead of partially persisting
-work before the failure.
+"""Regression tests: several p4x service flows used to commit multiple
+times mid-flow instead of once at the end. Each test forces a failure in
+the second half of the flow and verifies that a subsequent rollback()
+discards ALL of it - proving the flow is now a single atomic transaction
+instead of partially persisting work before the failure.
 """
 
 import json
@@ -291,7 +290,7 @@ class TestUnsetCategoryDirectAtomicity:
 
         with (
             patch(
-                "app.services.p4x_category_service.apply_all_category_filters_core",
+                "app.services.p4x_category_service._refresh_transaction_hits",
                 side_effect=RuntimeError("boom"),
             ),
             pytest.raises(RuntimeError),
@@ -308,3 +307,47 @@ class TestUnsetCategoryDirectAtomicity:
             .count()
         )
         assert still_active == 1
+
+
+class TestSetCategoryDirectAtomicity:
+    def test_rolls_back_if_the_hits_cannot_be_updated(self, db_session):
+        account = _create_account(db_session)
+        category = P4xCategory(
+            name="set.cat",
+            label="Test",
+            background_color="#000000",
+            text_color="#ffffff",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(category)
+        db_session.commit()
+        db_session.refresh(category)
+        tx = P4xTransaction(
+            sha256_hash="set_atomicity_tx",
+            booking=date(2026, 3, 15),
+            valuation=date(2026, 3, 15),
+            iban="AT001",
+            amount=100.0,
+            subject="Test",
+            p4x_account_id=account.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db_session.add(tx)
+        db_session.commit()
+        db_session.refresh(tx)
+
+        with (
+            patch(
+                "app.services.p4x_category_service._refresh_transaction_hits",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            p4x_category_service.set_category_direct(
+                db_session, tx, [{"p4x_category_id": category.id, "amount": 100.0}]
+            )
+
+        db_session.rollback()
+        assert db_session.query(P4xCategoryDirect).count() == 0

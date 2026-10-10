@@ -31,6 +31,12 @@ DEV_SUPERUSER_ID: uuid.UUID | None = (
 )
 
 
+def _system_admin_emails() -> frozenset[str]:
+    """Break-glass administrators from the server configuration
+    (SYSTEM_ADMIN_EMAILS). Only a verified address counts (_verified_email)."""
+    return get_settings().system_admin_email_set
+
+
 class PermissionRuleDisplay(TypedDict):
     permission: str
     description: str
@@ -60,12 +66,11 @@ PERMISSION_RULES: list[PermissionRule] = [
         description=(
             "Rolle 'Internetreferent'"
             " + Organisation VBW,"
-            " oder Email"
-            " michael.schimpl@gmail.com"
+            " oder eine in der Serverkonfiguration hinterlegte Notfall-Adresse"
         ),
         condition=lambda rids, _rgrps, org, email: (
             ("internetreferent" in rids and org == "vbw")
-            or email == "michael.schimpl@gmail.com"
+            or (email is not None and email in _system_admin_emails())
         ),
     ),
     PermissionRule(
@@ -128,6 +133,15 @@ PERMISSION_RULES: list[PermissionRule] = [
 ALL_PERMISSIONS: list[str] = sorted({rule.permission for rule in PERMISSION_RULES})
 
 
+def _verified_email(member: Member) -> str | None:
+    """The member's address, but only once its owner proved control of the
+    mailbox: a completed password reset sets email_verified_at, and every
+    change of the address clears it. Address-based rules must not trust an
+    address that an administrator merely typed into the member's record.
+    """
+    return member.email if member.email_verified_at else None
+
+
 def _active_roles(member: Member) -> tuple[set[str], set[str]]:
     """Currently active role IDs and role groups for a member (today between
     startdate and enddate, in Settings.app_timezone — role dates are
@@ -181,7 +195,7 @@ def calculate_permissions(
             active_role_ids,
             active_role_groups,
             member.org_id,
-            member.email,
+            _verified_email(member),
         )
     ]
 
@@ -201,7 +215,10 @@ def _group_members_by_rule_condition(db: Session) -> dict[str, list[Member]]:
         active_role_ids, active_role_groups = _active_roles(member)
         for rule in PERMISSION_RULES:
             if rule.condition(
-                active_role_ids, active_role_groups, member.org_id, member.email
+                active_role_ids,
+                active_role_groups,
+                member.org_id,
+                _verified_email(member),
             ):
                 holders[rule.permission].append(member)
     return holders

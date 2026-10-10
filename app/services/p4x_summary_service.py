@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from itertools import count
@@ -13,6 +14,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 if TYPE_CHECKING:
+    import uuid
+
     from openpyxl.worksheet.worksheet import Worksheet
     from sqlalchemy.orm import Session
 
@@ -33,6 +36,18 @@ from app.services import (
 logger = logging.getLogger(__name__)
 
 SUMUP_CATEGORY_NAME = "projekt.bude.sumup"
+
+# Characters a worksheet title may not contain, and its maximum length.
+_INVALID_SHEET_TITLE_CHARS = re.compile(r"[\[\]:*?/\\]")
+_MAX_SHEET_TITLE_LENGTH = 31
+
+
+def _sheet_title(label: str | None) -> str:
+    """A valid worksheet title for an account label: forbidden characters
+    become spaces (an account label such as "Konto/2026" is legal input but
+    not a legal title), at most 31 characters, never empty."""
+    title = _INVALID_SHEET_TITLE_CHARS.sub(" ", label or "").strip()
+    return title[:_MAX_SHEET_TITLE_LENGTH] or "Konto"
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +107,7 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
         )
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
@@ -230,7 +245,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     ]
 
     for a in accounts:
-        ws_acc = wb.create_sheet(title=(a.label or "")[:31])
+        ws_acc = wb.create_sheet(title=_sheet_title(a.label))
         ws_acc.freeze_panes = "H2"
         ws_acc.append(col_names)
         for cell in ws_acc[1]:
@@ -250,6 +265,15 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
             .all()
         )
 
+        partner_entities = p4x_partner_service.find_partner_entities(
+            db,
+            [
+                ref
+                for tx in txs
+                for ref in p4x_partner_service.transaction_partner_refs(tx)
+            ],
+        )
+
         for tx in txs:
             att_name = ""
             if tx.has_attachment and tx.attachment:
@@ -260,7 +284,7 @@ def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
                 except Exception:  # noqa: BLE001
                     logger.warning("Failed to decode attachment for tx %s", tx.id)
 
-            partner_str = _format_partner_for_xlsx(db, tx)
+            partner_str = _format_partner_for_xlsx(tx, partner_entities)
             subject_str = tx.subject + (
                 " [ Anlage liegt vor ]" if tx.has_attachment else ""
             )
@@ -526,7 +550,10 @@ def generate_fee_member_xlsx(response: FeeMemberResponse) -> bytes:
     return output.getvalue()
 
 
-def _format_partner_for_xlsx(db: Session, tx: P4xTransaction) -> str:
+def _format_partner_for_xlsx(
+    tx: P4xTransaction,
+    entities: dict[tuple[str, uuid.UUID], p4x_partner_service.PartnerEntity],
+) -> str:
     type_labels = {
         "member": "Mitglied",
         "contact": "Kontakt",
@@ -535,19 +562,12 @@ def _format_partner_for_xlsx(db: Session, tx: P4xTransaction) -> str:
     }
 
     if tx.delegating_partner_type and tx.delegating_partner_id:
-        entity = p4x_partner_service.find_partner_entity(
-            db, tx.delegating_partner_type, tx.delegating_partner_id
-        )
-        label = type_labels.get(tx.delegating_partner_type, "")
-        cn = getattr(entity, "cn", "unknown") if entity else "unknown"
-        return f"{label}: {cn}"
+        partner_type, partner_id = tx.delegating_partner_type, tx.delegating_partner_id
+    elif tx.partner and tx.partner.deleted_at is None:
+        partner_type, partner_id = tx.partner.partner_type, tx.partner.partner_id
+    else:
+        return "unknown: unknown"
 
-    if tx.partner and tx.partner.deleted_at is None:
-        entity = p4x_partner_service.find_partner_entity(
-            db, tx.partner.partner_type, tx.partner.partner_id
-        )
-        label = type_labels.get(tx.partner.partner_type, "")
-        cn = getattr(entity, "cn", "unknown") if entity else "unknown"
-        return f"{label}: {cn}"
-
-    return "unknown: unknown"
+    entity = entities.get((partner_type, partner_id))
+    cn = getattr(entity, "cn", "unknown") if entity else "unknown"
+    return f"{type_labels.get(partner_type, '')}: {cn}"

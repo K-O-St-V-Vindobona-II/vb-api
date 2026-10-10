@@ -20,21 +20,21 @@ from app.services.auth_service import create_user_session
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bi", label="Bandinhaber", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bi", label="Bandinhaber", sort_order=3),
             Role(
                 id="standesfuehrer",
                 group="chc",
                 label="Standesführer",
-                order=1,
+                sort_order=1,
             ),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=2,
+                sort_order=2,
             ),
         ]
     )
@@ -445,8 +445,8 @@ class TestChangelog:
     def test_member_changelog_excludes_technical_fields(self, client, db_session):
         """Technical/audit bookkeeping keys (e.g. auth_lastsignal, bumped on
         every request via a raw bulk UPDATE that bypasses the diff
-        mechanism) must never show up in the Änderungshistorie, even if
-        legacy rows for them already exist in the DB."""
+        mechanism) must never show up in the changelog, even if
+        older rows for them already exist in the DB."""
         _seed(db_session)
         admin = _admin(db_session)
         h = _headers(db_session, admin)

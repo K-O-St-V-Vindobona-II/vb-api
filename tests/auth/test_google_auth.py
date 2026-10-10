@@ -6,6 +6,8 @@ import bcrypt
 import pytest
 from google.auth.exceptions import TransportError
 
+from app.core.rate_limit import limiter
+from app.models.enums import OauthProvider
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
 from app.services import auth_service
@@ -38,7 +40,7 @@ def test_google_login_unlinked_returns_404(
 ):
     """
     Tests that a valid Google token WITHOUT a binding
-    returns 404 (prompting the frontend to link).
+    returns 404 (asking the frontend to link).
     """
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-client-id-123")
     mock_verify.return_value = {"sub": "google-remote-id-999", "name": "Google Tester"}
@@ -178,7 +180,7 @@ def _link_via_google(db, email):
 
 
 class TestGoogleLoginAtomicity:
-    """Regression tests for Slice 5: authenticate_google_user()/
+    """Regression tests: authenticate_google_user()/
     link_google_account() used to commit their binding update on their
     own, separately from create_user_session()'s commit - two commits for
     one logical "log the user in" operation. Now the binding update only
@@ -301,3 +303,180 @@ class TestMembersOauth2BindingUuidDefault:
 
         assert isinstance(binding.id, uuid.UUID)
         assert binding.id.version == 7
+
+
+LINK_URL = "/api/auth/google/link"
+LOGIN_URL = "/api/auth/google"
+
+
+LOCAL_PASSWORD = "secret"
+BAD_SUBJECT_CLAIMS = [{}, {"sub": None}, {"sub": ""}, {"sub": 12345}, {"sub": ["a"]}]
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The sign-in and link routes allow a few calls per minute; every test
+    here makes its own."""
+    limiter._storage.reset()
+
+
+def _link_payload(member, password=None):
+    return {
+        "credential": "token",
+        "email": member.email,
+        "password": LOCAL_PASSWORD if password is None else password,
+    }
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+class TestLinkFailsClosedWithoutClientId:
+    def test_the_token_is_not_even_verified(
+        self, mock_verify, client, monkeypatch, db_session, test_member_unbound
+    ):
+        monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+        mock_verify.return_value = {"sub": "other-application-user"}
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.status_code == 401
+        assert "konfiguriert" in resp.json()["detail"].lower()
+        mock_verify.assert_not_called()
+        assert db_session.query(MembersOauth2Binding).count() == 0
+
+    def test_an_empty_client_id_counts_as_unset(
+        self, mock_verify, client, monkeypatch, test_member_unbound
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "")
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.status_code == 401
+        mock_verify.assert_not_called()
+
+    def test_wrong_local_credentials_are_still_reported_first(
+        self, mock_verify, client, monkeypatch, test_member_unbound
+    ):
+        monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+
+        resp = client.post(
+            LINK_URL, json=_link_payload(test_member_unbound, password="wrong")
+        )
+
+        assert resp.status_code == 401
+        assert "konfiguriert" not in resp.json()["detail"].lower()
+        mock_verify.assert_not_called()
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+class TestAudienceIsAlwaysChecked:
+    def test_login_passes_the_client_id_as_audience(
+        self, mock_verify, client, monkeypatch
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "the-client-id")
+        mock_verify.return_value = {"sub": "unknown-google-user"}
+
+        client.post(LOGIN_URL, json={"credential": "token"})
+
+        assert mock_verify.call_args.args[2] == "the-client-id"
+
+    def test_link_passes_the_client_id_as_audience(
+        self, mock_verify, client, monkeypatch, test_member_unbound
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "the-client-id")
+        mock_verify.return_value = {"sub": "new-google-user", "name": "Name"}
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.status_code == 200
+        assert mock_verify.call_args.args[2] == "the-client-id"
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+class TestSubjectClaim:
+    @pytest.mark.parametrize("claims", BAD_SUBJECT_CLAIMS)
+    def test_login_rejects_a_token_without_a_usable_subject(
+        self, mock_verify, client, monkeypatch, claims
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+        mock_verify.return_value = claims
+
+        resp = client.post(LOGIN_URL, json={"credential": "token"})
+
+        assert resp.status_code == 401
+        assert "ungültig" in resp.json()["detail"].lower()
+
+    @pytest.mark.parametrize("claims", BAD_SUBJECT_CLAIMS)
+    def test_link_rejects_a_token_without_a_usable_subject(
+        self, mock_verify, client, monkeypatch, db_session, test_member_unbound, claims
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+        mock_verify.return_value = claims
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.status_code == 401
+        assert "ungültig" in resp.json()["detail"].lower()
+        assert db_session.query(MembersOauth2Binding).count() == 0
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+class TestVisibleMessagesStayTheSame:
+    def test_login_names_an_invalid_token_as_before(
+        self, mock_verify, client, monkeypatch
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+        mock_verify.side_effect = ValueError("bad signature")
+
+        resp = client.post(LOGIN_URL, json={"credential": "token"})
+
+        assert resp.json()["detail"] == "Ungültiger Google-Token."
+
+    def test_link_names_an_invalid_token_as_before(
+        self, mock_verify, client, monkeypatch, test_member_unbound
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+        mock_verify.side_effect = ValueError("bad signature")
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.json()["detail"] == "Der Google-Token ist ungültig oder abgelaufen."
+
+    @pytest.mark.parametrize("claims", [{"sub": "g-1"}, {"sub": "g-1", "name": 7}])
+    def test_link_falls_back_to_a_placeholder_name(
+        self, mock_verify, client, monkeypatch, db_session, test_member_unbound, claims
+    ):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake")
+        mock_verify.return_value = claims
+
+        resp = client.post(LINK_URL, json=_link_payload(test_member_unbound))
+
+        assert resp.status_code == 200
+        binding = db_session.query(MembersOauth2Binding).one()
+        assert binding.remote_name == "Unknown"
+
+
+@patch("app.services.auth_service.id_token.verify_oauth2_token")
+def test_google_login_of_a_member_without_an_address_is_a_401(
+    mock_verify, client, monkeypatch, db_session
+):
+    """A bound member without an e-mail address cannot get an access token
+    (its subject is the address); the answer is a 401, not an unhandled 500."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-client-id-123")
+    mock_verify.return_value = {"sub": "google-remote-id-777", "name": "No Address"}
+    member = Member(email=None, auth_locked=False)
+    db_session.add(member)
+    db_session.commit()
+    db_session.add(
+        MembersOauth2Binding(
+            member_id=member.id,
+            provider=OauthProvider.GOOGLE,
+            remote_id="google-remote-id-777",
+            remote_name="No Address",
+        )
+    )
+    db_session.commit()
+
+    response = client.post("/api/auth/google", json={"credential": "x.y.z"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Member hat keine E-Mail-Adresse."}

@@ -8,10 +8,8 @@ Targets uncovered lines: 160-162, 256-258, 270-275, 296, 330-331, 344,
 
 import os
 import uuid
-from datetime import UTC, date, datetime
 from io import BytesIO
 
-import bcrypt
 import pytest
 from PIL import Image as PILImage
 
@@ -21,11 +19,6 @@ from app.models.archive_file import ArchiveFile
 from app.models.archive_file_comment import ArchiveFileComment
 from app.models.archive_permission import ArchivePermission
 from app.models.archive_store_item import ArchiveStoreItem
-from app.models.member import Member
-from app.models.member_role import MemberRole
-from app.models.org import Org
-from app.models.role import Role
-from app.models.state import State
 from app.schemas.archive import (
     CommentCreateRequest,
     DirReceiveRequest,
@@ -39,153 +32,14 @@ from app.services.archive_service import (
     get_unsorted_upload_count,
     receive_items,
 )
-from app.services.auth_service import create_user_session
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _seed(db) -> None:
-    db.add_all(
-        [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bi", label="Bandinhaber", order=3),
-        ]
-    )
-    db.commit()
-    db.add_all(
-        [
-            Role(
-                id="internetreferent",
-                group="funktion",
-                label="Internetreferent",
-                order=0,
-            ),
-            Role(
-                id="x",
-                group="chc",
-                label="Senior",
-                order=1,
-            ),
-        ]
-    )
-    db.commit()
-
-
-def _login_admin(db, _client) -> tuple[dict[str, str], Member]:
-    hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
-    m = Member(
-        email="admin@vbw.at",
-        auth_password=hashed,
-        auth_locked=False,
-        vorname="Admin",
-        nachname="User",
-        org_id="vbw",
-        state_id="bi",
-    )
-    db.add(m)
-    db.commit()
-    db.add(
-        MemberRole(
-            member_id=m.id,
-            role_id="internetreferent",
-            startdate=date(2000, 1, 1),
-            enddate=None,
-        )
-    )
-    db.commit()
-    token, _, _ = create_user_session(db, m)
-    return {"Authorization": f"Bearer {token}"}, m
-
-
-def _login_user(
-    db,
-    _client,
-    org: str = "vbw",
-    state: str = "fu",
-) -> tuple[dict[str, str], Member]:
-    hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
-    m = Member(
-        email=f"{state}@{org}.at",
-        auth_password=hashed,
-        auth_locked=False,
-        vorname="Normal",
-        nachname="User",
-        org_id=org,
-        state_id=state,
-    )
-    db.add(m)
-    db.commit()
-    token, _, _ = create_user_session(db, m)
-    return {"Authorization": f"Bearer {token}"}, m
-
-
-def _make_dir(
-    db,
-    name: str,
-    parent_id: uuid.UUID | None = None,
-    perms: list[str] | None = None,
-    recursive: bool = False,
-) -> ArchiveDir:
-    now = _now()
-    d = ArchiveDir(
-        name=name,
-        archive_dir_id=parent_id,
-        recursive_permissions=recursive,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(d)
-    db.flush()
-    for p in perms or []:
-        parts = p.split("_")
-        db.add(
-            ArchivePermission(
-                archive_dir_id=d.id,
-                org_id=parts[0],
-                state_id=parts[1],
-            )
-        )
-    db.commit()
-    return d
-
-
-def _make_file(
-    db,
-    dir_id: uuid.UUID | None = None,
-    desc: str = "test",
-    extension: str = "jpg",
-    mime_type: str = "image/jpeg",
-    hash_suffix: str = "",
-) -> ArchiveFile:
-    now = _now()
-    item = ArchiveStoreItem(
-        name="testfile",
-        extension=extension,
-        mime_type=mime_type,
-        size=5000,
-        # dir_id is a full UUID string now, not a short int - left out here
-        # since sha256_hash is varchar(64) and hash_suffix (always varied
-        # by the caller) already disambiguates within a test.
-        sha256_hash=f"hash_{now.timestamp()}_{hash_suffix}",
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(item)
-    db.flush()
-    f = ArchiveFile(
-        archive_dir_id=dir_id,
-        description=desc,
-        archive_store_item_id=item.id,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(f)
-    db.commit()
-    return f
+from tests.archive.helpers import (
+    _login_admin,
+    _login_user,
+    _make_dir,
+    _make_file,
+    _now,
+    _seed,
+)
 
 
 def _make_jpeg_bytes(width: int = 100, height: int = 100) -> bytes:
@@ -592,6 +446,127 @@ class TestUpdateDir:
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+# ------------------------------------------------------------------ #
+# Permission pairs must name an existing organisation and state
+# ------------------------------------------------------------------ #
+
+
+class TestUnknownPermissionPairs:
+    @pytest.mark.parametrize("pair", ["zzz_zz", "zzz_fu", "vbw_zz"])
+    def test_create_dir_rejects_unknown_pair_without_leaving_a_row(
+        self, client, db_session, pair
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Rejected",
+                "permissions": ["vbw_fu", pair],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert pair in resp.json()["detail"]
+        assert "vbw_fu" not in resp.json()["detail"]
+        db_session.expire_all()
+        assert db_session.query(ArchiveDir).filter_by(name="Rejected").count() == 0
+
+    def test_create_dir_lists_every_unknown_pair(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Rejected",
+                "permissions": ["zzz_zz", "vbw_fu", "vbw_yy"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Unbekannte Berechtigung: zzz_zz, vbw_yy"
+
+    def test_update_dir_rejects_unknown_pair_and_keeps_the_directory(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Keep", perms=["vbw_fu"])
+        resp = client.put(
+            f"/api/archive/dirs/{d.id}",
+            json={
+                "name": "Renamed",
+                "permissions": ["zzz_zz"],
+                "recursive_permissions": True,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        db_session.expire_all()
+        kept = db_session.get(ArchiveDir, d.id)
+        assert kept.name == "Keep"
+        assert kept.recursive_permissions is False
+        stored = db_session.query(ArchivePermission).filter_by(archive_dir_id=d.id)
+        assert [(p.org_id, p.state_id) for p in stored] == [("vbw", "fu")]
+
+    def test_update_dir_replaces_the_stored_pairs(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        d = _make_dir(db_session, "Replace", perms=["vbw_fu", "vbn_fu"])
+        resp = client.put(
+            f"/api/archive/dirs/{d.id}",
+            json={
+                "name": "Replace",
+                "permissions": ["vbn_bi"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        db_session.expire_all()
+        stored = db_session.query(ArchivePermission).filter_by(archive_dir_id=d.id)
+        assert [(p.org_id, p.state_id) for p in stored] == [("vbn", "bi")]
+
+    def test_duplicate_pairs_are_stored_once(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Dedup",
+                "permissions": ["vbw_fu", "vbw_fu", "vbn_bi"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code in (200, 201)
+        created = db_session.query(ArchiveDir).filter_by(name="Dedup").one()
+        stored = db_session.query(ArchivePermission).filter_by(
+            archive_dir_id=created.id
+        )
+        assert sorted((p.org_id, p.state_id) for p in stored) == [
+            ("vbn", "bi"),
+            ("vbw", "fu"),
+        ]
+
+    def test_trailing_newline_pair_is_rejected_over_http(self, client, db_session):
+        _seed(db_session)
+        headers, _ = _login_admin(db_session, client)
+        resp = client.post(
+            "/api/archive/dirs",
+            json={
+                "name": "Newline",
+                "permissions": ["vbw_fu\n"],
+                "recursive_permissions": False,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert db_session.query(ArchivePermission).count() == 0
 
 
 # ------------------------------------------------------------------ #
@@ -1496,6 +1471,34 @@ class TestArchiveSchemaValidators:
         req = DirSaveRequest(name="ValidName", permissions=["vbw_bi"])
         assert req.permissions == ["vbw_bi"]
 
+    def test_dir_save_permission_with_trailing_newline_rejected(self):
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["vbw_bi\n"])
+
+    def test_dir_save_permission_with_surrounding_text_rejected(self):
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["xvbw_bi"])
+        with pytest.raises(Exception, match="Ungültiges Format"):
+            DirSaveRequest(name="ValidName", permissions=["vbw_bix"])
+
+    def test_dir_save_permissions_deduplicated_in_order(self):
+        req = DirSaveRequest(
+            name="ValidName", permissions=["vbn_bi", "vbw_fu", "vbn_bi", "vbw_fu"]
+        )
+        assert req.permissions == ["vbn_bi", "vbw_fu"]
+
+    def test_dir_save_permission_count_limit(self):
+        at_limit = [
+            f"{a}{b}{c}_bi" for a in "ab" for b in "abcde" for c in "abcdefghij"
+        ]
+        assert len(at_limit) == 100
+        assert (
+            len(DirSaveRequest(name="ValidName", permissions=at_limit).permissions)
+            == 100
+        )
+        with pytest.raises(Exception, match="at most 100"):
+            DirSaveRequest(name="ValidName", permissions=[*at_limit, "zzz_bi"])
+
     def test_dir_receive_invalid_type(self):
         with pytest.raises(Exception, match=r"dir.*file"):
             DirReceiveRequest(type="invalid", ids=[uuid.uuid4()])
@@ -1509,6 +1512,15 @@ class TestArchiveSchemaValidators:
             type="file", ids=[uuid.uuid4(), uuid.uuid4()], action="move"
         )
         assert req.type == "file"
+
+    def test_dir_receive_id_count_limit(self):
+        at_limit = [uuid.uuid4() for _ in range(200)]
+        assert len(DirReceiveRequest(type="dir", ids=at_limit).ids) == 200
+        with pytest.raises(Exception, match="at most 200"):
+            DirReceiveRequest(type="dir", ids=[*at_limit, uuid.uuid4()])
+
+    def test_dir_receive_defaults_to_move(self):
+        assert DirReceiveRequest(type="dir", ids=[uuid.uuid4()]).action == "move"
 
     def test_file_update_description_too_long(self):
         with pytest.raises(Exception, match="128 Zeichen"):

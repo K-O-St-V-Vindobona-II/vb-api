@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
@@ -21,3 +22,20 @@ def require_permission(required_perm: str) -> Callable[..., Member]:
         return current_user
 
     return _guard
+
+
+# Routers annotate the guarded user with one of these aliases instead of
+# importing the ORM model and repeating the permission name.
+RequireSystemAdmin = Annotated[Member, Depends(require_permission("systemAdmin"))]
+RequireP4xView = Annotated[Member, Depends(require_permission("p4xView"))]
+RequireP4xAdmin = Annotated[Member, Depends(require_permission("p4xAdmin"))]
+RequirePublicContentEditor = Annotated[
+    Member, Depends(require_permission("publicContentEditor"))
+]
+RequireStandesdbContactAdmin = Annotated[
+    Member, Depends(require_permission("standesdbContactAdmin"))
+]
+RequireStandesdbExport = Annotated[
+    Member, Depends(require_permission("standesdbExport"))
+]
+RequireKeylist = Annotated[Member, Depends(require_permission("keylist"))]

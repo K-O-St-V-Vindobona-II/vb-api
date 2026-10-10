@@ -8,9 +8,12 @@ grouping directly.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import Query
 
 from app.core.security import create_access_token
 from app.models.client_user_agent import ClientUserAgent
@@ -30,7 +33,7 @@ from app.services.activity_log_service import (
 
 def _create_member(db_session, **overrides: object) -> Member:
     if not db_session.get(Org, "vbw"):
-        db_session.add(Org(id="vbw", label="VBW", order=1))
+        db_session.add(Org(id="vbw", label="VBW", sort_order=1))
     member = Member(
         email=overrides.pop("email", f"{uuid.uuid4()}@vbw.at"),
         vorname=overrides.pop("vorname", "Test"),
@@ -76,6 +79,38 @@ class TestRedact:
         assert redact(None) is None
         assert redact(42) == 42
 
+    def test_masks_the_google_sign_in_credential(self) -> None:
+        assert redact({"credential": "eyJ.google.idtoken"}) == {"credential": "***"}
+        assert redact({"Credential": "eyJ.google.idtoken"}) == {"Credential": "***"}
+
+    def test_masks_presigned_urls_at_any_depth(self) -> None:
+        signed = "https://s3.example/b/k?X-Amz-Algorithm=AWS4&X-Amz-Signature=abc123"
+        payload = {
+            "url": signed,
+            "items": [{"link": signed.lower()}, [signed]],
+            "nested": {"deep": {"link": signed.upper()}},
+        }
+        assert redact(payload) == {
+            "url": "***",
+            "items": [{"link": "***"}, ["***"]],
+            "nested": {"deep": {"link": "***"}},
+        }
+
+    def test_keeps_plain_urls_and_text(self) -> None:
+        payload = {
+            "url": "https://verbindung.example/x?signature=1",
+            "text": "x-amz is only a word here",
+            "header": "the x-amz-signature header carries a value",
+            "items": ["https://s3.example/b/k?X-Amz-Expires=900"],
+        }
+        assert redact(payload) == payload
+
+    def test_does_not_mutate_its_input(self) -> None:
+        signed = "https://s3.example/k?X-Amz-Signature=abc"
+        payload = {"credential": "tok", "url": signed}
+        redact(payload)
+        assert payload == {"credential": "tok", "url": signed}
+
 
 class TestCapStoredSize:
     def test_passes_through_small_values(self) -> None:
@@ -109,6 +144,27 @@ class TestRecordRequest:
         assert entry.client_ip == "203.0.113.5"
         assert entry.request_input == {"password": "***", "email": "a@b.at"}
         assert entry.client_user_agent_id is not None
+
+    def test_google_credential_and_signed_links_never_reach_the_table(
+        self, db_session
+    ) -> None:
+        record_request(
+            db_session,
+            client_ip="203.0.113.5",
+            client_ips=["203.0.113.5"],
+            auth_header=None,
+            user_agent_string="pytest-agent",
+            request_method="POST",
+            request_path="/api/auth/google",
+            request_input={"credential": "eyJ.google.idtoken"},
+            response_status=200,
+            response_content={"url": "https://s3.example/k?X-Amz-Signature=abc123"},
+            memory_usage=1024,
+        )
+
+        entry = db_session.query(RequestLog).one()
+        assert entry.request_input == {"credential": "***"}
+        assert entry.response_content == {"url": "***"}
 
     def test_resolves_member_id_from_bearer_token(self, db_session) -> None:
         member = _create_member(db_session, email="found@vbw.at")
@@ -225,6 +281,41 @@ class TestListDaysWithActivity:
 
     def test_empty_month_returns_empty_list(self, db_session) -> None:
         assert list_days_with_activity(db_session, 2020, 1) == []
+
+    def test_rows_read_do_not_scale_with_the_number_of_requests(
+        self, db_session
+    ) -> None:
+        """The overview needs each (day, member) pair once, so the database
+        reduces the month's requests instead of sending one row per request."""
+        member = _create_member(db_session)
+        for minute in range(100):
+            db_session.add(
+                RequestLog(
+                    client_ip="127.0.0.1",
+                    client_ips=["127.0.0.1"],
+                    member_id=member.id,
+                    request_method="GET",
+                    request_path="/api/test",
+                    response_status=200,
+                    memory_usage=0,
+                    created_at=datetime(2026, 6, 15, 8, 0, tzinfo=UTC)
+                    + timedelta(minutes=minute),
+                )
+            )
+        db_session.commit()
+        real_all = Query.all
+        row_counts: list[int] = []
+
+        def counting_all(query: Query[Any]) -> list[Any]:
+            rows = real_all(query)
+            row_counts.append(len(rows))
+            return rows
+
+        with patch.object(Query, "all", counting_all):
+            groups = list_days_with_activity(db_session, 2026, 6)
+
+        assert len(groups) == 1
+        assert row_counts[0] == 1
 
     def test_query_count_does_not_scale_with_distinct_members(
         self, db_session, count_queries

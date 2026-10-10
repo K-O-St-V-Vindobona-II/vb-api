@@ -9,7 +9,7 @@ FastAPI backend for **vb** — the internal management system of Vindobona II / 
 - **Runtime:** Python 3.14, FastAPI, SQLAlchemy (sync), Alembic
 - **Database:** PostgreSQL 18
 - **Storage:** S3-compatible (Garage on non-production stages, AWS S3 on production)
-- **Scheduler:** APScheduler (async)
+- **Scheduler:** ARQ (async worker with cron jobs)
 - **Container:** Podman Quadlets (rootless systemd)
 
 ## Development Setup
@@ -31,14 +31,18 @@ pre-commit install
 
 > **Why this matters:** Without `pre-commit install`, commits bypass ruff formatting and
 > type-checking entirely. The CI pipeline runs `ruff format --check`, `pyright`, and `pytest`
-> — all of which the pre-commit hooks mirror locally.
+> - all of which the pre-commit hooks mirror locally. Three of the hooks (router
+> separation-of-concerns check, `pyright`, `pytest`) run inside the `vb-api` container via
+> `podman exec`, so it must be running when you commit. A further hook refuses `.env*`
+> files (except `.env.example`) and shell history files.
 
 ### Running tests
 
 The test suite runs exclusively against a real PostgreSQL database, never
-SQLite (see `tests/conftest.py`) — this is what lets it actually exercise
-DB-native behavior like foreign-key `ON DELETE`/`ON UPDATE` rules, which a
-SQLite-backed suite would silently never enforce. The schema is rebuilt from
+against a lighter embedded database (see `tests/conftest.py`) - this is what
+lets it actually exercise DB-native behavior like foreign-key
+`ON DELETE`/`ON UPDATE` rules, which a suite on a lighter database would
+silently never enforce. The schema is rebuilt from
 scratch every session via the real Alembic migrations, so drift between
 models and migrations surfaces here too.
 
@@ -115,6 +119,23 @@ podman exec vb-api alembic revision --autogenerate -m "description"
 
 The prod image's `docker-entrypoint.sh` runs `alembic upgrade head` automatically before starting gunicorn, so every container restart (including `podman-auto-update` pulling a new image) applies pending migrations itself — no separate manual step needed there. The manual command above stays relevant for local development (the dev image keeps its plain `uvicorn --reload` command, no auto-migration) and for creating new migrations.
 
+### Rollbacks and compatibility
+
+The entrypoint also starts an older image against a newer database: if the database is at a revision the image does not know (a rollback after a release with a migration), it logs a warning and starts without migrating. That is safe only while each migration stays compatible with the previous release. So a schema change follows *expand first, contract later*: add the new column/table/constraint in one release (nullable or with a default, old code keeps working), switch the code over, and remove the old structure in a later release. A change that cannot follow this rule needs a note in its migration docstring and a fresh backup (`scripts/backup_db.py`) before the rollout.
+
+The worker container runs with `SKIP_MIGRATIONS=true`; only the web container migrates, so there is exactly one migrating process per rollout.
+
+### Dependencies
+
+`requirements.lock` and `requirements-dev.lock` pin every package with hashes and are generated from `requirements.txt` / `requirements-dev.txt`:
+
+```bash
+uv pip compile requirements.txt -o requirements.lock --python-version 3.14 --generate-hashes
+uv pip compile requirements-dev.txt -o requirements-dev.lock --python-version 3.14 --generate-hashes
+```
+
+Add `--upgrade` to both commands once a month to pick up new versions. The `dependency-audit` CI job runs `pip-audit` over both locks (on every run and weekly): when it fails, upgrade the affected package with `--upgrade-package <name>` and regenerate the locks; if no fixed version exists yet, accept the advisory with a written reason by adding `--ignore-vuln <ID>` to the job's command.
+
 ## Scheduler
 
 Scheduled (cron) jobs run in a dedicated ARQ worker process — its own container (`vb-api-worker`, see `vb-deploy`), separate from the web container. Job bodies live in `app/core/scheduler.py` (unchanged sync functions — each opens its own `SessionLocal()`, records its own outcome); `app/worker.py` wraps each one in a thin async task and builds arq's real `cron_jobs` list from the declarative schedule in `app/core/job_schedule_registry.py`. Since the worker container is always a single process, there's no cross-worker duplication to guard against (no advisory lock needed, unlike the pre-ARQ, in-web-process design).
@@ -173,6 +194,7 @@ Operational scripts, re-run on demand as part of regular ops:
 | `scripts/check_s3_integrity.py` | Bidirectional DB↔S3 integrity check + orphan report (read-only) |
 | `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local Garage, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/trigger_chronicles.py` | Manually trigger the chronicle-mail job for an arbitrary reference date (`--date`, `--send`, `--to`) |
+| `scripts/maintain_deleted_archive_files.py` | List, purge (hard-delete) or restore soft-deleted archive files; the only tool that permanently deletes archive data (`list`, `purge`, `purge-duplicates`, `restore`) |
 
 Full docs (usage, parameters, env vars) for every script: [`scripts/README.md`](scripts/README.md).
 
@@ -183,12 +205,14 @@ Full docs (usage, parameters, env vars) for every script: [`scripts/README.md`](
 
 ## CI/CD
 
-The pipeline (`.github/workflows/ci-cd.yml`) runs on every push to `development` and on PRs to `main`:
+The pipeline (`.github/workflows/ci-cd.yml`) runs on pushes and pull requests to `main`, weekly (Monday 06:00 UTC) and on manual trigger:
 
-1. **Lint & Format** — `ruff check` + `ruff format --check`
+1. **Lint & Format** - `ruff check` + `ruff format --check` + router separation-of-concerns check
 2. **Typecheck, Migrations & Test** — `pyright` + `alembic upgrade head` + `pytest --cov`
 3. **CodeQL Security Scan**
-4. **Build & Push Image** — pushes to `ghcr.io` on release or manual trigger
+4. **Dependency Audit** - `pip-audit` over both lock files
+5. **Read-Only Rootfs Smoke Test** - the production image started with the production hardening
+6. **Build & Push Image** - pushes to `ghcr.io` only from `main` (push or manual trigger) and only after all other jobs passed
 
 Production/stage rollout itself happens outside this pipeline: the host's own
 `podman-auto-update.timer` picks up the new `:latest` image automatically, or
@@ -208,7 +232,7 @@ FastAPI-Backend für **vb** — das interne Verwaltungssystem von Vindobona II /
 - **Laufzeitumgebung:** Python 3.14, FastAPI, SQLAlchemy (synchron), Alembic
 - **Datenbank:** PostgreSQL 18
 - **Storage:** S3-kompatibel (Garage auf Non-Prod-Stages, AWS S3 in Produktion)
-- **Scheduler:** APScheduler (asynchron)
+- **Scheduler:** ARQ (asynchroner Worker mit Cron-Jobs)
 - **Container:** Podman Quadlets (rootless systemd)
 
 ## Entwicklungs-Setup
@@ -231,14 +255,17 @@ pre-commit install
 > **Warum das wichtig ist:** Ohne `pre-commit install` umgehen Commits die
 > Ruff-Formatierung und Typprüfung komplett. Die CI-Pipeline führt `ruff format --check`,
 > `pyright` und `pytest` aus — alle davon werden lokal von den Pre-Commit-Hooks gespiegelt.
+> Drei der Hooks (Router-Schichtentrennungs-Check, `pyright`, `pytest`) laufen per `podman exec`
+> im `vb-api`-Container, der beim Commit also laufen muss. Ein weiterer Hook weist `.env*`-Dateien
+> (außer `.env.example`) und Shell-History-Dateien ab.
 
 ### Tests ausführen
 
 Die Testsuite läuft ausschließlich gegen eine echte PostgreSQL-Datenbank,
-niemals gegen SQLite (siehe `tests/conftest.py`) — nur so lässt sich
-DB-natives Verhalten wie Foreign-Key-`ON DELETE`/`ON UPDATE`-Regeln
-tatsächlich prüfen, was eine SQLite-gestützte Suite stillschweigend nie
-durchsetzen würde. Das Schema wird bei jeder Session von Grund auf über die
+niemals gegen eine leichtere eingebettete Datenbank (siehe
+`tests/conftest.py`) - nur so lässt sich DB-natives Verhalten wie
+Foreign-Key-`ON DELETE`/`ON UPDATE`-Regeln tatsächlich prüfen, was eine Suite
+auf einer leichteren Datenbank stillschweigend nie durchsetzen würde. Das Schema wird bei jeder Session von Grund auf über die
 echten Alembic-Migrationen neu aufgebaut, sodass auch Drift zwischen
 Modellen und Migrationen hier sichtbar wird.
 
@@ -322,6 +349,23 @@ Migrationen selbst anwendet — dort ist kein separater manueller Schritt
 nötig. Der obige manuelle Befehl bleibt relevant für die lokale Entwicklung
 (das Dev-Image behält seinen einfachen `uvicorn --reload`-Befehl, keine
 Auto-Migration) sowie für das Erzeugen neuer Migrationen.
+
+### Rollbacks und Kompatibilität
+
+Der Entrypoint startet auch ein älteres Image gegen eine neuere Datenbank: steht die Datenbank auf einer Revision, die das Image nicht kennt (Rollback nach einem Release mit Migration), loggt er eine Warnung und startet ohne zu migrieren. Das ist nur sicher, solange jede Migration zum vorherigen Release kompatibel bleibt. Eine Schemaänderung folgt daher *erst erweitern, später aufräumen*: Spalte/Tabelle/Constraint in einem Release hinzufügen (nullable oder mit Default, der alte Code funktioniert weiter), den Code umstellen und die alte Struktur in einem späteren Release entfernen. Eine Änderung, die dieser Regel nicht folgen kann, braucht einen Hinweis im Docstring der Migration und ein frisches Backup (`scripts/backup_db.py`) vor dem Rollout.
+
+Der Worker-Container läuft mit `SKIP_MIGRATIONS=true`; nur der Web-Container migriert, pro Rollout gibt es also genau einen migrierenden Prozess.
+
+### Abhängigkeiten
+
+`requirements.lock` und `requirements-dev.lock` pinnen jedes Paket mit Hashes und werden aus `requirements.txt` / `requirements-dev.txt` erzeugt:
+
+```bash
+uv pip compile requirements.txt -o requirements.lock --python-version 3.14 --generate-hashes
+uv pip compile requirements-dev.txt -o requirements-dev.lock --python-version 3.14 --generate-hashes
+```
+
+Einmal im Monat `--upgrade` an beide Befehle hängen, um neue Versionen zu übernehmen. Der CI-Job `dependency-audit` führt `pip-audit` über beide Locks aus (bei jedem Lauf und wöchentlich): schlägt er fehl, das betroffene Paket mit `--upgrade-package <name>` aktualisieren und die Locks neu erzeugen; gibt es noch keine behobene Version, die Meldung mit schriftlicher Begründung akzeptieren, indem `--ignore-vuln <ID>` an den Befehl des Jobs angehängt wird.
 
 ## Scheduler
 
@@ -431,6 +475,7 @@ Operative Skripte, bei Bedarf im Rahmen des regulären Betriebs erneut ausgefüh
 | `scripts/check_s3_integrity.py` | Bidirektionaler DB↔S3-Konsistenzcheck + Waisen-Bericht (read-only) |
 | `scripts/downsync_prod.py` | Downsync von Prod-AWS-S3 (voller Spiegel) → lokaler Garage-Storage, danach lokale DB daraus wiederherstellen (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
 | `scripts/trigger_chronicles.py` | Chronik-Mail-Job manuell für ein beliebiges Referenzdatum anstoßen (`--date`, `--send`, `--to`) |
+| `scripts/maintain_deleted_archive_files.py` | Weich gelöschte Archiv-Dateien auflisten, endgültig löschen oder wiederherstellen; das einzige Werkzeug, das Archivdaten dauerhaft löscht (`list`, `purge`, `purge-duplicates`, `restore`) |
 
 Vollständige Doku (Aufruf, Parameter, Env-Vars) für jedes Skript: [`scripts/README.md`](scripts/README.md).
 
@@ -441,12 +486,14 @@ Vollständige Doku (Aufruf, Parameter, Env-Vars) für jedes Skript: [`scripts/RE
 
 ## CI/CD
 
-Die Pipeline (`.github/workflows/ci-cd.yml`) läuft bei jedem Push nach `development` und bei PRs nach `main`:
+Die Pipeline (`.github/workflows/ci-cd.yml`) läuft bei Pushes und Pull Requests nach `main`, wöchentlich (montags 06:00 UTC) und bei manuellem Trigger:
 
-1. **Lint & Format** — `ruff check` + `ruff format --check`
+1. **Lint & Format** - `ruff check` + `ruff format --check` + Router-Schichtentrennungs-Check
 2. **Typecheck, Migrations & Test** — `pyright` + `alembic upgrade head` + `pytest --cov`
 3. **CodeQL Security Scan**
-4. **Build & Push Image** — pusht nach `ghcr.io` bei Release oder manuellem Trigger
+4. **Dependency Audit** - `pip-audit` über beide Lock-Dateien
+5. **Read-Only Rootfs Smoke Test** - das Produktions-Image, gestartet mit der Produktions-Härtung
+6. **Build & Push Image** - pusht nach `ghcr.io` nur von `main` (Push oder manueller Trigger) und erst, wenn alle anderen Jobs bestanden haben
 
 Der Production-/Stage-Rollout selbst läuft außerhalb dieser Pipeline: Der
 `podman-auto-update.timer` des Zielsystems holt das neue `:latest`-Image

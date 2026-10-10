@@ -16,6 +16,7 @@ from app.schemas.p4x import (
     CategorySaveRequest,
     FeeCreateRequest,
     FeeMemberUpdateRequest,
+    SetPartnerRequest,
     SummaryOrderRequest,
 )
 
@@ -314,7 +315,7 @@ class TestCategoryHexColor:
 
 
 # ---------------------------------------------------------------------------
-# Money fields — decimal_places=2 (Welle 2 Slice 5: float -> Numeric)
+# Money fields - decimal_places=2 (the columns are NUMERIC, not float)
 # ---------------------------------------------------------------------------
 
 
@@ -387,3 +388,181 @@ class TestFeeMemberUpdateRequestDecimalPlaces:
         data = self._valid_data(p4x_init_balance=Decimal("12.345"))
         with pytest.raises(ValidationError, match="decimal places"):
             FeeMemberUpdateRequest(**data)
+
+
+# ---------------------------------------------------------------------------
+# Anchoring: a trailing line break or inner tab never passes a format check
+# ---------------------------------------------------------------------------
+
+
+class TestFormatChecksRejectLineBreaks:
+    @pytest.mark.parametrize("color", ["#fff\n", "#ffffff\n", "\n#fff", "#ff\tf"])
+    def test_category_colour(self, color: str) -> None:
+        with pytest.raises(ValidationError, match="Farbformat"):
+            CategorySaveRequest(**_valid_category_data(background_color=color))
+        with pytest.raises(ValidationError, match="Farbformat"):
+            CategorySaveRequest(**_valid_category_data(text_color=color))
+
+    @pytest.mark.parametrize("bic", ["GIBAATWW\n", "ABCDEFGH\n", "GIBA ATWW"])
+    def test_account_bic(self, bic: str) -> None:
+        with pytest.raises(ValidationError, match="BIC"):
+            AccountSaveRequest(**_valid_account_data(bic=bic))
+
+    @pytest.mark.parametrize(
+        "iban",
+        [
+            "AT611904300234573201\n",
+            "AT61\t1904300234573201",
+            "AT61\n1904300234573201",
+            "AT61 1904 3002 3457 3201\n",
+        ],
+    )
+    def test_account_iban(self, iban: str) -> None:
+        with pytest.raises(ValidationError, match="IBAN"):
+            AccountSaveRequest(**_valid_account_data(iban=iban))
+
+    @pytest.mark.parametrize(
+        "iban", ["AT61 1904 3002 3457 3201", "AT611904300234573201"]
+    )
+    def test_account_iban_with_plain_spaces_is_accepted(self, iban: str) -> None:
+        assert AccountSaveRequest(**_valid_account_data(iban=iban)).iban == iban
+
+    @pytest.mark.parametrize(
+        "iban",
+        [
+            "AT611904300234573201\n",
+            "AT61\t1904300234573201",
+            "AT61 1904 3002 3457 3201\n",
+        ],
+    )
+    def test_filter_iban(self, iban: str) -> None:
+        with pytest.raises(ValidationError, match="IBAN"):
+            CategoryFilterSaveRequest(**_valid_filter_data(iban=iban))
+
+    @pytest.mark.parametrize(
+        ("iban", "accepted"),
+        [
+            ("AT" + "1" * 17, False),
+            ("AT" + "1" * 18, True),
+            ("AT" + "1" * 23, True),
+            ("AT" + "1" * 24, False),
+            ("AT" + "1 " * 9 + "1" * 5, True),
+        ],
+    )
+    def test_filter_iban_length_boundaries(self, iban: str, accepted: bool) -> None:
+        if accepted:
+            assert (
+                CategoryFilterSaveRequest(**_valid_filter_data(iban=iban)).iban == iban
+            )
+            return
+        with pytest.raises(ValidationError, match="IBAN"):
+            CategoryFilterSaveRequest(**_valid_filter_data(iban=iban))
+
+    @pytest.mark.parametrize(
+        ("iban", "accepted"),
+        [("AT61123", False), ("AT611234", True), ("AT61 1234", True)],
+    )
+    def test_account_iban_minimum_length(self, iban: str, accepted: bool) -> None:
+        if accepted:
+            assert AccountSaveRequest(**_valid_account_data(iban=iban)).iban == iban
+            return
+        with pytest.raises(ValidationError, match="IBAN"):
+            AccountSaveRequest(**_valid_account_data(iban=iban))
+
+    @pytest.mark.parametrize("iban", [None, "", "AT611904300234573201"])
+    def test_filter_iban_accepted(self, iban: str | None) -> None:
+        assert CategoryFilterSaveRequest(**_valid_filter_data(iban=iban)).iban == iban
+
+    @pytest.mark.parametrize("value", [5, ["AT61"], True])
+    def test_filter_iban_of_the_wrong_type_is_a_validation_error(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValidationError):
+            CategoryFilterSaveRequest(**_valid_filter_data(iban=value))
+
+
+# ---------------------------------------------------------------------------
+# Fee year and fee start date stay inside a sane range
+# ---------------------------------------------------------------------------
+
+
+class TestFeeRanges:
+    @pytest.mark.parametrize("year", [2015, 2100])
+    def test_fee_year_inside_range(self, year: int) -> None:
+        req = FeeCreateRequest(year=year, month=1, fee=Decimal("15.00"))
+        assert req.year == year
+
+    @pytest.mark.parametrize("year", [2014, 2101, 10000])
+    def test_fee_year_outside_range(self, year: int) -> None:
+        with pytest.raises(ValidationError):
+            FeeCreateRequest(year=year, month=1, fee=Decimal("15.00"))
+
+    @pytest.mark.parametrize("start", [date(1900, 1, 1), date(2020, 6, 15)])
+    def test_fee_start_date_inside_range(self, start: date) -> None:
+        req = FeeMemberUpdateRequest(
+            p4x_init_date=start, p4x_init_balance=Decimal("0.00")
+        )
+        assert req.p4x_init_date == start
+
+    @pytest.mark.parametrize("start", [date(1899, 12, 31), date(1, 1, 1)])
+    def test_fee_start_date_before_1900_is_rejected(self, start: date) -> None:
+        with pytest.raises(ValidationError):
+            FeeMemberUpdateRequest(
+                p4x_init_date=start, p4x_init_balance=Decimal("0.00")
+            )
+
+
+# ---------------------------------------------------------------------------
+# Partner references in the set-partner request are strict input
+# ---------------------------------------------------------------------------
+
+
+class TestSetPartnerRequestInput:
+    def test_payload_of_the_partner_widget_is_accepted(self) -> None:
+        partner_id = uuid.uuid4()
+        req = SetPartnerRequest.model_validate(
+            {
+                "partner": {"type": "member", "id": str(partner_id), "cn": "Muster"},
+                "hasDelegatingPartner": True,
+                "delegatingPartner": {"type": "contact", "id": str(uuid.uuid4())},
+            }
+        )
+        assert req.partner is not None
+        assert (req.partner.type, req.partner.id) == ("member", partner_id)
+        assert req.delegatingPartner is not None
+        assert req.delegatingPartner.type == "contact"
+
+    @pytest.mark.parametrize(
+        "partner_type", ["member", "contact", "account", "special"]
+    )
+    def test_known_partner_types(self, partner_type: str) -> None:
+        req = SetPartnerRequest.model_validate(
+            {"partner": {"type": partner_type, "id": str(uuid.uuid4())}}
+        )
+        assert req.partner is not None
+        assert req.partner.type == partner_type
+
+    def test_partner_may_be_cleared(self) -> None:
+        assert SetPartnerRequest.model_validate({"partner": None}).partner is None
+
+    @pytest.mark.parametrize("field", ["partner", "delegatingPartner"])
+    def test_unknown_partner_type_is_rejected(self, field: str) -> None:
+        with pytest.raises(ValidationError):
+            SetPartnerRequest.model_validate(
+                {field: {"type": "x", "id": str(uuid.uuid4())}}
+            )
+
+    @pytest.mark.parametrize("field", ["partner", "delegatingPartner"])
+    def test_unknown_key_is_rejected(self, field: str) -> None:
+        with pytest.raises(ValidationError, match="evil"):
+            SetPartnerRequest.model_validate(
+                {field: {"type": "member", "id": str(uuid.uuid4()), "evil": 1}}
+            )
+
+    def test_id_must_be_a_uuid(self) -> None:
+        with pytest.raises(ValidationError):
+            SetPartnerRequest.model_validate({"partner": {"type": "member", "id": "7"}})
+
+    def test_id_is_required(self) -> None:
+        with pytest.raises(ValidationError):
+            SetPartnerRequest.model_validate({"partner": {"type": "member"}})

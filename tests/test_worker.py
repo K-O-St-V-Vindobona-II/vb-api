@@ -7,8 +7,12 @@ per-stage cron_jobs construction, and the timezone/Redis configuration.
 """
 
 import asyncio
+import threading
 from unittest.mock import Mock
 
+import pytest
+
+from app import worker
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
 from app.worker import (
@@ -271,3 +275,126 @@ class TestTaskDownsync:
         asyncio.run(task_downsync({"job_id": "task_downsync:1735689600000"}))
 
         assert len(calls) == 1
+
+
+class TestWorkerLimits:
+    def test_health_check_key_is_refreshed_often(self) -> None:
+        # arq's default of one hour lets `arq --check` report a dead worker
+        # as healthy until the key expires.
+        assert WorkerSettings.health_check_interval <= 60
+
+    def test_jobs_may_run_longer_than_arqs_default_of_five_minutes(self) -> None:
+        # A backup or downsync that takes longer than the limit would be
+        # reported as failed while its thread keeps running.
+        assert WorkerSettings.job_timeout >= 1800
+
+
+class TestMaintenanceJobsDoNotOverlap:
+    @staticmethod
+    def _run_while_first_is_running(
+        first: str, second: str, monkeypatch: pytest.MonkeyPatch
+    ) -> list[str]:
+        """Starts the `first` task, calls the `second` while it is still
+        running and returns the names of the job bodies that really ran."""
+        started = threading.Event()
+        release = threading.Event()
+        runs: list[str] = []
+
+        def slow_body(name: str):
+            def run() -> None:
+                runs.append(name)
+                started.set()
+                release.wait(timeout=5)
+
+            return run
+
+        monkeypatch.setattr(worker, "job_db_backup", slow_body("backup"))
+        monkeypatch.setattr(worker, "job_downsync", slow_body("downsync"))
+        monkeypatch.setattr(worker, "logger", Mock())
+        tasks = {
+            "backup": lambda: worker.task_db_backup({}),
+            "downsync": lambda: worker.task_downsync({"job_id": "task_downsync:1"}),
+        }
+
+        async def scenario() -> None:
+            running = asyncio.create_task(tasks[first]())
+            await asyncio.to_thread(started.wait, 5)
+            await tasks[second]()
+            release.set()
+            await running
+
+        asyncio.run(scenario())
+        return runs
+
+    def test_a_downsync_is_skipped_while_a_backup_runs(self, monkeypatch) -> None:
+        runs = self._run_while_first_is_running("backup", "downsync", monkeypatch)
+
+        assert runs == ["backup"]
+
+    def test_a_backup_is_skipped_while_a_downsync_runs(self, monkeypatch) -> None:
+        runs = self._run_while_first_is_running("downsync", "backup", monkeypatch)
+
+        assert runs == ["downsync"]
+
+    def test_a_skipped_run_is_logged_with_its_name(self, monkeypatch) -> None:
+        self._run_while_first_is_running("backup", "downsync", monkeypatch)
+
+        worker.logger.warning.assert_called_once_with(
+            "%s skipped: another maintenance job is still running.",
+            "task_downsync",
+        )
+
+    def test_the_next_run_starts_once_the_first_has_finished(self, monkeypatch) -> None:
+        runs: list[str] = []
+        monkeypatch.setattr(worker, "job_db_backup", lambda: runs.append("backup"))
+        monkeypatch.setattr(worker, "job_downsync", lambda: runs.append("downsync"))
+
+        async def scenario() -> None:
+            await worker.task_db_backup({})
+            await worker.task_downsync({"job_id": "task_downsync:1"})
+
+        asyncio.run(scenario())
+
+        assert runs == ["backup", "downsync"]
+
+    def test_a_failed_run_does_not_block_the_next_one(self, monkeypatch) -> None:
+        runs: list[str] = []
+
+        def failing_backup() -> None:
+            message = "disk full"
+            raise OSError(message)
+
+        monkeypatch.setattr(worker, "job_db_backup", failing_backup)
+        monkeypatch.setattr(worker, "job_downsync", lambda: runs.append("downsync"))
+
+        async def scenario() -> None:
+            with pytest.raises(OSError, match="disk full"):
+                await worker.task_db_backup({})
+            await worker.task_downsync({"job_id": "task_downsync:1"})
+
+        asyncio.run(scenario())
+
+        assert runs == ["downsync"]
+
+    def test_other_jobs_keep_running_during_a_backup(self, monkeypatch) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        runs: list[str] = []
+
+        def slow_backup() -> None:
+            started.set()
+            release.wait(timeout=5)
+
+        monkeypatch.setattr(worker, "job_db_backup", slow_backup)
+        monkeypatch.setattr(worker, "job_cleanup", lambda: runs.append("cleanup"))
+
+        async def scenario() -> None:
+            running = asyncio.create_task(worker.task_db_backup({}))
+            await asyncio.to_thread(started.wait, 5)
+            await worker.task_cleanup({})
+            release.set()
+            await running
+
+        asyncio.run(scenario())
+
+        assert runs == ["cleanup"]

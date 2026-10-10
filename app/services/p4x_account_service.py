@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 if TYPE_CHECKING:
     import uuid
 
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import InstrumentedAttribute, Session
 
     from app.schemas.p4x import AccountSaveRequest
 
@@ -33,11 +33,21 @@ PAGINATION_SIZE = 100
 # ---------------------------------------------------------------------------
 
 
+def _iban_without_blanks(column: InstrumentedAttribute[str]) -> ColumnElement[str]:
+    return func.replace(column, " ", "")
+
+
+def _normalized_iban(iban: str) -> str:
+    """The IBAN without blanks: "AT61 1904 ..." and "AT611904 ..." are one
+    account (the database index on the same expression enforces it)."""
+    return iban.replace(" ", "")
+
+
 def create_account(db: Session, data: AccountSaveRequest) -> P4xAccount:
     existing = (
         db.query(P4xAccount)
         .filter(
-            P4xAccount.iban == data.iban,
+            _iban_without_blanks(P4xAccount.iban) == _normalized_iban(data.iban),
             P4xAccount.deleted_at.is_(None),
         )
         .first()
@@ -72,7 +82,7 @@ def update_account(
     dup = (
         db.query(P4xAccount)
         .filter(
-            P4xAccount.iban == data.iban,
+            _iban_without_blanks(P4xAccount.iban) == _normalized_iban(data.iban),
             P4xAccount.id != account.id,
             P4xAccount.deleted_at.is_(None),
         )
@@ -263,7 +273,7 @@ def get_transactions_by_category(
         )
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
@@ -401,17 +411,20 @@ def get_warnings_category(
         .all()
     )
 
-    warnings: list[P4xTransaction] = []
-    for tx in all_tx:
-        if tx.id in tx_with_directs:
-            continue
-        filter_count = (
-            db.query(P4xCategoryFilterHit)
-            .filter(P4xCategoryFilterHit.p4x_transaction_id == tx.id)
-            .count()
-        )
-        if filter_count != 1:
-            warnings.append(tx)
+    # One grouped query for the hit count of every transaction, instead of one
+    # COUNT query per transaction.
+    hit_counts: dict[uuid.UUID, int] = {
+        row[0]: row[1]
+        for row in db.query(P4xCategoryFilterHit.p4x_transaction_id, func.count())
+        .group_by(P4xCategoryFilterHit.p4x_transaction_id)
+        .all()
+    }
+
+    warnings = [
+        tx
+        for tx in all_tx
+        if tx.id not in tx_with_directs and hit_counts.get(tx.id, 0) != 1
+    ]
 
     total = len(warnings)
     warnings.sort(key=lambda t: t.booking or date.min, reverse=True)
@@ -458,7 +471,7 @@ def get_account_categories(db: Session, account: P4xAccount) -> list[P4xCategory
         .distinct()
         .all()
     }
-    filter_cat_ids = (
+    filter_cat_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilter.p4x_category_id)

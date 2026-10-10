@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.config import get_settings
+from app.core.security import BCRYPT_MAX_PASSWORD_BYTES
 from app.schemas.base import StrictInputModel
 
 
@@ -38,6 +39,14 @@ class ResetPasswordRequest(StrictInputModel):
         min_length = get_settings().password_min_length
         if len(v) < min_length:
             msg = f"Das Passwort muss mindestens {min_length} Zeichen lang sein."
+            raise ValueError(msg)
+        # bcrypt only processes the first 72 bytes; umlauts and other
+        # non-ASCII characters take more than one byte each.
+        if len(v.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+            msg = (
+                f"Das Passwort darf höchstens {BCRYPT_MAX_PASSWORD_BYTES} Bytes lang "
+                "sein (Umlaute und Sonderzeichen zählen mehrfach)."
+            )
             raise ValueError(msg)
         return v
 

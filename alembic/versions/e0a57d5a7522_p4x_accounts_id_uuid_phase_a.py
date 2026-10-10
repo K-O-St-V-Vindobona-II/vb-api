@@ -5,11 +5,11 @@ Revises: e2f6d45fab87
 Create Date: 2026-09-01 17:30:00.000000
 
 Phase A (additive prep) of the schema-wide UUID-PK migration for
-p4x_accounts, kept its own slice (rather than bundled with the other
-p4x Layer-0-Parents) since its Final-Cutover in slice 27 becomes the
-plan's most complex one - p4x_partners, p4x_category_filters, and
-p4x_transactions all converge on it. No API contract changes: the old
-integer `id` stays the primary key.
+p4x_accounts, kept as its own revision (rather than bundled with the
+other p4x tables without outgoing foreign keys) since its Final-Cutover
+(bfe999a46f89) becomes the most complex one in the series -
+p4x_partners, p4x_category_filters, and p4x_transactions all converge on
+it. No API contract changes: the old integer `id` stays the primary key.
 """
 
 import uuid
@@ -54,10 +54,9 @@ def upgrade() -> None:
     _batched_uuid_backfill()
     op.alter_column(TABLE, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
 
 def downgrade() -> None:

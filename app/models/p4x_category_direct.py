@@ -45,6 +45,12 @@ class P4xCategoryDirect(Base):
         index=True,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     transaction: Mapped[P4xTransaction] = relationship(

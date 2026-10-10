@@ -21,6 +21,7 @@ from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_transaction import P4xTransaction
 from app.services import p4x_account_service
+from app.services.search_utils import escape_like
 
 # ---------------------------------------------------------------------------
 # Category filter engine
@@ -54,8 +55,11 @@ def _apply_category_filter_criteria(
             P4xTransaction.p4x_account_id == category_filter.p4x_account_id
         )
 
-    if category_filter.iban and len(category_filter.iban):
-        query = query.filter(P4xTransaction.iban == category_filter.iban)
+    if category_filter.iban:
+        # The bank delivers an IBAN without blanks in capitals; a filter saved
+        # as "at61 1904 ..." must still find those transactions.
+        iban = "".join(category_filter.iban.split()).upper()
+        query = query.filter(P4xTransaction.iban == iban)
 
     if category_filter.min_amount is not None:
         query = query.filter(P4xTransaction.amount >= category_filter.min_amount)
@@ -64,16 +68,30 @@ def _apply_category_filter_criteria(
         query = query.filter(P4xTransaction.amount <= category_filter.max_amount)
 
     if category_filter.subject is not None:
-        subject = category_filter.subject
+        # "%" and "_" typed into a filter are text, not wildcards.
+        subject = escape_like(category_filter.subject)
         subject_pattern = {
             "equals": subject,
             "contains": f"%{subject}%",
             "starts": f"{subject}%",
         }.get(category_filter.subject_mode)
         if subject_pattern is not None:
-            query = query.filter(P4xTransaction.subject.ilike(subject_pattern))
+            query = query.filter(
+                P4xTransaction.subject.ilike(subject_pattern, escape="\\")
+            )
 
     return query
+
+
+def _matching_transactions(
+    db: Session,
+    category_filter: P4xCategoryFilter,
+    tx_with_directs: set[uuid.UUID],
+) -> RowReturningQuery[tuple[uuid.UUID]]:
+    query = db.query(P4xTransaction.id).filter(
+        P4xTransaction.deleted_at.is_(None),
+    )
+    return _apply_category_filter_criteria(query, category_filter, tx_with_directs)
 
 
 def _apply_filter_with_cache(
@@ -85,16 +103,46 @@ def _apply_filter_with_cache(
         P4xCategoryFilterHit.p4x_category_filter_id == category_filter.id,
     ).delete()
 
-    query = db.query(P4xTransaction.id).filter(
-        P4xTransaction.deleted_at.is_(None),
-    )
-    query = _apply_category_filter_criteria(query, category_filter, tx_with_directs)
+    query = _matching_transactions(db, category_filter, tx_with_directs)
 
     now = datetime.now(UTC)
     for (tx_id,) in query.all():
         db.add(
             P4xCategoryFilterHit(
                 p4x_transaction_id=tx_id,
+                p4x_category_filter_id=category_filter.id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def _refresh_transaction_hits(
+    db: Session,
+    transaction: P4xTransaction,
+    *,
+    assigned: bool,
+) -> None:
+    """Brings the stored filter hits of one transaction up to date after its
+    direct assignment changed, without rebuilding every filter: a transaction
+    with a direct assignment has no hits, one without gets the hits of the
+    filters that match it."""
+    db.query(P4xCategoryFilterHit).filter(
+        P4xCategoryFilterHit.p4x_transaction_id == transaction.id,
+    ).delete()
+    if assigned:
+        return
+
+    now = datetime.now(UTC)
+    for category_filter in db.query(P4xCategoryFilter).all():
+        matches = _matching_transactions(db, category_filter, set()).filter(
+            P4xTransaction.id == transaction.id
+        )
+        if matches.first() is None:
+            continue
+        db.add(
+            P4xCategoryFilterHit(
+                p4x_transaction_id=transaction.id,
                 p4x_category_filter_id=category_filter.id,
                 created_at=now,
                 updated_at=now,
@@ -470,6 +518,7 @@ def _set_category_direct_core(
             )
         )
 
+    _refresh_transaction_hits(db, transaction, assigned=bool(valid_slots))
     return None
 
 
@@ -492,5 +541,5 @@ def unset_category_direct(db: Session, transaction: P4xTransaction) -> None:
         P4xCategoryDirect.p4x_transaction_id == transaction.id,
         P4xCategoryDirect.deleted_at.is_(None),
     ).update({"deleted_at": now})
-    apply_all_category_filters_core(db)
+    _refresh_transaction_hits(db, transaction, assigned=False)
     db.commit()

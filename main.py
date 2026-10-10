@@ -1,12 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-import app.db.base
-from app.api.router import api_router
+import app.db.base  # pyright: ignore[reportUnusedImport] - registers all models
+from app.api.error_handlers import register_auth_error_handlers
+from app.api.router import OPENAPI_TAGS, api_router
 from app.core.logging_config import setup_logging
 
 setup_logging()
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
@@ -34,6 +35,21 @@ settings = get_settings()
 # CDN on the origin that also serves the refresh cookie.
 _DOCS_ENABLED = settings.app_environment == "development"
 
+# This is a pure JSON API serving personal member data - responses must never
+# be cached by browsers or intermediate proxies. Cache-Control covers modern
+# clients; Pragma/Expires are a zero-cost fallback for HTTP/1.0 caches that
+# don't understand Cache-Control. One table, attached by the middleware below
+# and by the handler for unhandled errors (which Starlette runs outside every
+# middleware).
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
@@ -43,8 +59,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     yield
     logger.info("Application shutdown complete.")
 
-
-from app.api.router import OPENAPI_TAGS
 
 app = FastAPI(
     title="VB API",
@@ -66,8 +80,8 @@ app = FastAPI(
         "`POST /api/auth/login`.\n\n"
         "Pass it in the `Authorization` header:\n"
         "```\nAuthorization: Bearer <access_token>\n```\n\n"
-        "Tokens expire after 60 minutes. Use `POST /api/auth/refresh` "
-        "to obtain a new token pair.\n\n"
+        f"Tokens expire after {settings.session_lifetime_minutes} minutes. "
+        "Use `POST /api/auth/refresh` to obtain a new token pair.\n\n"
         "## Rate Limiting\n\n"
         "Authentication endpoints are rate-limited (see individual endpoint "
         "descriptions). Exceeding the limit returns `429 Too Many Requests`."
@@ -87,16 +101,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # This is a pure JSON API serving personal member data — responses must
-        # never be cached by browsers or intermediate proxies. Cache-Control
-        # covers modern clients; Pragma/Expires are a zero-cost fallback for
-        # legacy/exotic caches that don't understand Cache-Control.
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+        response.headers.update(_SECURITY_HEADERS)
         return response
 
 
@@ -111,21 +116,34 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Register SlowAPI Rate Limiter ---
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-async def _validation_error_handler(
-    _request: Request, exc: ValidationError
-) -> JSONResponse:
+async def _rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """Narrow Starlette's generic handler contract to the one exception type
+    this handler is registered for."""
+    return _rate_limit_exceeded_handler(request, cast("RateLimitExceeded", exc))
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+
+async def _validation_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Give a bare pydantic ValidationError (e.g. raised in service code,
     as opposed to FastAPI's own RequestValidationError for request
     parsing) the same {"detail": [...]} response shape that FastAPI's
     built-in RequestValidationError handler already uses, instead of
     falling through to the generic 500 handler below.
+
+    The offending input values are left out: unlike a request-parsing
+    error, the input of a validation failure raised in service code may be
+    data read from the database rather than data the caller sent.
     """
+    errors = cast("ValidationError", exc).errors(
+        include_url=False, include_context=False, include_input=False
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=jsonable_encoder({"detail": exc.errors()}),
+        content=jsonable_encoder({"detail": errors}),
     )
 
 
@@ -137,14 +155,19 @@ async def _unhandled_exception_handler(
     plain-text body) to the client — every error path in this API returns
     JSON with a "detail" key, which the frontend's formatApiError() relies
     on (see vb-intern/src/utils/formatters.ts).
+
+    Starlette runs this handler outside every registered middleware, so the
+    security headers are attached here explicitly.
     """
     logger.exception("Unhandled exception: %s", exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Ein unerwarteter Fehler ist aufgetreten."},
+        headers=_SECURITY_HEADERS,
     )
 
 
+register_auth_error_handlers(app)
 app.add_exception_handler(ValidationError, _validation_error_handler)
 app.add_exception_handler(Exception, _unhandled_exception_handler)
 

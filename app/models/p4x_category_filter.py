@@ -24,6 +24,12 @@ class P4xCategoryFilter(Base):
             "min_amount IS NULL OR max_amount IS NULL OR min_amount <= max_amount",
             name="p4x_category_filters_min_max_amount_check",
         ),
+        # A filter without any criterion would match every transaction.
+        CheckConstraint(
+            "coalesce(iban, '') <> '' OR min_amount IS NOT NULL"
+            " OR max_amount IS NOT NULL OR coalesce(subject, '') <> ''",
+            name="p4x_category_filters_criterion_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -50,7 +56,9 @@ class P4xCategoryFilter(Base):
         ForeignKey("p4x_categories.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[P4xAccount] = relationship(

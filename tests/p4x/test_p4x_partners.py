@@ -26,8 +26,8 @@ def _now() -> datetime:
 def _seed(db) -> tuple[P4xAccount, Member, Contact, P4xSpecialcontact]:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
         ]
     )
     db.commit()
@@ -127,8 +127,8 @@ class TestSearchPartners:
 
     def test_search_is_case_insensitive(self, db_session):
         """Regression test: Postgres LIKE is case-sensitive, unlike the
-        legacy MySQL system's default collation. A search term in a
-        different case than the stored name must still match."""
+        predecessor system's database default collation. A search term in
+        a different case than the stored name must still match."""
         _seed(db_session)
         results = search_partners(db_session, "kopernikus")
         assert len(results) == 1

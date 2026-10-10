@@ -10,8 +10,9 @@ pattern for every leaf table in this series, plus all three of its FK
 cutovers in the same migration: owner_member_id -> members.id_uuid,
 owner_contact_id -> contacts.id_uuid (both Referrer-Cutovers of an
 existing FK, CASCADE/CASCADE unchanged), and created_by -> members.id_uuid
-(a genuinely missing FK added directly, same as slice 20's
-contacts_logs/members_logs.modified_by and slice 22's request_logs FKs).
+(a genuinely missing FK added directly, same as the modified_by columns
+of contacts_logs/members_logs in 267386fa75f3 and the FKs of request_logs
+in e186839a1e80).
 
 The table-level exclusive-arc CHECK constraint
 (standesdb_images_owner_exclusive_arc_check) and the partial unique index
@@ -23,10 +24,9 @@ that direction, rather than per-column.
 
 ix_standesdb_images_id (a redundant plain index alongside the primary
 key, model config predates this migration) is deliberately not rebuilt
-on the renamed id column - same call as sent_emails in slice 4.
+on the renamed id column - same call as for sent_emails in 22fc473b0891.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -40,7 +40,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "standesdb_images"
-BATCH_SIZE = 5000
 EXCLUSIVE_ARC_CHECK_NAME = "standesdb_images_owner_exclusive_arc_check"
 EXCLUSIVE_ARC_CHECK_SQL = (
     "(owner_member_id IS NOT NULL AND owner_contact_id IS NULL) "
@@ -49,32 +48,13 @@ EXCLUSIVE_ARC_CHECK_SQL = (
 OWNER_HASH_UNIQUE_INDEX_NAME = "standesdb_images_owner_hash_active_uniq"
 
 
-def _batched_uuid_backfill() -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(
-                f"SELECT id FROM {TABLE} WHERE id_uuid IS NULL LIMIT :limit"  # noqa: S608
-            ),
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {TABLE} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
-
-
 def _cutover_own_id() -> None:
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill()
+    op.execute(f"UPDATE {TABLE} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(TABLE, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
     op.drop_index("ix_standesdb_images_id", table_name=TABLE)
     op.drop_constraint(f"{TABLE}_pkey", TABLE, type_="primary")
     op.drop_column(TABLE, "id")

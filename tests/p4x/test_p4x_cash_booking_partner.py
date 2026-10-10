@@ -18,7 +18,10 @@ class TestCashBookings:
     def test_a_booking_without_counter_account_cannot_get_a_partner(self, db_session):
         account = _create_account(db_session)
         db_session.add_all(
-            [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+            [
+                Org(id="vbw", label="V", sort_order=1),
+                State(id="up", label="U", sort_order=1),
+            ]
         )
         member = Member(vorname="Anna", nachname="Bar", org_id="vbw", state_id="up")
         db_session.add(member)

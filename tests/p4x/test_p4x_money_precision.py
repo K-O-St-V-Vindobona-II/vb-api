@@ -184,8 +184,8 @@ class TestCalculateFeeBalancePrecision:
     def test_balance_after_several_months_is_exact(self, db_session):
         db_session.add_all(
             [
-                Org(id="vbw", label="VBW", order=1),
-                State(id="up", label="UP", order=1),
+                Org(id="vbw", label="VBW", sort_order=1),
+                State(id="up", label="UP", sort_order=1),
             ]
         )
         db_session.commit()
@@ -243,8 +243,8 @@ class TestGetFeeBalancesPrecision:
     def test_many_small_payments_sum_exactly(self, db_session):
         db_session.add_all(
             [
-                Org(id="vbw", label="VBW", order=1),
-                State(id="up", label="UP", order=1),
+                Org(id="vbw", label="VBW", sort_order=1),
+                State(id="up", label="UP", sort_order=1),
             ]
         )
         db_session.commit()

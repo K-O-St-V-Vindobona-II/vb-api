@@ -1,10 +1,10 @@
 import json
 from datetime import UTC, date, datetime
 from itertools import combinations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, literal
+from sqlalchemy import func, literal, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
@@ -36,6 +36,7 @@ from app.schemas.standesdb import (
     RoleHistoryResponse,
     TreeNodeResponse,
 )
+from app.services.permission_service import calculate_permissions
 from app.services.role_history_service import RoleEntry, record_role_changes
 from app.services.search_utils import build_prefix_tsquery_text
 
@@ -242,7 +243,7 @@ def _descendants_by_parent(
     in the data ends the walk."""
     by_parent: dict[uuid.UUID, list[Member]] = {}
     seen = {root_id}
-    generation = [root_id]
+    generation: list[uuid.UUID] = [root_id]
     for _ in range(_MAX_TREE_DEPTH):
         if not generation:
             break
@@ -257,7 +258,7 @@ def _descendants_by_parent(
             if child.id in seen or child.parent_id is None:
                 continue
             seen.add(child.id)
-            by_parent.setdefault(child.parent_id, []).append(child)
+            by_parent.setdefault(child.parent_id, list[Member]()).append(child)
             generation.append(child.id)
     return by_parent
 
@@ -283,7 +284,7 @@ def _build_roles_list(member: Member) -> list[RoleHistoryResponse]:
             id=mr.role_id,
             label=mr.role.label if mr.role else None,
             group=mr.role.group if mr.role else None,
-            order=(mr.role.order or 0) if mr.role else 0,
+            order=(mr.role.sort_order or 0) if mr.role else 0,
             startdate=mr.startdate,
             enddate=mr.enddate,
         )
@@ -297,7 +298,7 @@ def _build_badges_list(member: Member) -> list[BadgeDetailResponse]:
             id=mb.badge_id,
             name=mb.badge.name or "",
             group=mb.badge.group,
-            order=mb.badge.order or 0,
+            order=mb.badge.sort_order or 0,
             presentationdate=mb.presentationdate,
             presentationdate_accuracy=mb.presentationdate_accuracy or 0,
         )
@@ -317,13 +318,39 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
     ]
 
 
+def get_visible_member_or_404(db: Session, member_id: uuid.UUID) -> Member:
+    """Load a member whose data may be shown. A dismissed member counts as
+    absent, in line with the detail page, which shows nothing but a stub."""
+    member = db.get(Member, member_id)
+    if not member or member.entlassen:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mitglied nicht gefunden.",
+        )
+    return member
+
+
+def _may_see_account_status(viewer: Member, member: Member) -> bool:
+    """The account status describes the sign-in, not the person: only the
+    member and the admins of the member's organisation need it."""
+    if viewer.id == member.id:
+        return True
+    if not member.org_id:
+        return False
+    return f"standesdb{member.org_id.capitalize()}Admin" in calculate_permissions(
+        viewer
+    )
+
+
 def get_member_detail(
-    db: Session, member_id: uuid.UUID
+    db: Session, member_id: uuid.UUID, viewer: Member
 ) -> MemberDetailResponse | MemberDismissedResponse:
     # Intentionally not org-scoped: any authenticated member (vbw or vbn)
     # can read any other member's directory entry - the two orgs
-    # deliberately share one member directory. Only write access
-    # (create/update/delete) is org-restricted, see _require_standesdb_admin.
+    # deliberately share one member directory, including the free-text note
+    # `anmerkungen`. Only the account status is restricted, see
+    # _may_see_account_status. Write access (create/update/delete) is
+    # org-restricted, see _require_standesdb_admin.
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -344,7 +371,7 @@ def get_member_detail(
         if parent:
             parent_cn = parent.cn
 
-    ancestry = []
+    ancestry: list[dict[str, object]] = []
     seen: set[uuid.UUID] = set()
     current: Member | None = member
     while (
@@ -375,6 +402,7 @@ def get_member_detail(
         "ancestry": list(reversed(ancestry)),
     }
 
+    show_status = _may_see_account_status(viewer, member)
     return MemberDetailResponse(
         id=member.id,
         cn=member.cn,
@@ -395,11 +423,13 @@ def get_member_detail(
         parent_id=member.parent_id,
         parent_cn=parent_cn,
         default_image=member.default_image,
-        chroniclemail=member.chroniclemail,
-        auth_locked=member.auth_locked,
+        chroniclemail=member.chroniclemail if show_status else None,
+        auth_locked=member.auth_locked if show_status else None,
         email=member.email,
         email_verified_at=(
-            str(member.email_verified_at) if member.email_verified_at else None
+            str(member.email_verified_at)
+            if show_status and member.email_verified_at
+            else None
         ),
         url=member.url,
         mkv_ogv_url=member.mkv_ogv_url,
@@ -466,10 +496,10 @@ def _serialize_log_value(val: object) -> str | None:
 
 
 # Technical/audit bookkeeping columns must never surface in the
-# Änderungshistorie — they aren't part of any edit form and aren't
+# change history - they aren't part of any edit form and aren't
 # meaningful change history for a user. Filtered both at write time
 # (defense in depth, in case a future diff includes one) and at read time
-# (to also suppress legacy rows already sitting in the DB, e.g.
+# (to also suppress rows already sitting in the DB from earlier write paths, e.g.
 # auth_lastsignal rows from a since-changed write path that bulk-updated
 # the column directly, bypassing this diff mechanism entirely).
 #
@@ -526,7 +556,14 @@ def apply_member_input(  # noqa: C901
     member: Member,
     data: MemberSaveRequest,
     current_user: Member,
+    *,
+    commit: bool = True,
 ) -> dict[str, dict[str, object]]:
+    """Apply a full member save and return the diff of changed fields.
+
+    With commit=False the changes are flushed but the transaction stays open,
+    so a caller that holds a row lock keeps it until its own commit.
+    """
     now = datetime.now(UTC)
     is_new = sa_inspect(member).transient
 
@@ -591,8 +628,9 @@ def apply_member_input(  # noqa: C901
             modified_at=now,
         )
 
-    db.commit()
-    db.refresh(member)
+    if commit:
+        db.commit()
+        db.refresh(member)
 
     return diff
 
@@ -848,11 +886,11 @@ def validate_parent_id(
 
 def _validate_ids_exist(
     db: Session,
-    model: type,
+    model: type[Role] | type[Badge] | type[Key],
     entries: list[RoleHistoryEntry] | list[BadgeEntry] | list[KeyEntry],
     label: str,
 ) -> None:
-    valid_ids = {row.id for row in db.query(model).all()}
+    valid_ids = set(db.scalars(select(model.id)))
     for entry in entries:
         if entry.id not in valid_ids:
             raise HTTPException(
@@ -1260,7 +1298,7 @@ def get_roles_list(
         start = None
         end = None
 
-    roles = db.query(Role).order_by(Role.order).all()
+    roles = db.query(Role).order_by(Role.sort_order).all()
     role_ids = [role.id for role in roles]
 
     query = (
@@ -1282,7 +1320,7 @@ def get_roles_list(
     for a in query.order_by(MemberRole.startdate).all():
         assignments_by_role.setdefault(a.role_id, []).append(a)
 
-    result = []
+    result: list[dict[str, object]] = []
     for role in roles:
         role_assignments = assignments_by_role.get(role.id, [])
         vbw = next(
@@ -1329,10 +1367,10 @@ def get_roles_list(
 
 def get_reference_data(db: Session) -> dict[str, object]:
     return {
-        "orgs": db.query(Org).order_by(Org.order).all(),
-        "states": (db.query(State).order_by(State.order).all()),
-        "roles": (db.query(Role).order_by(Role.order).all()),
-        "badges": (db.query(Badge).order_by(Badge.order).all()),
+        "orgs": db.query(Org).order_by(Org.sort_order).all(),
+        "states": (db.query(State).order_by(State.sort_order).all()),
+        "roles": (db.query(Role).order_by(Role.sort_order).all()),
+        "badges": (db.query(Badge).order_by(Badge.sort_order).all()),
         "keys": db.query(Key).all(),
     }
 
@@ -1382,11 +1420,12 @@ def generate_keys_download(db: Session) -> bytes:
     lines: list[str] = []
     for m in members:
         keys_map = m.get("keys")
-        held = [
-            str(name)
-            for name in key_names
-            if isinstance(keys_map, dict) and keys_map.get(name)
-        ]
+        key_flags = (
+            cast("dict[str | None, bool]", keys_map)
+            if isinstance(keys_map, dict)
+            else {}
+        )
+        held = [str(name) for name in key_names if key_flags.get(name)]
         lines.append(
             f"{m.get('nachname', '')}, {m.get('vorname', '')}: {', '.join(held)}"
         )

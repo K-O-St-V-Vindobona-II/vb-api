@@ -6,8 +6,8 @@ Create Date: 2026-09-01 22:00:00.000000
 
 Phase A (additive prep) on p4x_category_filters' own primary key -
 p4x_category_filter_hits references this table, so its Final-Cutover
-waits for that referrer's own slice (30), same reasoning as every other
-non-leaf Layer-1 table so far.
+waits for that referrer's own cutover, same reasoning as every other
+table of this series that has referrers.
 
 Both of its outgoing FKs are cut over in the same migration:
 p4x_account_id -> p4x_accounts.id_uuid, p4x_category_id ->
@@ -16,7 +16,7 @@ RESTRICT/CASCADE strategy it had before. Both columns carry a genuine
 plain lookup index (verified against the live schema before writing
 this migration), rebuilt on each cutover. The only CHECK constraint on
 this table (min_amount <= max_amount) is unrelated to either FK column,
-so unlike the previous slice there is nothing to recreate there.
+so unlike the previous revision there is nothing to recreate there.
 """
 
 import uuid
@@ -132,10 +132,9 @@ def upgrade() -> None:
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
     _batched_uuid_backfill()
     op.alter_column(TABLE, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
     # --- Phase B: both outgoing FKs --------------------------------------
     for fk_col, fk_name, parent_table, index_name, ondelete in FILTER_FKS:
@@ -148,7 +147,7 @@ def downgrade() -> None:
     Both FK halves are loss-free (the reverse join maps back through the
     parent's id_uuid to the exact same integer values that were there
     before). id_uuid itself is purely additive - the original integer id
-    was never touched, this table's own Final-Cutover is a later slice.
+    was never touched, this table's own Final-Cutover is a separate revision.
     """
     op.execute("SET LOCAL lock_timeout = '5s'")
 

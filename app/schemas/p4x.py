@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
@@ -10,9 +10,10 @@ from app.core.datetime_utils import local_today
 from app.models.enums import SubjectMode
 from app.schemas.base import StrictInputModel
 
-IBAN_REGEX = re.compile(r"^[A-Z]{2}\d{2}\s?[\w\s]{4,}$")
-BIC_REGEX = re.compile(r"^[A-Za-z0-9]{1,11}$")
-HEX_COLOR_REGEX = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+IBAN_REGEX = re.compile(r"[A-Z]{2}\d{2}\w{4,}")
+BIC_REGEX = re.compile(r"[A-Za-z0-9]{1,11}")
+FILTER_IBAN_REGEX = re.compile(r"[a-zA-Z]{2}[0-9 ]{18,23}")
+HEX_COLOR_REGEX = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 
 # Pydantic v2 serializes Decimal to a JSON *string* by default (to avoid
 # float precision loss on the wire) — but this API always returned money as
@@ -97,7 +98,7 @@ class AccountSaveRequest(StrictInputModel):
     @field_validator("iban")
     @classmethod
     def validate_iban(cls, v: str) -> str:
-        if not IBAN_REGEX.match(v.replace(" ", "")):
+        if not IBAN_REGEX.fullmatch(v.replace(" ", "")):
             msg = "Ungültiges IBAN-Format."
             raise ValueError(msg)
         return v
@@ -105,7 +106,7 @@ class AccountSaveRequest(StrictInputModel):
     @field_validator("bic")
     @classmethod
     def validate_bic(cls, v: str) -> str:
-        if not BIC_REGEX.match(v):
+        if not BIC_REGEX.fullmatch(v):
             msg = "Ungültiges BIC-Format."
             raise ValueError(msg)
         return v
@@ -243,7 +244,7 @@ class CategorySaveRequest(StrictInputModel):
     @field_validator("background_color", "text_color")
     @classmethod
     def validate_hex_color(cls, v: str) -> str:
-        if not HEX_COLOR_REGEX.match(v):
+        if not HEX_COLOR_REGEX.fullmatch(v):
             msg = "Ungültiges Farbformat. Erlaubt: #RGB oder #RRGGBB."
             raise ValueError(msg)
         return v
@@ -300,10 +301,10 @@ class CategoryFilterSaveRequest(StrictInputModel):
     # strict=False: same reasoning as p4x_account_id above.
     p4x_category_id: uuid.UUID = Field(strict=False)
 
-    @field_validator("iban", mode="before")
+    @field_validator("iban")
     @classmethod
     def validate_filter_iban(cls, v: str | None) -> str | None:
-        if v and not re.match(r"^[a-zA-Z]{2}[0-9 ]{18,23}$", v):
+        if v and not FILTER_IBAN_REGEX.fullmatch(v):
             msg = "Ungültiges IBAN-Format."
             raise ValueError(msg)
         return v
@@ -340,7 +341,7 @@ class FeeResponse(BaseModel):
 
 
 class FeeCreateRequest(StrictInputModel):
-    year: int = Field(..., ge=2015)
+    year: int = Field(..., ge=2015, le=2100)
     month: int = Field(..., ge=1, le=12)
     fee: Decimal = Field(
         ..., ge=10, le=200, max_digits=12, decimal_places=2, strict=False
@@ -411,7 +412,7 @@ class FeeMemberResponse(FeeMemberSelfResponse):
 
 
 class FeeMemberUpdateRequest(StrictInputModel):
-    p4x_init_date: date = Field(strict=False)
+    p4x_init_date: date = Field(strict=False, ge=date(1900, 1, 1))
     p4x_init_balance: Decimal = Field(
         ...,
         ge=-999999999,
@@ -451,8 +452,22 @@ class PartnerSearchResult(BaseModel):
     label: str
 
 
+PartnerType = Literal["member", "contact", "account", "special"]
+
+
+class PartnerRefInput(StrictInputModel):
+    """Partner reference as the request body carries it. `cn` is sent by the
+    shared partner widget, which posts the whole search result; it is
+    accepted and ignored, the display name always comes from the database."""
+
+    type: PartnerType
+    # strict=False: JSON has no native UUID type, it arrives as a hex string.
+    id: uuid.UUID = Field(strict=False)
+    cn: str | None = None
+
+
 class SetPartnerRequest(StrictInputModel):
-    partner: PartnerRef | None = None
+    partner: PartnerRefInput | None = None
     hasDelegatingPartner: bool = Field(  # noqa: N815
         default=False,
         description=(
@@ -460,7 +475,7 @@ class SetPartnerRequest(StrictInputModel):
             "behalf (e.g. a spouse paying for both memberships in one transaction)."
         ),
     )
-    delegatingPartner: PartnerRef | None = Field(  # noqa: N815
+    delegatingPartner: PartnerRefInput | None = Field(  # noqa: N815
         default=None,
         description="The delegating partner, if hasDelegatingPartner is true.",
     )

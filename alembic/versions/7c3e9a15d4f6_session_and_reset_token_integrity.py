@@ -21,7 +21,7 @@ e-mail address changes: a token that was mailed to the old address must not
 reset the password once the address belongs to someone else.
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 

@@ -65,10 +65,9 @@ max-complexity = 8
 # (see conftest.py's _reset_settings_cache fixture), so direct env
 # manipulation is the whole testing strategy, not a violation of it.
 "tests/**" = ["S101", "S105", "S106", "ANN", "ARG002", "TRY", "FBT", "N802", "PLR", "SLF001", "PLW0603", "TID251"]
-# alembic/env.py runs as Alembic's own CLI entry point, outside the
-# FastAPI app process — it reads DATABASE_URL directly rather than via
-# app.core.config.get_settings().
-"alembic/**" = ["F401", "UP035", "ANN", "PLR0915", "TID251"]
+# Migration files need no annotations and keep the typing imports of older
+# revisions; env.py follows the same rules as the application.
+"alembic/**" = ["UP035", "ANN", "PLR0915"]
 "scripts/**" = ["T201", "FBT", "PLR0915"]
 # Declarative models use `from __future__ import annotations`, so SQLAlchemy
 # resolves `Mapped[...]` annotations at mapper-configure time by evaluating
@@ -103,12 +102,6 @@ max-complexity = 8
 "scripts/check_s3_integrity.py" = ["TID251"]
 "scripts/trigger_chronicles.py" = ["TID251"]
 "scripts/maintain_deleted_archive_files.py" = ["TID251"]
-# Different reason from the SessionLocal exceptions above: this file
-# spreads the *entire* current environment (`{**os.environ, "PGPASSWORD":
-# ...}`) to build a pg_dump/pg_restore subprocess env — a legitimate use
-# of the whole os.environ mapping, not a single named config value that
-# belongs in Settings.
-"app/services/backup_service.py" = ["TID251"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -118,6 +111,9 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: runs for several seconds (a full migration round trip in a database of its own)",
+]
 addopts = "--cov=app --cov=scripts --cov=main --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
 filterwarnings = [
     "error",
@@ -138,11 +134,11 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "def __repr__",
     "raise NotImplementedError",
-    "pass",
+    "^\\s*pass$",
 ]
 
 [tool.pyright]
-include = ["app", "scripts"]
+include = ["app", "scripts", "main.py"]
 exclude = [
     "alembic",
     "**/__pycache__",
@@ -153,9 +149,11 @@ typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
 reportMissingTypeStubs = false
 
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
+# Values from untyped libraries must not travel through the code as Unknown.
+# The few unavoidable cases carry a targeted ignore with the reason.
+reportUnknownMemberType = "error"
+reportUnknownVariableType = "error"
+reportUnknownArgumentType = "error"
 
 # --- DEAD CODE & UNREACHABLE (Pyright) ---
 reportUnreachable = "error"

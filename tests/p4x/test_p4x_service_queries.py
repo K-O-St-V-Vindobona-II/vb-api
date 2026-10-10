@@ -474,6 +474,115 @@ class TestGetWarningsWithLimit:
         assert len(items) == 2
 
 
+def _category_and_filter(db, account):
+    category = P4xCategory(
+        name="warn.cat",
+        label="WarnCat",
+        background_color="#000",
+        text_color="#fff",
+        created_at=_now(),
+        updated_at=_now(),
+    )
+    db.add(category)
+    db.commit()
+    filters = []
+    for name in ("f1", "f2"):
+        category_filter = P4xCategoryFilter(
+            name=name,
+            p4x_account_id=account.id,
+            subject_mode="equals",
+            subject=name,
+            p4x_category_id=category.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        db.add(category_filter)
+        filters.append(category_filter)
+    db.commit()
+    return category, filters
+
+
+def _hit(db, tx, category_filter):
+    db.add(
+        P4xCategoryFilterHit(
+            p4x_transaction_id=tx.id,
+            p4x_category_filter_id=category_filter.id,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
+    db.commit()
+
+
+class TestGetWarningsCategoryHitCounts:
+    def test_only_a_single_filter_hit_or_a_direct_assignment_clears_a_row(
+        self, db_session
+    ):
+        account = _create_account(db_session)
+        category, (f1, f2) = _category_and_filter(db_session, account)
+        none = _add_tx(db_session, account, date(2026, 3, 1), 1.0, hash_suffix="n")
+        one = _add_tx(db_session, account, date(2026, 3, 2), 2.0, hash_suffix="o")
+        two = _add_tx(db_session, account, date(2026, 3, 3), 3.0, hash_suffix="t")
+        direct = _add_tx(db_session, account, date(2026, 3, 4), 4.0, hash_suffix="d")
+        direct_and_hits = _add_tx(
+            db_session, account, date(2026, 3, 5), 5.0, hash_suffix="dh"
+        )
+        _hit(db_session, one, f1)
+        _hit(db_session, two, f1)
+        _hit(db_session, two, f2)
+        _hit(db_session, direct_and_hits, f1)
+        _hit(db_session, direct_and_hits, f2)
+        for tx in (direct, direct_and_hits):
+            db_session.add(
+                P4xCategoryDirect(
+                    p4x_transaction_id=tx.id,
+                    p4x_category_id=category.id,
+                    amount=1.0,
+                )
+            )
+        db_session.commit()
+
+        items, total = get_warnings_category(db_session)
+
+        assert total == 2
+        assert {tx.id for tx in items} == {none.id, two.id}
+
+    def test_newest_booking_comes_first(self, db_session):
+        account = _create_account(db_session)
+        old = _add_tx(db_session, account, date(2026, 1, 1), 1.0, hash_suffix="a")
+        new = _add_tx(db_session, account, date(2026, 5, 1), 1.0, hash_suffix="b")
+
+        items, _ = get_warnings_category(db_session)
+
+        assert [tx.id for tx in items] == [new.id, old.id]
+
+    def test_statement_count_does_not_grow_with_the_transactions(
+        self, db_session, count_queries
+    ):
+        account = _create_account(db_session)
+        _, (f1, _f2) = _category_and_filter(db_session, account)
+        counts = []
+        added = 0
+        for chunk in (5, 20):
+            for _ in range(chunk):
+                added += 1
+                tx = _add_tx(
+                    db_session,
+                    account,
+                    date(2026, 3, 1),
+                    float(added),
+                    hash_suffix=f"q{added}",
+                )
+                if added % 2:
+                    _hit(db_session, tx, f1)
+            db_session.expire_all()
+            with count_queries() as counter:
+                get_warnings_category(db_session)
+            counts.append(counter.count)
+
+        assert counts[1] == counts[0]
+
+
 class TestBuildTransactionResponseQueryCount:
     """Regression test for the N+1 fix: build_transaction_response() reads
     tx.category_directs and tx.category_filter_hits (both lazy="select")

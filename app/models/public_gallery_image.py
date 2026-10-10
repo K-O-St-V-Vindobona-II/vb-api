@@ -20,6 +20,15 @@ class PublicGalleryImage(Base):
         CheckConstraint(
             "sort_order >= 0", name="public_gallery_images_sort_order_check"
         ),
+        # The only types the upload accepts.
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png')",
+            name="public_gallery_images_content_type_check",
+        ),
+        CheckConstraint(
+            "extension IN ('jpg', 'png')",
+            name="public_gallery_images_extension_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

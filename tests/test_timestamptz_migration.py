@@ -18,7 +18,6 @@ from datetime import UTC, date, datetime
 
 import bcrypt
 
-from app.api.deps import _ensure_tz_aware as _deps_ensure_tz_aware
 from app.models.archive_dir import ArchiveDir
 from app.models.archive_file import ArchiveFile
 from app.models.archive_store_item import ArchiveStoreItem
@@ -28,7 +27,6 @@ from app.models.org import Org
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.role import Role
 from app.schemas.public_gallery import GalleryImageAdminResponse
-from app.services.auth_service import _ensure_tz_aware as _auth_ensure_tz_aware
 from app.services.auth_service import create_user_session
 
 AWARE_DT = datetime(2026, 1, 15, 12, 30, 0, tzinfo=UTC)
@@ -38,8 +36,8 @@ def _login_admin(db) -> dict[str, str]:
     """Org 'vbw' + role 'internetreferent' grants both archiveAdmin and
     publicContentEditor (see app/services/permission_service.py) — one
     seed covers both endpoint tests below."""
-    db.add(Org(id="vbw", label="VBW", order=1))
-    db.add(Role(id="internetreferent", group="funktion", label="IR", order=0))
+    db.add(Org(id="vbw", label="VBW", sort_order=1))
+    db.add(Role(id="internetreferent", group="funktion", label="IR", sort_order=0))
     db.commit()
 
     hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
@@ -61,19 +59,6 @@ def _login_admin(db) -> dict[str, str]:
     db.commit()
     token, _, _ = create_user_session(db, member)
     return {"Authorization": f"Bearer {token}"}
-
-
-class TestEnsureTzAwareNoOpOnAwareInput:
-    """app/api/deps.py and app/services/auth_service.py each declare an
-    _ensure_tz_aware guard used before comparing a DB-read datetime against
-    a freshly generated datetime.now(UTC). Both must be no-ops once the DB
-    itself returns aware values."""
-
-    def test_deps_ensure_tz_aware_passes_through_aware_datetime(self):
-        assert _deps_ensure_tz_aware(AWARE_DT) == AWARE_DT
-
-    def test_auth_service_ensure_tz_aware_passes_through_aware_datetime(self):
-        assert _auth_ensure_tz_aware(AWARE_DT) == AWARE_DT
 
 
 class TestPublicGalleryOffsetSerialization:

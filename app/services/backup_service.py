@@ -1,5 +1,4 @@
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -64,8 +63,13 @@ def _parse_db_url(database_url: str) -> tuple[str, str, str, int, str]:
 
 
 def _build_pg_env(password: str) -> dict[str, str]:
-    """Build subprocess env with PGPASSWORD injected."""
-    return {**os.environ, "PGPASSWORD": password}
+    """Build the environment of a pg_dump/pg_restore/psql subprocess.
+
+    The tools are started by absolute path and get the connection settings as
+    arguments, so the password is the only thing they need. Nothing else of
+    this process (application secret, storage keys) is handed to them.
+    """
+    return {"PGPASSWORD": password}
 
 
 def _run_pg_subprocess(
@@ -418,10 +422,11 @@ def run_restore(
         keys = _retry_transient_s3(
             lambda: storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
         )
-        if not keys:
+        dated = _dated_backup_keys(keys)
+        if not dated:
             msg = "No backups found in S3."
             raise RuntimeError(msg)
-        backup_name = max(keys).removeprefix(f"{S3_PATH_DB_BACKUPS}/")
+        backup_name = dated[-1][1].removeprefix(f"{S3_PATH_DB_BACKUPS}/")
         logger.info("Auto-selected latest backup: %s", backup_name)
 
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
@@ -514,6 +519,20 @@ def _parse_backup_timestamp(backup_name: str) -> datetime | None:
         return None
 
 
+def _dated_backup_keys(keys: list[str]) -> list[tuple[datetime, str]]:
+    """(timestamp, key) of every key with a parseable backup name, oldest
+    first. Sorting the keys as text would order them by environment name
+    ("production-..." before "test-..."), not by time; names without a
+    timestamp are left out.
+    """
+    prefix = f"{S3_PATH_DB_BACKUPS}/"
+    return sorted(
+        (timestamp, key)
+        for key in keys
+        if (timestamp := _parse_backup_timestamp(key.removeprefix(prefix))) is not None
+    )
+
+
 def cleanup_old_backups(
     storage: StorageClient,
     retention_days: int = BACKUP_RETENTION_DAYS,
@@ -522,16 +541,22 @@ def cleanup_old_backups(
     Delete S3 backups older than retention_days.
 
     Returns the list of deleted backup names. Names that cannot be parsed
-    as a valid backup timestamp are skipped (never deleted blindly).
+    as a valid backup timestamp are skipped (never deleted blindly). A
+    retention below one day is refused: with 0 or a negative value every
+    backup, including the one just written, would be older than the cutoff.
     """
+    if retention_days < 1:
+        msg = f"Backup retention must be at least 1 day, got {retention_days}."
+        raise ValueError(msg)
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
     deleted: list[str] = []
 
-    for key in storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/"):
-        name = key.removeprefix(f"{S3_PATH_DB_BACKUPS}/")
-        backup_date = _parse_backup_timestamp(name)
-        if backup_date is None or backup_date >= cutoff:
+    for backup_date, key in _dated_backup_keys(
+        storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
+    ):
+        if backup_date >= cutoff:
             continue
+        name = key.removeprefix(f"{S3_PATH_DB_BACKUPS}/")
         storage.delete(key)
         deleted.append(name)
         logger.info("Deleted expired backup (older than %dd): %s", retention_days, name)

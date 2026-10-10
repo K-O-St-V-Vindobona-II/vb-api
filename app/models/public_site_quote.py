@@ -13,10 +13,12 @@ class PublicSiteQuote(Base):
     __tablename__ = "public_site_quotes"
     __table_args__ = (
         CheckConstraint(
-            "char_length(quote) > 0", name="public_site_quotes_quote_check"
+            "quote ~ '[^[:space:]]' AND char_length(quote) <= 500",
+            name="public_site_quotes_quote_check",
         ),
         CheckConstraint(
-            "char_length(author) > 0", name="public_site_quotes_author_check"
+            "author ~ '[^[:space:]]' AND char_length(author) <= 100",
+            name="public_site_quotes_author_check",
         ),
     )
 

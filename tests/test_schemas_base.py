@@ -2,9 +2,16 @@
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, Field, ValidationError
 
-from app.schemas.base import UtcDatetime, _ensure_utc
+from app.schemas import auth as auth_schemas
+from app.schemas.base import (
+    StrictInputModel,
+    TrimmedInputModel,
+    UtcDatetime,
+    _ensure_utc,
+)
 
 # ---------------------------------------------------------------------------
 # _ensure_utc helper
@@ -58,3 +65,55 @@ class TestUtcDatetimeField:
         dumped = _Model(at=aware).model_dump(mode="json")
         assert dumped["at"] is not None
         assert dumped["at"].endswith(("Z", "+00:00"))
+
+
+# ---------------------------------------------------------------------------
+# TrimmedInputModel - strict input that also trims surrounding whitespace
+# ---------------------------------------------------------------------------
+
+
+class _Trimmed(TrimmedInputModel):
+    name: str = Field(min_length=1, max_length=5)
+    nick: str | None = None
+
+
+class TestTrimmedInputModel:
+    def test_surrounding_whitespace_is_removed(self) -> None:
+        model = _Trimmed(name="  Hi\n", nick=" \tx ")
+        assert (model.name, model.nick) == ("Hi", "x")
+
+    def test_blank_value_fails_the_minimum_length(self) -> None:
+        with pytest.raises(ValidationError, match="at least 1 character"):
+            _Trimmed(name="   ")
+
+    def test_length_limit_applies_to_the_trimmed_value(self) -> None:
+        assert _Trimmed(name="  12345  ").name == "12345"
+        with pytest.raises(ValidationError, match="at most 5 characters"):
+            _Trimmed(name="123456")
+
+    def test_inner_whitespace_is_kept(self) -> None:
+        assert _Trimmed(name="a  b").name == "a  b"
+
+    def test_stays_strict_about_types_and_unknown_keys(self) -> None:
+        with pytest.raises(ValidationError):
+            _Trimmed(name=5)
+        with pytest.raises(ValidationError, match="extra"):
+            _Trimmed(name="ok", other="x")
+
+    def test_is_a_strict_input_model(self) -> None:
+        assert issubclass(TrimmedInputModel, StrictInputModel)
+        assert TrimmedInputModel.model_config["str_strip_whitespace"] is True
+        assert StrictInputModel.model_config.get("str_strip_whitespace") is None
+
+    def test_credential_requests_are_never_trimmed(self) -> None:
+        credential_models = [
+            cls
+            for cls in vars(auth_schemas).values()
+            if isinstance(cls, type)
+            and issubclass(cls, StrictInputModel)
+            and cls.__module__ == auth_schemas.__name__
+        ]
+        assert credential_models
+        assert not [
+            m.__name__ for m in credential_models if issubclass(m, TrimmedInputModel)
+        ]

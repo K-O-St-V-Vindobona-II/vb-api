@@ -1,15 +1,14 @@
-"""Tests für die Rollenhistorie-Überlappungsprüfung.
+"""Tests for the role-history overlap check.
 
-Grundregel: Eine Rolle darf zu jedem Zeitpunkt innerhalb einer Organisation
-nur von einem Mitglied besetzt sein.
+Base rule: a role may be held by only one member at a time within an
+organization.
 
-Geprüft werden:
-- Hilfsfunktion _ranges_overlap (alle 4 Fälle)
-- Datumsreihenfolge (startdate < enddate)
-- Intra-Request-Überlappungen (gleiche Rolle, gleiches Mitglied, überlappende Zeiträume)
-- Datenbank-Überlappungen (gleiche Rolle, anderes Mitglied, gleiche Org)
-- Kein Fehler bei: verschiedenen Rollen, verschiedenen Orgs,
-  nicht-überlappenden Zeiträumen
+Covered:
+- Helper function _ranges_overlap (all 4 cases)
+- Date order (startdate < enddate)
+- Intra-request overlaps (same role, same member, overlapping periods)
+- Database overlaps (same role, different member, same org)
+- No error for: different roles, different orgs, non-overlapping periods
 """
 
 from datetime import date
@@ -33,12 +32,12 @@ from app.services.standesdb_service import (
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            Role(id="senior", group="chc", label="Senior", order=1),
-            Role(id="schriftfuehrer", group="chc", label="Schriftführer", order=2),
-            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="senior", group="chc", label="Senior", sort_order=1),
+            Role(id="schriftfuehrer", group="chc", label="Schriftführer", sort_order=2),
+            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", sort_order=3),
         ]
     )
     db.commit()
@@ -57,11 +56,11 @@ def _member(db, *, email, org_id="vbw", vorname="Test", nachname="User"):
     return m
 
 
-# ─── _ranges_overlap: Hilfsfunktion ────────────────────
+# ─── _ranges_overlap: helper function ───────────────────
 
 
 class TestRangesOverlap:
-    """Alle 4 Fälle der Überlappungslogik."""
+    """All 4 cases of the overlap logic."""
 
     def test_both_have_enddate_overlap(self):
         assert (
@@ -86,7 +85,7 @@ class TestRangesOverlap:
         )
 
     def test_both_have_enddate_adjacent_no_overlap(self):
-        """Direkt anschließend = keine Überlappung (end == start)."""
+        """Directly adjacent = no overlap (end == start)."""
         assert (
             _ranges_overlap(
                 date(1997, 2, 1),
@@ -164,7 +163,7 @@ class TestRangesOverlap:
         )
 
 
-# ─── Datumsreihenfolge ─────────────────────────────────
+# ─── Date order ──────────────────────────────────────────
 
 
 class TestDateOrder:
@@ -214,14 +213,14 @@ class TestDateOrder:
         validate_roles_history(db_session, roles, "vbw", None)
 
 
-# ─── Intra-Request-Überlappung ─────────────────────────
+# ─── Intra-request overlap ───────────────────────────────
 
 
 class TestIntraRequestOverlap:
-    """Gleiche Rolle, gleiches Mitglied, überlappende Zeiträume im Request."""
+    """Same role, same member, overlapping periods within the request."""
 
     def test_same_role_overlapping_periods_rejected(self, db_session):
-        """Fall 1: Beide haben Enddatum, Zeiträume überlappen."""
+        """Case 1: both have an end date, periods overlap."""
         _seed(db_session)
         roles = [
             {
@@ -241,7 +240,7 @@ class TestIntraRequestOverlap:
         assert "überschneiden sich" in exc.value.detail[0]
 
     def test_same_role_one_ongoing_overlap_rejected(self, db_session):
-        """Fall 2/3: Einer hat Enddatum, anderer laufend, überlappen."""
+        """Case 2/3: one has an end date, the other is ongoing, they overlap."""
         _seed(db_session)
         roles = [
             {
@@ -257,7 +256,7 @@ class TestIntraRequestOverlap:
         assert "überschneiden sich" in exc.value.detail[0]
 
     def test_same_role_both_ongoing_rejected(self, db_session):
-        """Fall 4: Beide ohne Enddatum = immer Überlappung."""
+        """Case 4: both without an end date = always overlapping."""
         _seed(db_session)
         roles = [
             {"id": "senior", "startdate": date(1997, 2, 1)},
@@ -269,7 +268,7 @@ class TestIntraRequestOverlap:
         assert "überschneiden sich" in exc.value.detail[0]
 
     def test_same_role_non_overlapping_ok(self, db_session):
-        """Gleiche Rolle, aber Zeiträume grenzen nur aneinander."""
+        """Same role, but periods are only adjacent."""
         _seed(db_session)
         roles = [
             {
@@ -286,7 +285,7 @@ class TestIntraRequestOverlap:
         validate_roles_history(db_session, roles, "vbw", None)
 
     def test_different_roles_same_period_ok(self, db_session):
-        """Verschiedene Rollen dürfen im gleichen Zeitraum liegen."""
+        """Different roles may share the same period."""
         _seed(db_session)
         roles = [
             {
@@ -303,7 +302,7 @@ class TestIntraRequestOverlap:
         validate_roles_history(db_session, roles, "vbw", None)
 
     def test_three_entries_third_overlaps(self, db_session):
-        """Drei Einträge gleicher Rolle, nur 2. und 3. überlappen."""
+        """Three entries of the same role, only the 2nd and 3rd overlap."""
         _seed(db_session)
         roles = [
             {
@@ -327,14 +326,14 @@ class TestIntraRequestOverlap:
         assert exc.value.status_code == 422
 
 
-# ─── Datenbank-Überlappung ─────────────────────────────
+# ─── Database overlap ────────────────────────────────────
 
 
 class TestDatabaseOverlap:
-    """Gleiche Rolle, anderes Mitglied in der DB, gleiche Org."""
+    """Same role, different member in the DB, same org."""
 
     def test_other_member_same_role_same_period_rejected(self, db_session):
-        """Anderes Mitglied hält die Rolle im selben Zeitraum."""
+        """A different member holds the role in the same period."""
         _seed(db_session)
         other = _member(
             db_session, email="other@vbw.at", vorname="Max", nachname="Muster"
@@ -365,7 +364,7 @@ class TestDatabaseOverlap:
         assert "belegt" in exc.value.detail[0]
 
     def test_other_member_ongoing_new_overlaps_rejected(self, db_session):
-        """Anderes Mitglied hat laufende Rolle, neuer Eintrag überlappt."""
+        """A different member has an ongoing role, the new entry overlaps."""
         _seed(db_session)
         other = _member(
             db_session, email="other@vbw.at", vorname="Max", nachname="Muster"
@@ -394,7 +393,7 @@ class TestDatabaseOverlap:
         assert exc.value.status_code == 422
 
     def test_both_ongoing_rejected(self, db_session):
-        """Anderes Mitglied hat laufende Rolle, neuer auch laufend."""
+        """A different member has an ongoing role, the new one is also ongoing."""
         _seed(db_session)
         other = _member(
             db_session, email="other@vbw.at", vorname="Max", nachname="Muster"
@@ -419,7 +418,7 @@ class TestDatabaseOverlap:
         assert exc.value.status_code == 422
 
     def test_other_member_non_overlapping_ok(self, db_session):
-        """Anderes Mitglied hielt die Rolle, aber in anderem Zeitraum."""
+        """A different member held the role, but in a different period."""
         _seed(db_session)
         other = _member(
             db_session, email="other@vbw.at", vorname="Max", nachname="Muster"
@@ -446,7 +445,7 @@ class TestDatabaseOverlap:
         validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_other_member_different_role_ok(self, db_session):
-        """Anderes Mitglied hat andere Rolle im gleichen Zeitraum — kein Konflikt."""
+        """A different member has a different role in the same period - no conflict."""
         _seed(db_session)
         other = _member(
             db_session, email="other@vbw.at", vorname="Max", nachname="Muster"
@@ -473,7 +472,7 @@ class TestDatabaseOverlap:
         validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_other_member_different_org_ok(self, db_session):
-        """Gleiche Rolle, gleicher Zeitraum, andere Org -- kein Konflikt."""
+        """Same role, same period, different org -- no conflict."""
         _seed(db_session)
         other_vbn = _member(
             db_session,
@@ -504,7 +503,7 @@ class TestDatabaseOverlap:
         validate_roles_history(db_session, roles, "vbw", me.id)
 
     def test_own_existing_roles_ignored(self, db_session):
-        """Eigene bestehende Rollen werden ignoriert (detach-all + re-attach)."""
+        """The member's own existing roles are ignored (detach-all + re-attach)."""
         _seed(db_session)
         me = _member(db_session, email="me@vbw.at", vorname="Ich", nachname="Selbst")
 
@@ -528,7 +527,7 @@ class TestDatabaseOverlap:
         validate_roles_history(db_session, roles, "vbw", me.id)
 
 
-# ─── Leere und valide Eingaben ─────────────────────────
+# ─── Empty and valid inputs ──────────────────────────────
 
 
 class TestEdgeCases:
@@ -548,7 +547,7 @@ class TestEdgeCases:
         validate_roles_history(db_session, roles, "vbw", None)
 
     def test_label_in_error_message(self, db_session):
-        """Fehlermeldung enthält den Rollennamen."""
+        """Error message contains the role name."""
         _seed(db_session)
         roles = [
             {
@@ -567,7 +566,7 @@ class TestEdgeCases:
         assert "Senior" in exc.value.detail[0]
 
     def test_label_from_request_used(self, db_session):
-        """Label aus dem Request wird in der Fehlermeldung verwendet."""
+        """Label from the request is used in the error message."""
         _seed(db_session)
         roles = [
             {
@@ -588,7 +587,7 @@ class TestEdgeCases:
         assert "Senior (custom)" in exc.value.detail[0]
 
     def test_new_member_no_member_id(self, db_session):
-        """Bei neuem Mitglied (member_id=None) wird kein Eintrag ignoriert."""
+        """For a new member (member_id=None), no entry is ignored."""
         _seed(db_session)
         existing = _member(
             db_session, email="ex@vbw.at", vorname="Max", nachname="Muster"

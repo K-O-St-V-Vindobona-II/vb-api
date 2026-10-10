@@ -6,11 +6,11 @@
 import io
 import uuid
 from datetime import UTC, date, datetime
+from urllib.parse import unquote
 
 import bcrypt
 from openpyxl import load_workbook
 
-from app.api.router_includes.p4x import _build_fee_member_response
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -22,6 +22,7 @@ from app.models.p4x_transaction import P4xTransaction
 from app.models.role import Role
 from app.models.state import State
 from app.services.auth_service import create_user_session
+from app.services.p4x_response_builders import build_fee_member_response
 from app.services.p4x_summary_service import generate_fee_member_xlsx
 
 
@@ -32,9 +33,9 @@ def _now() -> datetime:
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
-            Role(id="phil-xxxx", group="philchc", label="Phil-x", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
+            Role(id="phil-xxxx", group="philchc", label="Phil-x", sort_order=1),
         ]
     )
     db.commit()
@@ -164,7 +165,7 @@ class TestGenerateFeeMemberXlsx:
     def test_has_correct_sheets(self, db_session):
         _seed_base(db_session)
         member = _create_fee_member(db_session)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -174,7 +175,7 @@ class TestGenerateFeeMemberXlsx:
     def test_zusammenfassung_content(self, db_session):
         _seed_base(db_session)
         member = _create_fee_member(db_session)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -189,7 +190,7 @@ class TestGenerateFeeMemberXlsx:
         _seed_base(db_session)
         member = _create_fee_member(db_session)
         _add_payment(db_session, member, date(2017, 2, 14), 15.0)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -203,7 +204,7 @@ class TestGenerateFeeMemberXlsx:
         _seed_base(db_session)
         member = _create_fee_member(db_session)
         _add_payment(db_session, member, date(2017, 2, 14), 15.0)
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
 
         xlsx_bytes = generate_fee_member_xlsx(response)
         wb = load_workbook(io.BytesIO(xlsx_bytes))
@@ -230,7 +231,7 @@ class TestGenerateFeeMemberXlsx:
         member.p4x_freed = True
         db_session.commit()
 
-        response = _build_fee_member_response(db_session, member)
+        response = build_fee_member_response(db_session, member)
         assert response.balance is not None
         assert response.balance.progress == []
 
@@ -305,3 +306,50 @@ class TestExportFeeMemberEndpoint:
         resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
 
         assert resp.status_code == 403
+
+
+class TestExportFilenameEncoding:
+    """The download name holds any character of a member's name: a name outside
+    Latin-1 must not turn the export into a server error, and control characters
+    must not reach the header."""
+
+    def _member_named(self, db_session, last_name: str) -> Member:
+        member = _create_fee_member(db_session)
+        member.nachname = last_name
+        db_session.commit()
+        return member
+
+    def test_a_name_outside_latin_1_gives_an_export_instead_of_a_server_error(
+        self, db_session, client
+    ):
+        _seed_base(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        member = self._member_named(db_session, "Řehoř")
+
+        resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
+
+        assert resp.status_code == 200
+        disposition = resp.headers["content-disposition"]
+        assert 'filename="Beitragskonto_Robert Rehor' in disposition
+        assert "Řehoř" in unquote(disposition)
+
+    def test_a_line_break_in_the_name_cannot_split_the_header(self, db_session, client):
+        _seed_base(db_session)
+        headers = _login(db_session, _create_admin(db_session))
+        member = self._member_named(db_session, "Evil\r\nSet-Cookie: x=y")
+
+        resp = client.get(f"/api/p4x/fee-members/{member.id}/export", headers=headers)
+
+        assert resp.status_code == 200
+        assert "set-cookie" not in resp.headers
+        assert "\n" not in resp.headers["content-disposition"]
+
+    def test_the_own_statement_uses_the_same_encoding(self, db_session, client):
+        _seed_base(db_session)
+        member = self._member_named(db_session, "Řehoř")
+        headers = _login(db_session, member)
+
+        resp = client.get("/api/p4x/fee-members/me/export", headers=headers)
+
+        assert resp.status_code == 200
+        assert "Řehoř" in unquote(resp.headers["content-disposition"])

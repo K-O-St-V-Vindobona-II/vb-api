@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -44,10 +44,112 @@ class ParsedTransactionEntry(TypedDict):
 class ParseResult:
     success: bool
     message: str
-    entries: list[ParsedTransactionEntry] = field(default_factory=list)
+    entries: list[ParsedTransactionEntry] = field(
+        default_factory=list[ParsedTransactionEntry]
+    )
 
 
-def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PLR0911, PLR0912
+class _CorruptEntryError(ValueError):
+    """One bank entry cannot be read; the message says why."""
+
+
+# The amount column is NUMERIC(12,2); a bank export states the value in minor
+# units with a precision of 2 (sometimes 0 or 3), never more than a few digits.
+_MAX_PRECISION = 9
+_MAX_ABSOLUTE_AMOUNT = Decimal(10) ** 10
+
+
+def _child(node: object, key: str, path: tuple[str, ...]) -> object:
+    """Value of `key` inside `node`, or a corrupt-entry error naming `path`."""
+    if not isinstance(node, dict) or key not in node:
+        msg = f"missing field: {'.'.join(path)}"
+        raise _CorruptEntryError(msg)
+    return cast("dict[str, object]", node)[key]
+
+
+def _field(struct: dict[str, object], *path: str) -> object:
+    """Value at `path` inside one entry, or a corrupt-entry error naming it."""
+    node: object = struct
+    for key in path:
+        node = _child(node, key, path)
+    return node
+
+
+def _parse_amount(value: object, precision: object) -> Decimal:
+    """The amount in major units, from the bank's (value, precision) pair.
+
+    Refuses anything that is not a finite number that fits the column:
+    "NaN" and "Infinity" convert to a Decimal without an error, and a NaN
+    stored in the database turns every balance of the account into NaN.
+    """
+    try:
+        exponent = int(str(precision).strip())
+    except ValueError as exc:
+        msg = "invalid field: amount.precision"
+        raise _CorruptEntryError(msg) from exc
+    if not 0 <= exponent <= _MAX_PRECISION:
+        msg = "invalid field: amount.precision"
+        raise _CorruptEntryError(msg)
+    try:
+        amount = Decimal(str(value).strip()) / (Decimal(10) ** exponent)
+    except ArithmeticError as exc:
+        msg = "invalid field: amount.value"
+        raise _CorruptEntryError(msg) from exc
+    if not amount.is_finite() or abs(amount) >= _MAX_ABSOLUTE_AMOUNT:
+        msg = "invalid field: amount.value"
+        raise _CorruptEntryError(msg)
+    return amount
+
+
+def _booking_date(struct: dict[str, object], name: str) -> date:
+    text = str(_field(struct, name)).strip()
+    try:
+        return _parse_date_string(text)
+    except ValueError as exc:
+        msg = f"invalid field: {name}"
+        raise _CorruptEntryError(msg) from exc
+
+
+def _subject(struct: dict[str, object]) -> str:
+    """The longer of the two reference fields (either may be missing)."""
+    ref = str(struct.get("reference") or "")
+    recv = str(struct.get("receiverReference") or "")
+    return (ref if len(ref) > len(recv) else recv).strip()
+
+
+def _parse_entry(struct: object) -> ParsedTransactionEntry:
+    if not isinstance(struct, dict):
+        msg = "entry is not an object"
+        raise _CorruptEntryError(msg)
+    entry = cast("dict[str, object]", struct)
+
+    booking = _booking_date(entry, "booking")
+    valuation = _booking_date(entry, "valuation")
+    if not isinstance(_field(entry, "partnerAccount"), dict):
+        # The bank sends null for entries without a counter account (cash).
+        entry["partnerAccount"] = {"iban": ""}
+    iban = str(_field(entry, "partnerAccount", "iban")).strip()
+    _field(entry, "amount")
+    amount = _parse_amount(
+        _field(entry, "amount", "value"), _field(entry, "amount", "precision")
+    )
+    if "reference" not in entry and "receiverReference" not in entry:
+        msg = "missing field: reference or receiverReference"
+        raise _CorruptEntryError(msg)
+
+    return {
+        "payload": {
+            "booking": booking,
+            "valuation": valuation,
+            "iban": iban,
+            "amount": f"{amount:.2f}",
+            "subject": _subject(entry),
+        },
+        "raw": json.dumps(entry),
+    }
+
+
+def parse_george_json(bic: str, raw_json: str) -> ParseResult:
     if bic != GEORGE_BIC:
         return ParseResult(
             success=False, message=f"No parser method found for BIC {bic}"
@@ -61,105 +163,15 @@ def parse_george_json(bic: str, raw_json: str) -> ParseResult:  # noqa: C901, PL
     if not isinstance(data, list):
         return ParseResult(success=False, message="failed to parse given raw json data")
 
-    result: list[ParsedTransactionEntry] = []
-
-    for struct in data:
-        if "booking" not in struct:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: booking"
-                ),
-            )
-        if "valuation" not in struct:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: valuation"
-                ),
-            )
-        if "partnerAccount" not in struct:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: partnerAccount"
-                ),
-            )
-        if not isinstance(struct["partnerAccount"], dict):
-            struct["partnerAccount"] = {"iban": ""}
-        if "iban" not in struct["partnerAccount"]:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: partnerAccount.iban"
-                ),
-            )
-        if "amount" not in struct:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: amount"
-                ),
-            )
-        if "value" not in struct["amount"]:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: amount.value"
-                ),
-            )
-        if "precision" not in struct["amount"]:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: amount.precision"
-                ),
-            )
-        if "reference" not in struct and "receiverReference" not in struct:
-            return ParseResult(
-                success=False,
-                message=(
-                    "given data contains at least one corrupt entry:"
-                    " missing field: reference or receiverReference"
-                ),
-            )
-
-        ref = struct.get("reference") or ""
-        recv = struct.get("receiverReference") or ""
-        if ref and recv:
-            subject = ref if len(ref) > len(recv) else recv
-        elif ref:
-            subject = ref
-        elif recv:
-            subject = recv
-        else:
-            subject = ""
-
-        precision = int(str(struct["amount"]["precision"]).strip())
-        raw_value = Decimal(str(struct["amount"]["value"]).strip())
-        amount = raw_value / (Decimal(10) ** precision)
-
-        result.append(
-            {
-                "payload": {
-                    "booking": _parse_date_string(str(struct["booking"]).strip()),
-                    "valuation": _parse_date_string(str(struct["valuation"]).strip()),
-                    "iban": str(struct["partnerAccount"]["iban"]).strip(),
-                    "amount": f"{amount:.2f}",
-                    "subject": subject.strip(),
-                },
-                "raw": json.dumps(struct),
-            }
+    try:
+        entries = [_parse_entry(struct) for struct in cast("list[object]", data)]
+    except _CorruptEntryError as exc:
+        return ParseResult(
+            success=False,
+            message=f"given data contains at least one corrupt entry: {exc}",
         )
 
-    return ParseResult(success=True, message="finished successfully", entries=result)
+    return ParseResult(success=True, message="finished successfully", entries=entries)
 
 
 def _parse_date_string(date_str: str) -> date:
@@ -167,15 +179,16 @@ def _parse_date_string(date_str: str) -> date:
 
 
 # ---------------------------------------------------------------------------
-# SHA256 hash (must match PHP Carbon toJSON + json_encode behavior)
+# SHA256 hash of a transaction. The format must not change: the stored hashes
+# were computed over exactly this text.
 # ---------------------------------------------------------------------------
 
 
 def _date_to_carbon_json(booking_date: date, original_date_str: str) -> str:
-    """Convert a date to Carbon 3's toJSON() UTC format.
+    """Format a booking date as the UTC timestamp the stored hashes use.
 
-    Carbon::parse() preserves the original timezone, then toJSON() converts to
-    UTC and formats as 'YYYY-MM-DDTHH:MM:SS.000000Z'.
+    The original UTC offset of the bank's text is applied first, then the time
+    is converted to UTC and written as 'YYYY-MM-DDTHH:MM:SS.000000Z'.
     """
     m = re.match(
         r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?([+-])(\d{2})(\d{2})",
@@ -193,8 +206,10 @@ def _date_to_carbon_json(booking_date: date, original_date_str: str) -> str:
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%S") + ".000000Z"
 
 
-def _php_json_encode(obj: list[str]) -> str:
-    """Replicate PHP's default json_encode behavior."""
+def _json_encode_escaping_slashes(obj: list[str]) -> str:
+    """Encode as compact ASCII JSON with escaped slashes.
+
+    That is the exact text the stored hashes were computed over."""
     s = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
     return s.replace("/", "\\/")
 
@@ -206,7 +221,7 @@ def compute_transaction_hash(
     amount_str: str,
     subject: str,
 ) -> str:
-    payload = _php_json_encode(
+    payload = _json_encode_escaping_slashes(
         [
             booking_carbon_json,
             valuation_carbon_json,
@@ -223,6 +238,27 @@ def compute_transaction_hash(
 # ---------------------------------------------------------------------------
 
 
+def _distinguish_repeated_entry(
+    sha256_hash: str, seen_hashes: dict[str, int], summary: dict[str, int]
+) -> str:
+    """Hash for the n-th occurrence of an identical entry in one file.
+
+    Two payments with the same day, counter account, amount and reference
+    produce the same hash, and the hash column is unique: without this the
+    second one ends in a database error and the whole file cannot be
+    imported. The first occurrence keeps its hash (so everything imported
+    before stays valid); later ones get a hash that depends on their position
+    among the identical entries, which is the same again on a re-import of
+    the file.
+    """
+    occurrence = seen_hashes.get(sha256_hash, 0) + 1
+    seen_hashes[sha256_hash] = occurrence
+    if occurrence == 1:
+        return sha256_hash
+    summary["repeated_in_file"] = summary.get("repeated_in_file", 0) + 1
+    return hashlib.sha256(f"{sha256_hash}#{occurrence}".encode()).hexdigest()
+
+
 def import_transactions(
     db: Session,
     account: P4xAccount,
@@ -234,6 +270,7 @@ def import_transactions(
     Returns a summary dict with counts by status.
     """
     summary: dict[str, int] = {}
+    seen_hashes: dict[str, int] = {}
 
     for i, entry in enumerate(parsed_entries):
         payload = entry["payload"]
@@ -266,6 +303,7 @@ def import_transactions(
             payload["amount"],
             payload["subject"],
         )
+        sha256_hash = _distinguish_repeated_entry(sha256_hash, seen_hashes, summary)
 
         if account.init_date is not None and payload["booking"] < account.init_date:
             db.query(P4xTransaction).filter(
@@ -274,17 +312,20 @@ def import_transactions(
             summary["before_init_date"] = summary.get("before_init_date", 0) + 1
             continue
 
+        # Deleted rows are looked up too: the hash is unique over all rows, so
+        # an entry that was set aside earlier (before the account's start date)
+        # is brought back instead of inserted a second time.
         existing = (
             db.query(P4xTransaction)
-            .filter(
-                P4xTransaction.sha256_hash == sha256_hash,
-                P4xTransaction.deleted_at.is_(None),
-            )
+            .filter(P4xTransaction.sha256_hash == sha256_hash)
             .first()
         )
 
         if existing:
             status = "existing"
+            if existing.deleted_at is not None:
+                existing.deleted_at = None
+                status = "restored"
             existing.booking = payload["booking"]
             existing.valuation = payload["valuation"]
             existing.iban = payload["iban"]

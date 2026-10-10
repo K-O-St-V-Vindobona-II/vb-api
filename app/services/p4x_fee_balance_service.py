@@ -67,6 +67,22 @@ def get_all_fees(db: Session) -> list[P4xFee]:
     return db.query(P4xFee).order_by(P4xFee.start).all()
 
 
+def _fee_step_function(db: Session) -> tuple[list[date], list[Decimal]]:
+    """Start dates and amounts of every fee, oldest first: one query for a
+    whole balance instead of one per month."""
+    fees = get_all_fees(db)
+    return [f.start for f in fees], [f.fee for f in fees]
+
+
+def _fee_at(
+    month_starts: list[date], month_fees: list[Decimal], month: date
+) -> Decimal:
+    """Fee in force in `month`: the latest one that started on or before its
+    first day, zero before the first fee (same rule as fee_for_month)."""
+    index = bisect_right(month_starts, month.replace(day=1)) - 1
+    return month_fees[index] if index >= 0 else Decimal(0)
+
+
 def fee_for_month(db: Session, target_date: date) -> Decimal:
     """Returns the fee applicable for a given month (latest start <= target)."""
     first_of_month = target_date.replace(day=1)
@@ -257,15 +273,16 @@ def update_fee_member(
 
 
 # ---------------------------------------------------------------------------
-# Fee balance calculation (1:1 from Member::feeBalance)
+# Fee balance calculation
 # ---------------------------------------------------------------------------
 
 
 def _count_months(start_date: date, end_date: date) -> int:
-    """Exact replication of Member::countMonths() in PHP.
+    """Count the months from the first day of start_date's month to the last day
+    of end_date's month.
 
-    PHP: $start_date->firstOfMonth()->diff($end_date->lastOfMonth())
-    Then: $diff->y * 12 + $diff->m + $diff->d / 30, rounded.
+    The span is split into whole years, whole months and remaining days; the
+    result is years * 12 + months + days / 30, rounded.
     """
     first = start_date.replace(day=1)
     if end_date.month == 12:
@@ -318,48 +335,7 @@ def _get_fee_payments_sum(
     if not partner_ibans:
         return Decimal(0)
 
-    fee_category_id = _fee_category_id(db)
-    direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id,
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .all()
-    }
-
-    filter_ids = [
-        r[0]
-        for r in db.query(P4xCategoryFilter.id)
-        .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id,
-        )
-        .all()
-    ]
-    filter_tx_ids = (
-        {
-            r[0]
-            for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids),
-            )
-            .all()
-        }
-        if filter_ids
-        else set()
-    )
-
-    all_direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .distinct()
-        .all()
-    }
-    fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
+    fee_cat_tx_ids = _fee_category_tx_ids(db)
 
     if not fee_cat_tx_ids:
         return Decimal(0)
@@ -405,48 +381,7 @@ def _get_fee_payments_list(
     if not partner_ibans:
         return []
 
-    fee_category_id = _fee_category_id(db)
-    direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.p4x_category_id == fee_category_id,
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .all()
-    }
-
-    filter_ids = [
-        r[0]
-        for r in db.query(P4xCategoryFilter.id)
-        .filter(
-            P4xCategoryFilter.p4x_category_id == fee_category_id,
-        )
-        .all()
-    ]
-    filter_tx_ids = (
-        {
-            r[0]
-            for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)
-            .filter(
-                P4xCategoryFilterHit.p4x_category_filter_id.in_(filter_ids),
-            )
-            .all()
-        }
-        if filter_ids
-        else set()
-    )
-
-    all_direct_tx_ids = {
-        r[0]
-        for r in db.query(P4xCategoryDirect.p4x_transaction_id)
-        .filter(
-            P4xCategoryDirect.deleted_at.is_(None),
-        )
-        .distinct()
-        .all()
-    }
-    fee_cat_tx_ids = direct_tx_ids | (filter_tx_ids - all_direct_tx_ids)
+    fee_cat_tx_ids = _fee_category_tx_ids(db)
 
     if not fee_cat_tx_ids:
         return []
@@ -484,7 +419,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     start_date_str: str | None = None,
     end_date_str: str | None = None,
 ) -> FeeBalanceResult | None:
-    """Exact replication of Member::feeBalance() in PHP."""
+    """Calculate the fee balance of a member between two dates, or None."""
     if not is_fee_member(member):
         return None
 
@@ -535,18 +470,13 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     # Calculate start_balance
     start_balance = member.p4x_init_balance or Decimal(0)
 
+    month_starts, month_fees = _fee_step_function(db)
     if not member.p4x_freed:
         prev_month_date = start_date.replace(day=1) - timedelta(days=1)
         n_months = _count_months(init_date, prev_month_date)
-        for i in range(n_months):
-            if init_date.month + i % 12 <= 12:
-                year = init_date.year + (init_date.month - 1 + i) // 12
-                month = (init_date.month - 1 + i) % 12 + 1
-            else:
-                year = init_date.year + (init_date.month - 1 + i) // 12
-                month = (init_date.month - 1 + i) % 12 + 1
-            current = date(year, month, 10)
-            start_balance -= fee_for_month(db, current)
+        start_balance -= _sum_fees_for_period(
+            month_starts, month_fees, init_date, n_months
+        )
 
     start_balance += _get_fee_payments_sum(
         db,
@@ -561,18 +491,14 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
 
     if not member.p4x_freed:
         n_months = _count_months(start_date, end_date)
-        for i in range(n_months):
-            year = start_date.year + (start_date.month - 1 + i) // 12
-            month = (start_date.month - 1 + i) % 12 + 1
-            current = date(year, month, 10)
-            fee_amount = fee_for_month(db, current)
-            progress.append(
-                {
-                    "type": "fee",
-                    "booking": str(current),
-                    "amount": -fee_amount,
-                }
-            )
+        progress.extend(
+            {
+                "type": "fee",
+                "booking": str(month.replace(day=10)),
+                "amount": -_fee_at(month_starts, month_fees, month),
+            }
+            for month in _months_from(start_date, n_months)
+        )
 
     progress.extend(
         _get_fee_payments_list(db, member, start_date, end_date),
@@ -617,14 +543,9 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
 # ---------------------------------------------------------------------------
 # Bulk fee balance list ("Saldenliste") - N+1-safe equivalent of calling
 # calculate_fee_balance(db, member) for every fee member and reading
-# end_balance. calculate_fee_balance() itself and its helpers
-# (_get_fee_payments_sum/_get_fee_payments_list) are deliberately left
-# untouched here - they back the well-tested single-member views/exports
-# and a related redesign of that function is intentionally on hold (see
-# feature/p4x-fee-interval-cutover). The functions below duplicate a small
-# amount of their logic on purpose to keep that surface completely
-# unaffected, in exchange for a bulk path with a constant query count
-# instead of one that scales with the number of fee members.
+# end_balance, with a constant query count instead of one that scales with
+# the number of fee members. The set of fee-category transaction ids
+# (_fee_category_tx_ids) is shared with the single-member helpers.
 # ---------------------------------------------------------------------------
 
 
@@ -668,6 +589,18 @@ def _end_of_month(target: date) -> date:
     return date(target.year, target.month + 1, 1) - timedelta(days=1)
 
 
+def _months_from(first_month: date, n_months: int) -> list[date]:
+    """The first day of `n_months` consecutive months, starting at `first_month`."""
+    return [
+        date(
+            first_month.year + (first_month.month - 1 + i) // 12,
+            (first_month.month - 1 + i) % 12 + 1,
+            1,
+        )
+        for i in range(n_months)
+    ]
+
+
 def _sum_fees_for_period(
     month_starts: list[date],
     month_fees: list[Decimal],
@@ -677,14 +610,13 @@ def _sum_fees_for_period(
     """Pure-Python replication of the fee_for_month() step function - no
     DB calls. month_starts/month_fees come from get_all_fees(db), loaded
     once for the whole bulk run (see get_fee_balances)."""
-    total = Decimal(0)
-    for i in range(n_months):
-        year = first_month.year + (first_month.month - 1 + i) // 12
-        month = (first_month.month - 1 + i) % 12 + 1
-        idx = bisect_right(month_starts, date(year, month, 1)) - 1
-        if idx >= 0:
-            total += month_fees[idx]
-    return total
+    return sum(
+        (
+            _fee_at(month_starts, month_fees, month)
+            for month in _months_from(first_month, n_months)
+        ),
+        start=Decimal(0),
+    )
 
 
 def _build_member_states(
@@ -720,11 +652,9 @@ def _build_member_states(
 
 
 def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
-    """Member-independent set of transaction ids in the fee category.
-    Deliberately duplicated from _get_fee_payments_sum/
-    _get_fee_payments_list rather than extracted from them - those
-    helpers back calculate_fee_balance() and are out of scope for
-    refactoring here."""
+    """Member-independent set of transaction ids in the fee category: the
+    direct assignments plus the filter hits of transactions that have no
+    direct assignment at all (a direct assignment overrides the filters)."""
     fee_category_id = _fee_category_id(db)
     direct_tx_ids = {
         r[0]
@@ -741,7 +671,7 @@ def _fee_category_tx_ids(db: Session) -> set[uuid.UUID]:
         .filter(P4xCategoryFilter.p4x_category_id == fee_category_id)
         .all()
     ]
-    filter_tx_ids = (
+    filter_tx_ids: set[uuid.UUID] = (
         {
             r[0]
             for r in db.query(P4xCategoryFilterHit.p4x_transaction_id)

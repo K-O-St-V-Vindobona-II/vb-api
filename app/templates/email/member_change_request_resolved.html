@@ -10,7 +10,7 @@
     {% for key, values in approved.items() %}
       {% if not key.endswith('_accuracy') %}
       <div style="margin-top: 1em;">
-        <strong>{{ key }}</strong><br>
+        <strong>{{ field_label(key) }}</strong><br>
         alt:&nbsp; {{ format_value(key, values.get('old'), approved) }}<br>
         neu:&nbsp; {{ format_value(key, values.get('new'), approved) }}
       </div>
@@ -25,7 +25,7 @@
     {% for key, values in rejected.items() %}
       {% if not key.endswith('_accuracy') %}
       <div style="margin-top: 1em;">
-        <strong>{{ key }}</strong><br>
+        <strong>{{ field_label(key) }}</strong><br>
         vorgeschlagen:&nbsp; {{ format_value(key, values.get('new'), rejected) }}
       </div>
       {% endif %}

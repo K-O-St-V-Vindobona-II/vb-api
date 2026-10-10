@@ -3,10 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import CurrentUser
 from app.core.security import SESSION_IDLE_TIMEOUT_MINUTES
 from app.db.database import get_db
-from app.models.member import Member
 from app.schemas.member import ChroniclemailToggleResponse, MemberResponse
 from app.services import member_service, p4x_fee_balance_service
 from app.services.permission_service import calculate_permissions
@@ -16,7 +15,7 @@ members_router = APIRouter()
 
 @members_router.get("/me")
 def read_current_user(
-    current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: CurrentUser,
 ) -> MemberResponse:
     """Return the authenticated user's profile including permissions and preferences."""
     return MemberResponse(
@@ -40,7 +39,7 @@ def read_current_user(
 @members_router.patch("/me/chroniclemail")
 def toggle_chroniclemail(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[Member, Depends(get_current_user)],
+    current_user: CurrentUser,
 ) -> ChroniclemailToggleResponse:
     """Toggle the weekly chronicle email subscription for the current user."""
     return ChroniclemailToggleResponse(

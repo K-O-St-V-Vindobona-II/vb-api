@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import quote
 
 import boto3
@@ -13,7 +13,11 @@ from app.core.config import get_settings, require_setting
 if TYPE_CHECKING:
     from datetime import datetime
 
-PILImage.MAX_IMAGE_PIXELS = 100_000_000
+    from mypy_boto3_s3.literals import BucketLocationConstraintType
+
+# Pillow warns above this many pixels and raises above twice as many: this is
+# a hard cap of 100 million pixels.
+PILImage.MAX_IMAGE_PIXELS = 50_000_000
 
 MAX_PRESIGNED_EXPIRY = 86400
 MIN_PRESIGNED_EXPIRY = 60
@@ -38,6 +42,24 @@ class ObjectMetadata(TypedDict):
     last_modified: datetime
 
 
+# An object store that accepts a connection and never answers must not hold a
+# request thread for minutes: botocore's defaults are 60 s to connect and five
+# attempts. total_max_attempts counts the first request too (max_attempts would
+# count only the retries after it).
+_CLIENT_CONFIG = Config(
+    signature_version="s3v4",
+    connect_timeout=5,
+    read_timeout=60,
+    retries={"total_max_attempts": 3, "mode": "standard"},
+)
+
+_MISSING_CODES = frozenset({"404", "NoSuchKey", "NoSuchBucket", "NotFound"})
+
+
+def _is_missing(exc: ClientError) -> bool:
+    return exc.response.get("Error", {}).get("Code") in _MISSING_CODES
+
+
 class StorageClient:
     def __init__(
         self,
@@ -60,7 +82,7 @@ class StorageClient:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
-            config=Config(signature_version="s3v4"),
+            config=_CLIENT_CONFIG,
         )
 
         public_url = public_endpoint_url or endpoint_url
@@ -71,7 +93,7 @@ class StorageClient:
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 region_name=region,
-                config=Config(signature_version="s3v4"),
+                config=_CLIENT_CONFIG,
             )
         else:
             self._public_client = self._client
@@ -121,8 +143,10 @@ class StorageClient:
                 Bucket=self._bucket,
                 Key=key,
             )
-        except ClientError:
-            return False
+        except ClientError as exc:
+            if _is_missing(exc):
+                return False
+            raise
         return True
 
     def head(self, key: str) -> ObjectMetadata:
@@ -193,20 +217,27 @@ class StorageClient:
         """
         try:
             self._client.head_bucket(Bucket=self._bucket)
-        except ClientError:
-            create_kwargs: dict[str, object] = {"Bucket": self._bucket}
-            if self._region != "us-east-1":
-                create_kwargs["CreateBucketConfiguration"] = {
-                    "LocationConstraint": self._region
-                }
-            self._client.create_bucket(**create_kwargs)
+        except ClientError as exc:
+            if not _is_missing(exc):
+                raise
+            if self._region == "us-east-1":
+                self._client.create_bucket(Bucket=self._bucket)
+                return
+            self._client.create_bucket(
+                Bucket=self._bucket,
+                CreateBucketConfiguration={
+                    "LocationConstraint": cast(
+                        "BucketLocationConstraintType", self._region
+                    )
+                },
+            )
 
     def list_keys(self, prefix: str) -> list[str]:
         """Return all object keys under prefix (handles S3 pagination)."""
         keys: list[str] = []
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
-            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+            keys.extend(obj["Key"] for obj in page.get("Contents", []) if "Key" in obj)
         return keys
 
 
@@ -228,7 +259,10 @@ def generate_thumbnail(
         max(1, int(img.width * ratio)),
         max(1, int(img.height * ratio)),
     )
-    img = img.resize(new_size, PILImage.Resampling.LANCZOS)
+    # Pillow declares the size parameter partly as Unknown in its own stubs.
+    img = img.resize(  # pyright: ignore[reportUnknownMemberType]
+        new_size, PILImage.Resampling.LANCZOS
+    )
 
     use_png = preserve_png and source_mime and "png" in source_mime
     if not use_png and img.mode in ("RGBA", "P"):

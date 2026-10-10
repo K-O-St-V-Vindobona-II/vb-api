@@ -8,7 +8,7 @@ Both tables are leaves (nothing references their own id), so each gets
 Phase A+C for its own primary key in this same migration, plus the
 Referrer-Cutover of its two FK columns - p4x_transaction_id on both
 tables now references p4x_transactions.id_uuid (that table's own
-Final-Cutover is a later slice), p4x_category_id references
+Final-Cutover is a separate revision), p4x_category_id references
 p4x_categories.id_uuid, p4x_category_filter_id references
 p4x_category_filters.id_uuid. Every ondelete/onupdate strategy is kept
 exactly as it was. Both tables also carry composite unique
@@ -100,10 +100,9 @@ def _cutover_own_id(table: str) -> None:
     op.add_column(table, sa.Column("id_uuid", sa.Uuid(), nullable=True))
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
     op.drop_constraint(f"{table}_pkey", table, type_="primary")
     op.drop_column(table, "id")
     op.execute(f"DROP SEQUENCE IF EXISTS {table}_id_seq")
@@ -116,7 +115,7 @@ def _cutover_own_id(table: str) -> None:
 
 def _revert_own_id(table: str) -> None:
     """Both tables did Phase A+C in a single migration (no earlier,
-    separate Phase A slice ever populated an id_uuid column for them),
+    separate Phase A revision ever populated an id_uuid column for them),
     so - unlike a pure Phase-C-only revert - this must NOT leave an
     id_uuid column behind: a fresh Integer id replaces the UUID one
     entirely, matching the down_revision's actual pre-migration shape."""

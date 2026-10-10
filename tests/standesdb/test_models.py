@@ -19,24 +19,24 @@ from app.models.state import State
 @pytest.fixture(autouse=True)
 def _seed_vbw_org(db_session):
     """Most Member fixtures below reference org_id="vbw"."""
-    db_session.add(Org(id="vbw", label="VBW", order=1))
+    db_session.add(Org(id="vbw", label="VBW", sort_order=1))
     db_session.commit()
 
 
 def test_org_model(db_session):
     """Org reference data can be read."""
-    org = Org(id="test", label="Testorg", order=1)
+    org = Org(id="test", label="Testorg", sort_order=1)
     db_session.add(org)
     db_session.commit()
 
     loaded = db_session.get(Org, "test")
     assert loaded.label == "Testorg"
-    assert loaded.order == 1
+    assert loaded.sort_order == 1
 
 
 def test_state_model(db_session):
     """State reference data can be read."""
-    state = State(id="fu", label="Fux", order=1)
+    state = State(id="fu", label="Fux", sort_order=1)
     db_session.add(state)
     db_session.commit()
 
@@ -46,7 +46,7 @@ def test_state_model(db_session):
 
 def test_badge_model(db_session):
     """Badge reference data can be read."""
-    badge = Badge(name="Fuxenband", group="jubelband", order=1)
+    badge = Badge(name="Fuxenband", group="jubelband", sort_order=1)
     db_session.add(badge)
     db_session.commit()
 
@@ -339,7 +339,7 @@ def test_standesdb_image_model(db_session):
         width=800,
         height=600,
         description="Testbild",
-        default=True,
+        is_default=True,
     )
     db_session.add(img)
     db_session.commit()
@@ -347,7 +347,7 @@ def test_standesdb_image_model(db_session):
     loaded = db_session.get(StandesdbImage, img.id)
     assert loaded.owner_type == "member"
     assert loaded.type == "image/jpeg"
-    assert loaded.default is True
+    assert loaded.is_default is True
     assert loaded.deleted_at is None
 
 
@@ -386,18 +386,39 @@ def test_member_default_image(db_session):
     img1 = StandesdbImage(
         owner_member_id=member.id,
         sha256_hash="hash1",
-        default=False,
+        is_default=False,
     )
     img2 = StandesdbImage(
         owner_member_id=member.id,
         sha256_hash="hash2",
-        default=True,
+        is_default=True,
     )
     db_session.add_all([img1, img2])
     db_session.commit()
     db_session.refresh(member)
 
     assert member.default_image == img2.id
+
+
+def test_contact_default_image(db_session):
+    """default_image returns the default one, else the first remaining one."""
+    contact = Contact(kontakttyp="person", name="Img Contact")
+    db_session.add(contact)
+    db_session.commit()
+
+    assert contact.default_image is None
+
+    img1 = StandesdbImage(
+        owner_contact_id=contact.id, sha256_hash="chash1", is_default=False
+    )
+    img2 = StandesdbImage(
+        owner_contact_id=contact.id, sha256_hash="chash2", is_default=True
+    )
+    db_session.add_all([img1, img2])
+    db_session.commit()
+    db_session.refresh(contact)
+
+    assert contact.default_image == img2.id
 
 
 class TestContactIdDefault:

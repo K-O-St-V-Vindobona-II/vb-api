@@ -6,7 +6,12 @@ from sqlalchemy import desc, func
 
 from app.core.datetime_utils import local_day_bounds_utc
 from app.models.sent_email import SentEmail
-from app.schemas.tracking import EmailTemplateStats, SentEmailListItem
+from app.schemas.tracking import (
+    EmailTemplateStats,
+    SentEmailDetail,
+    SentEmailListItem,
+)
+from app.services.search_utils import escape_like
 
 if TYPE_CHECKING:
     import uuid
@@ -83,11 +88,11 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
 ]
 
 
-def get_sent_email_detail(db: Session, email_id: uuid.UUID) -> SentEmail:
+def get_sent_email_detail(db: Session, email_id: uuid.UUID) -> SentEmailDetail:
     email = db.query(SentEmail).filter(SentEmail.id == email_id).first()
     if not email:
         raise HTTPException(status_code=404, detail="Email nicht gefunden")
-    return email
+    return SentEmailDetail.model_validate(email)
 
 
 def _period_bounds_utc(year: int, month: int | None) -> tuple[datetime, datetime]:
@@ -124,9 +129,10 @@ def list_sent_emails(
         )
 
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{escape_like(search)}%"
         query = query.filter(
-            SentEmail.subject.ilike(pattern) | SentEmail.to.ilike(pattern)
+            SentEmail.subject.ilike(pattern, escape="\\")
+            | SentEmail.to.ilike(pattern, escape="\\")
         )
 
     total = query.count()

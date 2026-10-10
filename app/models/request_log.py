@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import JsonValue
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Uuid, func, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,11 @@ class RequestLog(Base):
     __tablename__ = "request_logs"
     __table_args__ = (
         CheckConstraint("memory_usage >= 0", name="request_logs_memory_usage_check"),
+        # The activity overview reads a month (and one member's day) by time,
+        # and the retention purge deletes by time. The second index also
+        # serves lookups by member alone through its leading column.
+        Index("ix_request_logs_created_at", "created_at"),
+        Index("ix_request_logs_member_id_created_at", "member_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -31,7 +36,6 @@ class RequestLog(Base):
     )
     member_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
-        index=True,
     )
     request_method: Mapped[str]
     request_path: Mapped[str]

@@ -1,18 +1,26 @@
 import hashlib
+import logging
 from typing import TYPE_CHECKING, Literal
 
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func
 
 from app.core.storage import S3_PATH_PUBLIC_GALLERY, StorageClient
 from app.core.upload_images import inspect_upload_image
 from app.models.public_gallery_image import PublicGalleryImage
+from app.schemas.public_gallery import (
+    GalleryImageAdminResponse,
+    GalleryImagePublicResponse,
+)
 from app.services.reorder_service import find_reorder_neighbor
 
 if TYPE_CHECKING:
     import uuid
 
     from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 8 * 1024 * 1024
@@ -54,6 +62,34 @@ def get_presigned_url(img: PublicGalleryImage, storage: StorageClient) -> str:
     )
 
 
+def build_admin_response(
+    img: PublicGalleryImage, storage: StorageClient
+) -> GalleryImageAdminResponse:
+    return GalleryImageAdminResponse(
+        id=img.id,
+        url=get_presigned_url(img, storage),
+        caption=img.caption,
+        sort_order=img.sort_order,
+        is_published=img.is_published,
+        width=img.width,
+        height=img.height,
+        size=img.size,
+        created_at=img.created_at,
+    )
+
+
+def build_public_response(
+    img: PublicGalleryImage, storage: StorageClient
+) -> GalleryImagePublicResponse:
+    return GalleryImagePublicResponse(
+        id=img.id,
+        url=get_presigned_url(img, storage),
+        caption=img.caption,
+        width=img.width,
+        height=img.height,
+    )
+
+
 def upload_image(
     db: Session,
     file: UploadFile,
@@ -61,7 +97,9 @@ def upload_image(
     created_by: uuid.UUID | None,
     storage: StorageClient,
 ) -> PublicGalleryImage:
-    content = file.file.read()
+    # Read one byte past the limit: enough to detect an oversized file without
+    # loading the whole upload into memory first.
+    content = file.file.read(MAX_FILE_SIZE + 1)
     file_size = len(content)
 
     if file_size > MAX_FILE_SIZE:
@@ -152,6 +190,13 @@ def move_image(
 def delete_image(db: Session, img: PublicGalleryImage, storage: StorageClient) -> None:
     # sha256_hash is unique per row (see upload_image()'s duplicate check), so
     # no other row can ever reference this S3 object - safe to remove both.
-    storage.delete(_s3_key(img.sha256_hash))
+    # The row goes first: if the storage call fails afterwards the object is
+    # merely unreferenced, whereas the reverse order would leave a row that
+    # points at an image that is gone.
+    key = _s3_key(img.sha256_hash)
     db.delete(img)
     db.commit()
+    try:
+        storage.delete(key)
+    except ClientError:
+        logger.warning("Gallery image row deleted, storage object %s remains", key)

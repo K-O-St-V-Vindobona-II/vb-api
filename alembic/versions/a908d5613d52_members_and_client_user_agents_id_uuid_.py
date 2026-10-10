@@ -5,19 +5,20 @@ Revises: 22fc473b0891
 Create Date: 2026-09-01 15:17:33.331724
 
 Phase A (additive prep) of the schema-wide UUID-PK migration for the two
-Layer-0-Parent tables that referrer tables will cut over onto next:
-members (the schema's hub, 17 incoming FKs plus a self-referencing
-parent_id, started this early precisely so those referrer slices can run
-in parallel afterward) and client_user_agents (referenced only by
-request_logs' bare, FK-less client_user_agent_id column today).
+tables without outgoing foreign keys to other tables of the series, which
+referrer tables will cut over onto next: members (the schema's hub, 17
+incoming FKs plus a self-referencing parent_id, started this early
+precisely so those referrer revisions can run in parallel afterward) and
+client_user_agents (referenced only by request_logs' bare, FK-less
+client_user_agent_id column today).
 
 No API contract changes: the old integer `id` stays the primary key,
 `id_uuid` is purely an additive, nullable-then-backfilled column. See
 61330e9e0ca8_public_site_social_links_id_to_uuid.py for the Phase
 A/B/C pattern this migration series follows; this one only ever reaches
 Phase A, since both tables have referrers still to migrate before the
-matching Final-Cutover (members: slice 32, client_user_agents: bundled
-into slice 22 with request_logs).
+matching Final-Cutover (members: e097221b6c5f, client_user_agents:
+bundled into e186839a1e80 with request_logs).
 """
 
 import uuid
@@ -58,10 +59,9 @@ def _add_uuid_column(table: str) -> None:
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
 
 def upgrade() -> None:

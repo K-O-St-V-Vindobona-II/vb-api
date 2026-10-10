@@ -1,4 +1,4 @@
-"""Regression tests for Slice 6 of the backend remediation plan.
+"""Regression tests for the shared member and contact directory.
 
 vbw and vbn deliberately share one read-only member/contact directory -
 any authenticated member of either org can read the other org's entries.
@@ -20,8 +20,8 @@ from app.services.auth_service import create_user_session
 def _seed_orgs(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
         ]
     )
     db.commit()

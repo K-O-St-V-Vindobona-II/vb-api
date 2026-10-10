@@ -1,22 +1,28 @@
-import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Annotated
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, PlainSerializer
 from sqlalchemy.orm import Session
 
-from app.api.auth_guards import require_permission
-from app.api.deps import get_current_user
+from app.api.auth_guards import RequireSystemAdmin
+from app.api.deps import CurrentUser
 from app.core.arq_pool import get_arq_pool
 from app.core.job_schedule_registry import get_scheduled_jobs
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
-from app.models.member import Member
-from app.schemas.base import PaginatedResponse, StatusResponse, UtcDatetime
+from app.schemas.base import PaginatedResponse, StatusResponse
 from app.schemas.role_history import RoleAssignmentEventResponse
+from app.schemas.system import (
+    BackupTriggerResponse,
+    EnvironmentResponse,
+    PermissionRuleResponse,
+    PermissionRulesResponse,
+    ScheduledJobResponse,
+    ScheduledJobRunListItem,
+    ScheduledJobRunSummary,
+    TableDataResponse,
+)
 from app.services import role_history_service, system_service
 from app.services.backup_service import run_backup
 from app.services.permission_service import (
@@ -31,84 +37,9 @@ from app.services.scheduled_task_run_service import (
 system_router = APIRouter()
 
 
-class EnvironmentResponse(BaseModel):
-    environment: str
-
-
-class PermissionRuleResponse(BaseModel):
-    permission: str
-    description: str
-    cns: list[str]
-
-
-class PermissionRulesResponse(BaseModel):
-    rules: list[PermissionRuleResponse]
-    dev_superuser_cn: str | None
-
-
-# Pydantic v2 serializes Decimal as a JSON string by default, not a
-# number — silently breaks the frontend's `number` typing. Same fix as
-# app/schemas/p4x.py's MoneyOut: force it back to a bare JSON number via
-# a PlainSerializer.
-_DurationSecondsOut = Annotated[
-    Decimal, PlainSerializer(float, return_type=float, when_used="json")
-]
-
-
-class ScheduledJobRunSummary(BaseModel):
-    exit_code: int
-    output: str | None
-    started_at: datetime
-    finished_at: datetime
-    duration_seconds: _DurationSecondsOut
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ScheduledJobRunListItem(ScheduledJobRunSummary):
-    id: uuid.UUID
-    job_id: str
-
-
-class TableColumn(BaseModel):
-    name: str
-    type: str
-    nullable: bool
-    primary_key: bool
-
-
-class TableDataResponse(BaseModel):
-    """Response shape for the generic SQL table browser (GET
-    /tables/{table_name}). `rows` deliberately stays dict[str, object] -
-    this endpoint reflects on arbitrary tables via SQLAlchemy inspection,
-    so each row's actual keys/types differ per table; that's the point of
-    the tool, not a typing gap to close."""
-
-    table_name: str
-    columns: list[TableColumn]
-    rows: list[dict[str, object]]
-    total: int
-    page: int
-    page_size: int
-
-
-class ScheduledJobResponse(BaseModel):
-    id: str
-    name: str
-    trigger: str
-    next_run: str | None = None
-    description: str | None = None
-    last_run: ScheduledJobRunSummary | None = None
-
-
-class BackupTriggerResponse(BaseModel):
-    backup_name: str
-    triggered_at: UtcDatetime
-
-
 @system_router.get("/environment")
 def get_environment(
-    _user: Annotated[Member, Depends(get_current_user)],
+    _user: CurrentUser,
 ) -> EnvironmentResponse:
     """Current backend deployment stage (development/test/qa/production).
 
@@ -122,7 +53,7 @@ def get_environment(
 @system_router.get("/permission-rules")
 def list_permission_rules(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(get_current_user)],
+    _user: CurrentUser,
 ) -> PermissionRulesResponse:
     """List all permission rules with their descriptions and current holders,
     plus the DEV_SUPERUSER_ID member's CN if that dev-only bypass is active.
@@ -139,7 +70,7 @@ def list_permission_rules(
 @system_router.get("/role-history")
 def list_role_history(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(get_current_user)],
+    _user: CurrentUser,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> PaginatedResponse[RoleAssignmentEventResponse]:
@@ -155,7 +86,7 @@ def list_role_history(
 
 @system_router.post("/backups/trigger", status_code=status.HTTP_201_CREATED)
 def trigger_backup(
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> BackupTriggerResponse:
     """Manually trigger an immediate DB backup to S3. Requires systemAdmin.
@@ -187,7 +118,7 @@ async def trigger_downsync(
     # Permission check first: FastAPI resolves dependencies in parameter
     # order, so an unprivileged caller gets rejected before the (real,
     # connection-acquiring) arq pool dependency ever runs.
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
     arq_pool: Annotated[ArqRedis, Depends(get_arq_pool)],
 ) -> StatusResponse:
     """Manually trigger an immediate downsync on this non-production stage:
@@ -224,7 +155,7 @@ async def trigger_downsync(
 @system_router.get("/scheduled-jobs")
 def list_scheduled_jobs(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
 ) -> list[ScheduledJobResponse]:
     """List all applicable scheduled jobs (see app/core/job_schedule_registry.py)
     with trigger info, next run time, and each job's most recent recorded
@@ -233,7 +164,7 @@ def list_scheduled_jobs(
     Requires systemAdmin.
     """
     latest_runs = get_latest_run_per_job(db)
-    jobs = []
+    jobs: list[ScheduledJobResponse] = []
     for j in get_scheduled_jobs():
         last_run = latest_runs.get(j["id"] or "")
         jobs.append(
@@ -253,7 +184,7 @@ def list_scheduled_jobs(
 def get_scheduled_job_history(
     job_id: str,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> PaginatedResponse[ScheduledJobRunListItem]:
@@ -275,7 +206,7 @@ def get_scheduled_job_history(
 @system_router.get("/tables")
 def list_tables(
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
 ) -> list[str]:
     """List all database table names. Requires systemAdmin."""
     return system_service.get_valid_tables(db)
@@ -285,7 +216,7 @@ def list_tables(
 def get_table_data(
     table_name: str,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[Member, Depends(require_permission("systemAdmin"))],
+    _user: RequireSystemAdmin,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> TableDataResponse:

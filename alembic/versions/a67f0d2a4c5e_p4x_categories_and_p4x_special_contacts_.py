@@ -4,14 +4,14 @@ Revision ID: a67f0d2a4c5e
 Revises: e0a57d5a7522
 Create Date: 2026-09-01 17:35:00.000000
 
-Phase A (additive prep) of the schema-wide UUID-PK migration for
-p4x_categories and p4x_special_contacts, the last two Layer-0-Parents -
-same bundled pattern as a908d5613d52_members_and_client_user_agents_id_
-uuid_.py and e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py. This
-completes Wave B (slices 5-11): every Layer-0-Parent now has its
-additive id_uuid column, so Wave C's referrer-cutover slices can proceed
-in any order. No API contract changes: the old integer `id` stays the
-primary key on both tables.
+Additive prep of the schema-wide UUID-PK migration for p4x_categories
+and p4x_special_contacts, the last two tables without outgoing foreign
+keys to other tables of the series - same bundled pattern as
+a908d5613d52_members_and_client_user_agents_id_uuid_.py and
+e2f6d45fab87_badges_and_keys_id_uuid_phase_a.py. Every such table now
+has its additive id_uuid column, so the referrer-cutover revisions can
+proceed in any order. No API contract changes: the old integer `id`
+stays the primary key on both tables.
 """
 
 import uuid
@@ -52,10 +52,9 @@ def _add_uuid_column(table: str) -> None:
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
 
 def upgrade() -> None:

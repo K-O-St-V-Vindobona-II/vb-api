@@ -162,11 +162,11 @@ def downgrade() -> None:
         server_default=sa.text("nextval('archive_dirs_id_seq'::regclass)"),
     )
     op.create_primary_key("archive_dirs_pkey", "archive_dirs", ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE UNIQUE INDEX CONCURRENTLY archive_dirs_id_uuid_key "
-            "ON archive_dirs (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(
+        "archive_dirs_id_uuid_key", "archive_dirs", ["id_uuid"], unique=True
+    )
 
     op.create_foreign_key(
         "archive_permissions_archive_dir_id_fkey",

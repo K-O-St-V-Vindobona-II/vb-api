@@ -12,10 +12,9 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import CurrentUser
 from app.core.storage import StorageClient, get_storage
 from app.db.database import get_db
-from app.models.member import Member
 from app.schemas.archive import (
     ArchiveDirDetailResponse,
     ArchiveFileDetailResponse,
@@ -44,7 +43,7 @@ archive_router = APIRouter()
 def search_archive(
     q: Annotated[str, Query(min_length=2)],
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> list[ArchiveSearchDirResult | ArchiveSearchFileResult]:
     """Search files and directories by name or description (min 2
     characters - lower than most other searches in this app since the
@@ -65,7 +64,7 @@ def search_archive(
 @archive_router.get("/dirs")
 def get_root(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> ArchiveDirDetailResponse:
     """Return the root directory listing - only subdirectories/files the caller has
     insight permission into (everything, for archiveAdmin) - plus archive-wide
@@ -79,7 +78,7 @@ def get_root(
 def get_dir(
     dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> ArchiveDirDetailResponse:
     """Return a directory by ID with its contents, path breadcrumbs, and
     effective permissions. Requires insight permission for the
@@ -93,7 +92,7 @@ def get_dir(
 def create_dir(
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusIdResponse:
     """Create a new subdirectory within an existing directory (or the root, if parentId
     is omitted). Requires archiveAdmin."""
@@ -106,7 +105,7 @@ def update_dir(
     dir_id: uuid.UUID,
     data: DirSaveRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Update a directory's name, description, permissions, or recursive-permissions
     flag. Requires archiveAdmin."""
@@ -118,7 +117,7 @@ def update_dir(
 def delete_dir(
     dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> None:
     """Soft-delete a directory (moves to trash) - hard-deletes instead if it's already
     empty. Requires archiveAdmin."""
@@ -129,7 +128,7 @@ def delete_dir(
 def restore_dir(
     dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Restore a soft-deleted directory from trash. Requires archiveAdmin."""
     archive_service.restore_dir(db, dir_id, user)
@@ -140,7 +139,7 @@ def restore_dir(
 def purge_dir(
     dir_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> None:
     """Permanently delete an already-trashed, empty directory. 409 if it isn't currently
     in the trash or still has content. Irreversible. Requires archiveAdmin."""
@@ -152,7 +151,7 @@ def receive_in_dir(
     dir_id: uuid.UUID,
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Move files or directories (clipboard paste) into this directory.
     Requires archiveAdmin."""
@@ -164,7 +163,7 @@ def receive_in_dir(
 def receive_in_root(
     data: DirReceiveRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Move files or directories (clipboard paste) into the root
     directory. Requires archiveAdmin."""
@@ -179,7 +178,7 @@ def receive_in_root(
 def get_file(
     file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> ArchiveFileDetailResponse:
     """Return file metadata including versions and comments. Requires insight permission
     for the file's directory, or archiveAdmin - admin-only for unfiled uploads, which
@@ -194,7 +193,7 @@ def update_file(
     file_id: uuid.UUID,
     data: FileUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Update a file's description. Requires archiveAdmin."""
     archive_service.update_file(db, file_id, data.model_dump(), user)
@@ -205,7 +204,7 @@ def update_file(
 def delete_file(
     file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> None:
     """Soft-delete a file (moves to trash). Requires archiveAdmin."""
     archive_service.delete_file(db, file_id, user)
@@ -215,7 +214,7 @@ def delete_file(
 def restore_file(
     file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> StatusResponse:
     """Restore a soft-deleted file from trash. Requires archiveAdmin."""
     archive_service.restore_file(db, file_id, user)
@@ -226,7 +225,7 @@ def restore_file(
 def file_url(
     file_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for a file's original version. Requires
@@ -245,7 +244,7 @@ def file_thumb_url(
     file_id: uuid.UUID,
     size: str,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for an image thumbnail at a given size.
@@ -268,7 +267,7 @@ def create_comment(
     file_id: uuid.UUID,
     data: CommentCreateRequest,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> CommentCreateResponse:
     """Add a comment to a file. Requires insight permission for the file's directory, or
     archiveAdmin - admin-only for unfiled uploads."""
@@ -284,7 +283,7 @@ def delete_comment(
     file_id: uuid.UUID,
     comment_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> None:
     """Delete a comment from a file. The comment's own author or
     archiveAdmin may delete it."""
@@ -296,7 +295,7 @@ def delete_comment(
 
 @archive_router.get("/upload/config")
 def get_upload_config(
-    _user: Annotated[Member, Depends(get_current_user)],
+    _user: CurrentUser,
 ) -> UploadConfigResponse:
     """Return upload constraints (allowed extensions, min/max file size, description
     length). No special permission - any authenticated member."""
@@ -306,7 +305,7 @@ def get_upload_config(
 @archive_router.get("/upload/unfiled")
 def get_unfiled(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
 ) -> UnfiledUploadsResponse:
     """List the caller's own uploaded files that have not yet been filed into a
     directory - not everyone's, just the current user's (see
@@ -321,7 +320,7 @@ def upload(
     file: Annotated[UploadFile, File()],
     description: Annotated[str, Form()],
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[Member, Depends(get_current_user)],
+    user: CurrentUser,
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> UploadResponse:
     """Upload a file to the archive. No special permission - any authenticated member

@@ -1,11 +1,11 @@
-"""Tests für die Änderungs-Benachrichtigungsmail nach Member/Contact-Save.
+"""Tests for the change-notification email sent after a member/contact save.
 
-Geprüft werden:
-- Member anlegen → Email mit change_type="store" wird getriggert
-- Member bearbeiten mit Änderung → Email mit change_type="update"
-- Member bearbeiten ohne Änderung → KEINE Email
-- Empfänger: nur Members mit passender Permission + nicht-leerer Email
-- Contact anlegen/bearbeiten → Email mit entry_type="contact"
+Covered:
+- Creating a member -> email with change_type="store" is triggered
+- Editing a member with a change -> email with change_type="update"
+- Editing a member without a change -> NO email
+- Recipients: only members with the matching permission and a non-empty email
+- Creating/editing a contact -> email with entry_type="contact"
 """
 
 from datetime import date
@@ -26,11 +26,11 @@ from app.services.permission_service import (
 def _setup(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
-            Role(id="senior", group="chc", label="Senior", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
+            Role(id="senior", group="chc", label="Senior", sort_order=2),
         ]
     )
     db.commit()
@@ -88,7 +88,7 @@ def _member_payload(**overrides):
     return base
 
 
-# ─── Empfänger-Ermittlung ──────────────────────────────
+# ─── Recipient resolution ───────────────────────────────
 
 
 class TestGetEmailsWithPermission:

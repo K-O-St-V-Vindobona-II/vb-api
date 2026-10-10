@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, literal, select
@@ -108,7 +108,7 @@ def _own_permissions(
     dir_obj: ArchiveDir,
     perm_sets: _PermSets,
 ) -> list[str]:
-    result = []
+    result: list[str] = []
     # Skip permissions referencing deleted orgs/states
     for p in dir_obj.archive_permissions:
         if p.org_id in perm_sets.orgs and p.state_id in perm_sets.states:
@@ -257,11 +257,20 @@ def _dir_short(d: ArchiveDir) -> dict[str, object]:
     }
 
 
+def _requested_permissions(data: dict[str, object]) -> list[str]:
+    """The permission keys of a create/update payload (none when absent or
+    not a list)."""
+    raw = data.get("permissions", [])
+    if not isinstance(raw, list):
+        return []
+    return [str(p) for p in cast("list[object]", raw)]
+
+
 def build_path(
     db: Session,
     dir_obj: ArchiveDir,
 ) -> list[dict[str, object]]:
-    path = []
+    path: list[dict[str, object]] = []
     current: ArchiveDir | None = dir_obj
     while current is not None:
         path.append({"id": current.id, "name": current.name})
@@ -489,8 +498,7 @@ def create_dir(
 
     now = _now()
     desc_raw = data.get("description")
-    perms_raw = data.get("permissions", [])
-    perms = list(perms_raw) if isinstance(perms_raw, list) else []
+    pairs = _parse_permissions(db, _requested_permissions(data))
     dir_obj = ArchiveDir(
         name=str(data["name"]),
         description=str(desc_raw) if desc_raw is not None else None,
@@ -501,7 +509,7 @@ def create_dir(
     )
     db.add(dir_obj)
     db.flush()
-    _sync_permissions(db, dir_obj, [str(p) for p in perms])
+    _sync_permissions(db, dir_obj, pairs)
     db.commit()
     return dir_obj
 
@@ -519,13 +527,12 @@ def update_dir(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Verzeichnis nicht gefunden.",
         )
+    pairs = _parse_permissions(db, _requested_permissions(data))
     dir_obj.name = str(data["name"])
     desc_raw = data.get("description")
     dir_obj.description = str(desc_raw) if desc_raw is not None else None
     dir_obj.recursive_permissions = bool(data.get("recursive_permissions", False))
-    perms_raw = data.get("permissions", [])
-    perms = list(perms_raw) if isinstance(perms_raw, list) else []
-    _sync_permissions(db, dir_obj, [str(p) for p in perms])
+    _sync_permissions(db, dir_obj, pairs)
     db.commit()
     return dir_obj
 
@@ -698,24 +705,44 @@ def _is_descendant(
     return False
 
 
+def _parse_permissions(db: Session, perms: list[str]) -> list[tuple[str, str]]:
+    """Split `org_state` permission strings into (org id, state id) pairs.
+
+    A well-formed pair that names no existing organisation or state would
+    violate the foreign keys of archive_permissions on insert, so it is
+    refused up front with a 422 that lists every offending pair.
+    """
+    perm_sets = _load_perm_sets(db)
+    pairs: list[tuple[str, str]] = []
+    unknown: list[str] = []
+    for perm in perms:
+        org_id, _, state_id = perm.partition("_")
+        if org_id in perm_sets.orgs and state_id in perm_sets.states:
+            pairs.append((org_id, state_id))
+            continue
+        unknown.append(perm)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unbekannte Berechtigung: {', '.join(unknown)}",
+        )
+    return pairs
+
+
 def _sync_permissions(
     db: Session,
     dir_obj: ArchiveDir,
-    perms: list[str],
+    pairs: list[tuple[str, str]],
 ) -> None:
     db.query(ArchivePermission).filter(
         ArchivePermission.archive_dir_id == dir_obj.id
     ).delete()
-    for p in perms:
-        parts = p.split("_", 1)
-        if len(parts) == 2:
-            db.add(
-                ArchivePermission(
-                    archive_dir_id=dir_obj.id,
-                    org_id=parts[0],
-                    state_id=parts[1],
-                )
+    for org_id, state_id in pairs:
+        db.add(
+            ArchivePermission(
+                archive_dir_id=dir_obj.id, org_id=org_id, state_id=state_id
             )
+        )
     db.flush()
 
 
@@ -723,11 +750,11 @@ def _get_sets(db: Session) -> dict[str, object]:
     return {
         "orgs": [
             {"id": o.id, "label": o.label}
-            for o in db.query(Org).order_by(Org.order).all()
+            for o in db.query(Org).order_by(Org.sort_order).all()
         ],
         "states": [
             {"id": s.id, "label": s.label}
-            for s in db.query(State).order_by(State.order).all()
+            for s in db.query(State).order_by(State.sort_order).all()
         ],
     }
 
@@ -1480,7 +1507,7 @@ def search_archive(
     """
     admin = is_archive_admin(user)
     perm_sets = _load_perm_sets(db)
-    trashed = frozenset() if admin else _trashed_dir_ids(db)
+    trashed: frozenset[uuid.UUID] = frozenset() if admin else _trashed_dir_ids(db)
 
     tsquery_text = build_prefix_tsquery_text(db, query)
     ranked_results: list[tuple[float, dict[str, object]]] = []

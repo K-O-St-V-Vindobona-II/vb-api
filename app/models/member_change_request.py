@@ -78,6 +78,7 @@ class MemberChangeRequest(Base):
             values_callable=enum_values,
         ),
         default=MemberChangeRequestStatus.PENDING,
+        server_default=text("'pending'"),
     )
     proposed_data: Mapped[dict[str, object]] = mapped_column(JSONB)
     field_decisions: Mapped[dict[str, str] | None] = mapped_column(JSONB)

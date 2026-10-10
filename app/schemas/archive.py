@@ -4,9 +4,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.base import StrictInputModel, UtcDatetime
+from app.schemas.base import IdLabelOption, StrictInputModel, UtcDatetime
 
-PERM_REGEX = re.compile(r"^[a-z]{3}_[a-z]{2}$")
+PERM_REGEX = re.compile(r"[a-z]{3}_[a-z]{2}")
+# Upper bounds for list inputs: distinct org/state pairs are few, and a move
+# request only carries what an admin selected in the UI.
+MAX_PERMISSIONS = 100
+MAX_MOVE_IDS = 200
 
 
 # --- Responses ---
@@ -85,23 +89,13 @@ class ArchivePermissionsBlock(BaseModel):
     parent: list[str]
 
 
-class ArchiveOrgOption(BaseModel):
-    id: str
-    label: str
-
-
-class ArchiveStateOption(BaseModel):
-    id: str
-    label: str
-
-
 class ArchiveSets(BaseModel):
     """Reference data for the permission editor - empty for a non-admin
     caller on GET /dirs/{id} (see get_dir_detail()), always populated on
     the root listing (GET /dirs)."""
 
-    orgs: list[ArchiveOrgOption]
-    states: list[ArchiveStateOption]
+    orgs: list[IdLabelOption]
+    states: list[IdLabelOption]
 
 
 class ArchiveExtensionStat(BaseModel):
@@ -237,7 +231,7 @@ class CommentCreateResponse(BaseModel):
 class DirSaveRequest(StrictInputModel):
     name: str
     description: str | None = None
-    permissions: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list, max_length=MAX_PERMISSIONS)
     recursive_permissions: bool = False
     # strict=False: JSON has no native UUID type either, so it always
     # arrives as a plain hex string, not a uuid.UUID instance.
@@ -270,14 +264,14 @@ class DirSaveRequest(StrictInputModel):
         v: list[str],
     ) -> list[str]:
         for p in v:
-            if not PERM_REGEX.match(p):
+            if not PERM_REGEX.fullmatch(p):
                 msg = f"Ungültiges Format: {p}"
                 raise ValueError(msg)
-        return v
+        return list(dict.fromkeys(v))
 
 
 class DirReceiveRequest(StrictInputModel):
-    type: str
+    type: Literal["dir", "file"]
     # A dir id or file id, depending on `type` - the service layer
     # branches on `type` and only ever looks each id up against the
     # matching table. Both are UUIDs.
@@ -285,24 +279,10 @@ class DirReceiveRequest(StrictInputModel):
     # itself - a field-level override does not cascade into a generic
     # container's item validator, so it would otherwise still reject the
     # plain hex strings JSON (which has no native UUID type) always sends.
-    ids: list[Annotated[uuid.UUID, Field(strict=False)]]
-    action: str = "move"
-
-    @field_validator("type")
-    @classmethod
-    def validate_type(cls, v: str) -> str:
-        if v not in ("dir", "file"):
-            msg = "type muss 'dir' oder 'file' sein."
-            raise ValueError(msg)
-        return v
-
-    @field_validator("action")
-    @classmethod
-    def validate_action(cls, v: str) -> str:
-        if v != "move":
-            msg = "Nur 'move' wird unterstützt."
-            raise ValueError(msg)
-        return v
+    ids: list[Annotated[uuid.UUID, Field(strict=False)]] = Field(
+        max_length=MAX_MOVE_IDS
+    )
+    action: Literal["move"] = "move"
 
 
 class FileUpdateRequest(StrictInputModel):

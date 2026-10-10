@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Iterable
 
     from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
 from app.schemas.p4x import PartnerSearchResult
+from app.services.search_utils import escape_like
 
 # ---------------------------------------------------------------------------
 # Partner search
@@ -29,15 +31,15 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     if len(term) < 3:
         return []
 
-    pattern = f"%{term}%"
+    pattern = f"%{escape_like(term)}%"
     results: list[PartnerSearchResult] = []
 
     members = (
         db.query(Member)
         .filter(
-            (Member.vorname.ilike(pattern))
-            | (Member.nachname.ilike(pattern))
-            | (Member.couleurname.ilike(pattern)),
+            (Member.vorname.ilike(pattern, escape="\\"))
+            | (Member.nachname.ilike(pattern, escape="\\"))
+            | (Member.couleurname.ilike(pattern, escape="\\")),
         )
         .all()
     )
@@ -53,7 +55,8 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         db.query(Contact)
         .filter(
             Contact.deleted_at.is_(None),
-            (Contact.name.ilike(pattern)) | (Contact.couleurname.ilike(pattern)),
+            (Contact.name.ilike(pattern, escape="\\"))
+            | (Contact.couleurname.ilike(pattern, escape="\\")),
         )
         .all()
     )
@@ -65,7 +68,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
     specials = (
         db.query(P4xSpecialcontact)
         .filter(
-            P4xSpecialcontact.cn.ilike(pattern),
+            P4xSpecialcontact.cn.ilike(pattern, escape="\\"),
         )
         .all()
     )
@@ -78,7 +81,7 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
         db.query(P4xAccount)
         .filter(
             P4xAccount.deleted_at.is_(None),
-            P4xAccount.label.ilike(pattern),
+            P4xAccount.label.ilike(pattern, escape="\\"),
         )
         .all()
     )
@@ -91,34 +94,63 @@ def search_partners(db: Session, term: str) -> list[PartnerSearchResult]:
 
 
 # ---------------------------------------------------------------------------
-# Partner assignment (1:1 from TransactionController::setPartner)
+# Partner assignment
 # ---------------------------------------------------------------------------
+
+
+type PartnerEntity = Member | Contact | P4xAccount | P4xSpecialcontact
+
+_PARTNER_MODELS: dict[str, type[PartnerEntity]] = {
+    "member": Member,
+    "contact": Contact,
+    "account": P4xAccount,
+    "special": P4xSpecialcontact,
+}
+
+
+def transaction_partner_refs(tx: P4xTransaction) -> list[tuple[str, uuid.UUID]]:
+    """(type, id) of the partner and of the delegating partner of a
+    transaction, for those that are set."""
+    refs: list[tuple[str, uuid.UUID]] = []
+    if tx.partner and tx.partner.deleted_at is None:
+        refs.append((tx.partner.partner_type, tx.partner.partner_id))
+    if tx.delegating_partner_type and tx.delegating_partner_id:
+        refs.append((tx.delegating_partner_type, tx.delegating_partner_id))
+    return refs
+
+
+def find_partner_entities(
+    db: Session,
+    refs: Iterable[tuple[str, uuid.UUID]],
+) -> dict[tuple[str, uuid.UUID], PartnerEntity]:
+    """Looks up the entities that search results and set-partner requests
+    refer to: the identifier p4x_partners' own FK columns store, which is
+    each target's own UUID primary key. One query per partner type,
+    however many references there are; unknown types and missing rows are
+    simply absent from the result."""
+    ids_by_type: dict[str, set[uuid.UUID]] = {}
+    for partner_type, partner_id in refs:
+        ids_by_type.setdefault(partner_type, set()).add(partner_id)
+
+    found: dict[tuple[str, uuid.UUID], PartnerEntity] = {}
+    for partner_type, ids in ids_by_type.items():
+        model = _PARTNER_MODELS.get(partner_type)
+        if model is None:
+            continue
+        for entity in db.query(model).filter(model.id.in_(ids)):
+            found[(partner_type, entity.id)] = entity
+    return found
 
 
 def find_partner_entity(
     db: Session,
     partner_type: str,
     partner_id: uuid.UUID,
-) -> Member | Contact | P4xAccount | P4xSpecialcontact | None:
-    """Looks up the entity a search result/set-partner request refers to -
-    the identifier p4x_partners' own FK columns store, and the one
-    search_partners()/PartnerSearchResult hand out. Each target's own
-    UUID primary key, queried directly."""
-    if partner_type == "member":
-        return db.query(Member).filter(Member.id == partner_id).first()
-    if partner_type == "contact":
-        return db.query(Contact).filter(Contact.id == partner_id).first()
-    if partner_type == "account":
-        return db.query(P4xAccount).filter(P4xAccount.id == partner_id).first()
-    if partner_type == "special":
-        return (
-            db.query(P4xSpecialcontact)
-            .filter(
-                P4xSpecialcontact.id == partner_id,
-            )
-            .first()
-        )
-    return None
+) -> PartnerEntity | None:
+    """The entity of one partner reference, or None."""
+    return find_partner_entities(db, [(partner_type, partner_id)]).get(
+        (partner_type, partner_id)
+    )
 
 
 def _clear_delegating(transaction: P4xTransaction) -> None:

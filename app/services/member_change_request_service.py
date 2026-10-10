@@ -4,7 +4,7 @@ or rejects them field-by-field in a single, atomic review session (no
 persisted "partially decided" state - see MemberChangeRequest's docstring).
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from fastapi import HTTPException, status
@@ -27,16 +27,6 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-def _json_safe(value: object) -> object:
-    """JSONB has no native date type - the only self-service field this
-    ever applies to is geburtsdatum, everything else (str/int/bool/None,
-    and MemberDeliveryPreference since StrEnum already subclasses str) is
-    JSON-native as-is."""
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
-
-
 def submit_change_request(
     db: Session, member: Member, proposed: MemberSelfServiceSaveRequest
 ) -> MemberChangeRequest | None:
@@ -55,7 +45,7 @@ def submit_change_request(
     for field, new_val in proposed_dict.items():
         old_val = getattr(member, field, None)
         if values_differ(old_val, new_val):
-            diff[field] = {"old": _json_safe(old_val), "new": _json_safe(new_val)}
+            diff[field] = {"old": old_val, "new": new_val}
 
     existing = get_own_pending_request(db, member)
 
@@ -296,7 +286,10 @@ def resolve_change_request(
     merged = MemberSaveRequest.model_validate(current_full)
     validate_member_org(merged, resolving_admin)
     validate_member_uniqueness(db, merged, exclude_id=member.id)
-    apply_member_input(db, member, merged, current_user=resolving_admin)
+    # One transaction for the member changes and the resolution: committing in
+    # between would release the request row lock before the status is written,
+    # and a second decision would still find the request pending.
+    apply_member_input(db, member, merged, current_user=resolving_admin, commit=False)
 
     request.status = MemberChangeRequestStatus.RESOLVED
     request.field_decisions = field_decisions

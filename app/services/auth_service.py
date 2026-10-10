@@ -28,6 +28,7 @@ from app.core.security import (
     get_password_hash,
     hash_refresh_secret,
     hash_reset_token,
+    parse_refresh_cookie,
     verify_password,
     verify_refresh_secret,
 )
@@ -53,9 +54,16 @@ _GOOGLE_CERTS_CACHE_SECONDS = 300
 _GOOGLE_AUTH_UNAVAILABLE_MESSAGE = (
     "Google-Anmeldung ist gerade nicht erreichbar. Bitte versuch es später erneut."
 )
+_GOOGLE_NOT_CONFIGURED_MESSAGE = "Google Login ist auf dem Server nicht konfiguriert."
 _GOOGLE_ALREADY_LINKED_MESSAGE = (
     "Dieser Account oder dieses Google-Konto ist bereits verknüpft."
 )
+# The frontend starts its account linking flow when it sees this detail.
+_ACCOUNT_NOT_LINKED_DETAIL = "ACCOUNT_NOT_LINKED"
+_CREDENTIALS_INVALID_MESSAGE = "Anmeldedaten ungültig."
+_SESSION_IDLE_MESSAGE = "Session expired due to inactivity."
+# A session is stamped as used at most once per interval, not on every request.
+_SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
 
 # Cost-12 hash of a random value that was discarded right after hashing.
 # Verified against when the e-mail address is unknown, so a login attempt costs
@@ -128,7 +136,8 @@ class _CertsCachingRequest(google_auth_transport.Request):
         if cached and time.monotonic() - cached[0] < _GOOGLE_CERTS_CACHE_SECONDS:
             return cached[1]
         response = self._transport(url, method, body, headers, timeout, **kwargs)
-        if response.status == HTTPStatus.OK:
+        # google-auth declares Response.status without a type.
+        if response.status == HTTPStatus.OK:  # pyright: ignore[reportUnknownMemberType]
             with self._lock:
                 self._cache[url] = (time.monotonic(), response)
         return response
@@ -147,19 +156,41 @@ def _build_google_auth_request() -> _CertsCachingRequest:
 _google_auth_request = _build_google_auth_request()
 
 
-class AccountNotLinkedError(Exception):
-    """
-    Signals the router that the Google token is valid,
-    but not yet linked to an account.
-    """
+class AuthServiceError(ValueError):
+    """A rejection the API answers with an error response; the message is the
+    detail text. Every subclass is mapped once in app.api.error_handlers.
+
+    It derives from ValueError so that callers which catch ValueError keep
+    working."""
 
 
-class GoogleAuthUnavailableError(Exception):
-    """
-    Signals the router that Google's token verification service could not be
-    reached (network error/timeout), as opposed to the token itself being
-    invalid.
-    """
+class InvalidTokenError(AuthServiceError):
+    """The access token or the session behind it is not acceptable."""
+
+
+class AuthenticationFailedError(AuthServiceError):
+    """Credentials or a Google token were rejected."""
+
+
+class RefreshRejectedError(AuthServiceError):
+    """The refresh token was rejected; the client has to sign in again."""
+
+
+class AccountLockedError(AuthServiceError):
+    """The account is locked."""
+
+
+class InvalidResetTokenError(AuthServiceError):
+    """The password reset token or address is wrong or the token expired."""
+
+
+class AccountNotLinkedError(AuthServiceError):
+    """The Google token is valid, but not yet linked to an account."""
+
+
+class GoogleAuthUnavailableError(AuthServiceError):
+    """Google's token verification service could not be reached (network error
+    or timeout), as opposed to the token itself being invalid."""
 
 
 def authenticate_user(
@@ -246,13 +277,13 @@ def execute_password_reset(
     # An unknown address and a wrong token get the same answer.
     if not member or not reset_entry:
         msg = "Ungültiger Token oder E-Mail-Adresse."
-        raise ValueError(msg)
+        raise InvalidResetTokenError(msg)
 
     if datetime.now(UTC) - reset_entry.created_at > timedelta(minutes=20):
         db.delete(reset_entry)
         db.commit()
         msg = "Der Reset-Token ist abgelaufen."
-        raise ValueError(msg)
+        raise InvalidResetTokenError(msg)
 
     member.auth_password = get_password_hash(new_password)
     member.email_verified_at = datetime.now(UTC)
@@ -268,7 +299,7 @@ def execute_password_reset(
 def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     if not member.email:
         msg = "Member hat keine E-Mail-Adresse."
-        raise ValueError(msg)
+        raise AuthenticationFailedError(msg)
     access_token, session_id = create_access_token(subject=member.email)
     refresh_secret = generate_refresh_secret()
     now = datetime.now(UTC)
@@ -286,16 +317,64 @@ def create_user_session(db: Session, member: Member) -> tuple[str, str, str]:
     return access_token, session_id, refresh_secret
 
 
-def _ensure_tz_aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
+def _decode_access_token(token: str) -> tuple[str, str]:
+    """The e-mail address and the session id (jti) of a valid access token."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        raise InvalidTokenError(_CREDENTIALS_INVALID_MESSAGE) from None
+    email: str | None = payload.get("sub")
+    token_id: str | None = payload.get("jti")
+    if email is None or token_id is None:
+        raise InvalidTokenError(_CREDENTIALS_INVALID_MESSAGE)
+    return email, token_id
 
 
-def _invalidate_session(db: Session, session: AuthSession, reason: str) -> NoReturn:
+def _touch_session(db: Session, session: AuthSession) -> None:
+    """End an idle session, otherwise stamp it (and its member) as used."""
+    now = datetime.now(UTC)
+    if _is_idle(session, now):
+        _invalidate_session(db, session, InvalidTokenError(_SESSION_IDLE_MESSAGE))
+
+    if now - session.last_used_at > _SESSION_TOUCH_INTERVAL:
+        session.last_used_at = now
+        db.query(Member).filter(Member.id == session.member_id).update(
+            {"auth_lastsignal": now}
+        )
+        db.commit()
+
+
+def authenticate_access_token(db: Session, token: str) -> Member:
+    """The member behind an access token: the token must be valid, its
+    server-side session must exist and not be idle, and the member must not be
+    locked. Every rejection is an AuthServiceError."""
+    email, token_id = _decode_access_token(token)
+    session = db.query(AuthSession).filter(AuthSession.jti == token_id).first()
+    if not session:
+        raise InvalidTokenError(_CREDENTIALS_INVALID_MESSAGE)
+    _touch_session(db, session)
+
+    member = db.query(Member).filter(Member.email == email).first()
+    # The e-mail address is mutable and can later belong to someone else, so
+    # the session's own member id decides, not the address in the token.
+    if member is None or member.id != session.member_id:
+        raise InvalidTokenError(_CREDENTIALS_INVALID_MESSAGE)
+    if member.auth_locked:
+        msg = "Account is locked"
+        raise AccountLockedError(msg)
+    return member
+
+
+def _invalidate_session(
+    db: Session, session: AuthSession, error: AuthServiceError
+) -> NoReturn:
     db.delete(session)
     db.commit()
-    raise ValueError(reason)
+    raise error
+
+
+def _is_idle(session: AuthSession, now: datetime) -> bool:
+    return now - session.last_used_at > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES)
 
 
 def _validate_refresh_token(
@@ -306,7 +385,7 @@ def _validate_refresh_token(
     if not session.refresh_token_hash or not verify_refresh_secret(
         refresh_secret, session.refresh_token_hash
     ):
-        _invalidate_session(db, session, "Token reuse detected")
+        _invalidate_session(db, session, RefreshRejectedError("Token reuse detected"))
 
 
 def _validate_session_expiry(
@@ -314,13 +393,28 @@ def _validate_session_expiry(
     session: AuthSession,
     now: datetime,
 ) -> None:
-    last_used = _ensure_tz_aware(session.last_used_at)
-    if (now - last_used) > timedelta(minutes=SESSION_IDLE_TIMEOUT_MINUTES):
-        _invalidate_session(db, session, "Session expired due to inactivity")
+    if _is_idle(session, now):
+        _invalidate_session(
+            db, session, RefreshRejectedError("Session expired due to inactivity")
+        )
 
-    created = _ensure_tz_aware(session.created_at)
-    if (now - created) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
-        _invalidate_session(db, session, "Session expired")
+    if (now - session.created_at) > timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS):
+        _invalidate_session(db, session, RefreshRejectedError("Session expired"))
+
+
+def refresh_from_cookie(db: Session, cookie_value: str | None) -> tuple[str, str, str]:
+    """Exchange the raw refresh cookie for (access token, session id, rotated
+    refresh secret)."""
+    if not cookie_value:
+        msg = "No refresh token"
+        raise AuthenticationFailedError(msg)
+    try:
+        session_id, refresh_secret = parse_refresh_cookie(cookie_value)
+    except ValueError:
+        msg = "Malformed refresh cookie"
+        raise RefreshRejectedError(msg) from None
+    access_token, new_secret = refresh_session(db, session_id, refresh_secret)
+    return access_token, session_id, new_secret
 
 
 def refresh_session(
@@ -328,10 +422,20 @@ def refresh_session(
     session_id: str,
     refresh_secret: str,
 ) -> tuple[str, str]:
-    session = db.query(AuthSession).filter(AuthSession.jti == session_id).first()
+    # FOR UPDATE serialises concurrent refreshes of the same session: the
+    # second request waits for the first to commit, then sees the rotated
+    # hash and is rejected as reuse. Without the lock both requests pass the
+    # check and each is handed a valid-looking secret, of which only the last
+    # write survives.
+    session = (
+        db.query(AuthSession)
+        .filter(AuthSession.jti == session_id)
+        .with_for_update()
+        .first()
+    )
     if not session:
         msg = "Invalid session"
-        raise ValueError(msg)
+        raise RefreshRejectedError(msg)
 
     _validate_refresh_token(db, session, refresh_secret)
 
@@ -340,10 +444,12 @@ def refresh_session(
 
     member = db.query(Member).filter(Member.id == session.member_id).first()
     if not member or member.auth_locked:
-        _invalidate_session(db, session, "Account locked or deleted")
+        _invalidate_session(
+            db, session, RefreshRejectedError("Account locked or deleted")
+        )
 
     if not member.email:
-        _invalidate_session(db, session, "Account has no email")
+        _invalidate_session(db, session, RefreshRejectedError("Account has no email"))
 
     new_secret = generate_refresh_secret()
     session.refresh_token_hash = hash_refresh_secret(new_secret)
@@ -356,18 +462,21 @@ def refresh_session(
     return access_token, new_secret
 
 
-def authenticate_google_user(db: Session, credential_token: str) -> Member:
-    """
-    Verifies a Google token and returns the bound Member.
-    Throws AccountNotLinkedError if the token is valid but not bound.
-    """
+def _verify_google_credential(
+    credential_token: str, invalid_message: str
+) -> tuple[str, Mapping[str, object]]:
+    """Verifies a Google ID token for this application and returns its subject
+    and claims. Every path that accepts a Google token goes through here, so
+    the audience is checked everywhere or nowhere: without a configured client
+    id nothing is verified (the library skips the audience check when it is
+    None, which would accept a token issued to any other application)."""
     client_id = get_settings().google_client_id
     if not client_id:
-        msg = "Google Login ist auf dem Server nicht konfiguriert."
-        raise ValueError(msg)
+        raise AuthenticationFailedError(_GOOGLE_NOT_CONFIGURED_MESSAGE)
 
     try:
-        id_info = id_token.verify_oauth2_token(
+        # google-auth leaves the token and request parameters untyped.
+        id_info = id_token.verify_oauth2_token(  # pyright: ignore[reportUnknownMemberType]
             credential_token,
             _google_auth_request,
             client_id,
@@ -375,10 +484,22 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
     except TransportError as e:
         raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
     except ValueError:
-        msg = "Ungültiger Google-Token."
-        raise ValueError(msg) from None
+        raise AuthenticationFailedError(invalid_message) from None
 
-    google_id = id_info.get("sub")
+    subject = id_info.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise AuthenticationFailedError(invalid_message)
+    return subject, id_info
+
+
+def authenticate_google_user(db: Session, credential_token: str) -> Member:
+    """
+    Verifies a Google token and returns the bound Member.
+    Throws AccountNotLinkedError if the token is valid but not bound.
+    """
+    google_id, _ = _verify_google_credential(
+        credential_token, "Ungültiger Google-Token."
+    )
 
     # Check if we already know this Google account
     binding = (
@@ -401,11 +522,11 @@ def authenticate_google_user(db: Session, credential_token: str) -> Member:
 
         if not member or member.auth_locked:
             msg = "Dein Account ist gesperrt oder wurde gelöscht."
-            raise ValueError(msg)
+            raise AuthenticationFailedError(msg)
         return member
 
     # Unlinked Google account triggers special frontend linking flow
-    raise AccountNotLinkedError
+    raise AccountNotLinkedError(_ACCOUNT_NOT_LINKED_DETAIL)
 
 
 def _insert_google_binding(
@@ -426,7 +547,7 @@ def _insert_google_binding(
                 )
             )
     except IntegrityError:
-        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE) from None
+        raise AuthenticationFailedError(_GOOGLE_ALREADY_LINKED_MESSAGE) from None
 
 
 def link_google_account(
@@ -442,27 +563,14 @@ def link_google_account(
     member, _ = authenticate_user(db, email, password)
     if not member:
         msg = "Die lokale E-Mail-Adresse oder das Passwort ist falsch."
-        raise ValueError(msg)
+        raise AuthenticationFailedError(msg)
 
     # 2. Verify Google Token again
-    client_id = get_settings().google_client_id
-    try:
-        id_info = id_token.verify_oauth2_token(
-            credential_token,
-            _google_auth_request,
-            client_id,
-        )
-    except TransportError as e:
-        raise GoogleAuthUnavailableError(_GOOGLE_AUTH_UNAVAILABLE_MESSAGE) from e
-    except ValueError:
-        msg = "Der Google-Token ist ungültig oder abgelaufen."
-        raise ValueError(msg) from None
-
-    google_id = id_info.get("sub")
-    if not google_id:
-        msg = "Der Google-Token ist ungültig oder abgelaufen."
-        raise ValueError(msg)
-    google_name = id_info.get("name", "Unknown")
+    google_id, id_info = _verify_google_credential(
+        credential_token, "Der Google-Token ist ungültig oder abgelaufen."
+    )
+    name = id_info.get("name")
+    google_name = name if isinstance(name, str) else "Unknown"
 
     # 3. Check if this Google account is already linked to ANOTHER user
     # OR if this local member already has a binding.
@@ -486,7 +594,7 @@ def link_google_account(
             existing_binding.lastuse_at = datetime.now(UTC)
             db.flush()
             return member
-        raise ValueError(_GOOGLE_ALREADY_LINKED_MESSAGE)
+        raise AuthenticationFailedError(_GOOGLE_ALREADY_LINKED_MESSAGE)
 
     # 4. Create the binding in the database. Not committed here either -
     # same reasoning, create_user_session()'s commit covers this too.

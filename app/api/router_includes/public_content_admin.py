@@ -4,10 +4,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.auth_guards import require_permission
+from app.api.auth_guards import RequirePublicContentEditor
 from app.db.database import get_db
 from app.models.enums import AboutTabSlot
-from app.models.member import Member
 from app.schemas.base import MoveRequest, StatusResponse
 from app.schemas.public_content import (
     AboutTabAdminResponse,
@@ -35,10 +34,6 @@ from app.services import (
 # (see public_site.py for the unauthenticated counterpart). Sibling of
 # public_gallery_admin.py, which covers the gallery specifically.
 public_content_admin_router = APIRouter()
-
-RequirePublicContentEditor = Annotated[
-    Member, Depends(require_permission("publicContentEditor"))
-]
 
 
 # --- About tabs -----------------------------------------------------------

@@ -12,7 +12,7 @@ delegating_p4x_account_id -> p4x_accounts.id_uuid,
 delegating_p4x_specialcontact_id -> p4x_special_contacts.id_uuid.
 
 p4x_transactions.id itself stays the primary key here - its own
-Final-Cutover (dropping id in favor of id_uuid) is a later slice, since
+Final-Cutover (dropping id in favor of id_uuid) is a separate revision, since
 p4x_category_directs and p4x_category_filter_hits still reference it by
 the integer id and haven't cut over yet.
 
@@ -129,10 +129,9 @@ def _add_own_id_uuid() -> None:
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
     _batched_uuid_backfill()
     op.alter_column(TABLE, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
 
 def _drop_own_id_uuid() -> None:

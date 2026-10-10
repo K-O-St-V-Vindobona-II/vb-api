@@ -59,7 +59,7 @@ def _confirm(auto_yes: bool) -> None:
         print(
             "ERROR: no interactive terminal attached to confirm "
             "(rerun with 'podman exec -it ...', or pass --yes to skip "
-            "the prompt)."
+            "the confirmation question)."
         )
         sys.exit(1)
     if answer.strip().lower() != "yes":
@@ -137,7 +137,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Skip the interactive confirmation prompt",
+        help="Skip the interactive confirmation question",
     )
     parser.add_argument(
         "--skip-db",

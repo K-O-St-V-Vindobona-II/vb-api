@@ -7,6 +7,8 @@ tests/test_worker_contact_form.py.
 
 from unittest.mock import patch
 
+import pytest
+
 from app.core.rate_limit import limiter
 
 URL = "/api/public/contact"
@@ -43,13 +45,16 @@ class TestContactForm:
         mock_smtp.assert_not_called()
         mock_send.assert_not_called()
 
-    def test_honeypot_field_rejects_submission(self, client, db_session, mock_arq_pool):
+    def test_honeypot_field_is_answered_like_a_success_without_a_mail(
+        self, client, db_session, mock_arq_pool
+    ):
         resp = client.post(
             URL,
             json={**VALID, "website": "https://spam.example.com"},
         )
 
-        assert resp.status_code == 422
+        assert resp.status_code == 202
+        assert resp.json() == {"status": "ok"}
         mock_arq_pool.enqueue_job.assert_not_called()
 
     def test_invalid_email_rejected(self, client, db_session, mock_arq_pool):
@@ -78,3 +83,36 @@ class TestContactForm:
         assert statuses[5] == 429
         assert mock_arq_pool.enqueue_job.call_count == 5
         limiter._storage.reset()
+
+
+class TestContactFormName:
+    """The name becomes the subject of the notification mail, so it must be a
+    single line; a line break is refused at the request, not when the mail is
+    built."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_rate_limit(self):
+        limiter._storage.reset()
+        yield
+        limiter._storage.reset()
+
+    @pytest.mark.parametrize(
+        "name",
+        ["Max\nBcc: e@x.at", "Max\rMustermann", "Max\x00", "Max\x1f", "Max\x7f"],
+    )
+    def test_control_characters_in_the_name_are_rejected(
+        self, client, db_session, mock_arq_pool, name
+    ):
+        resp = client.post(URL, json={**VALID, "name": name})
+
+        assert resp.status_code == 422
+        mock_arq_pool.enqueue_job.assert_not_called()
+
+    @pytest.mark.parametrize("name", ["Řehoř Müller", "山田 太郎", "Anne-Marie O'Neil"])
+    def test_names_with_accents_and_other_scripts_are_accepted(
+        self, client, db_session, mock_arq_pool, name
+    ):
+        resp = client.post(URL, json={**VALID, "name": name})
+
+        assert resp.status_code == 202
+        assert mock_arq_pool.enqueue_job.call_args.args[1] == name

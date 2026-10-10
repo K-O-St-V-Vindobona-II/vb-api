@@ -14,7 +14,6 @@ from app.models.p4x_category_filter_hit import P4xCategoryFilterHit
 from app.models.p4x_fee import P4xFee
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
-from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
 
 
@@ -237,6 +236,7 @@ class TestP4xCategoryFilter:
             name="final-cutover-guard",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
         )
         db_session.add(f)
@@ -295,6 +295,7 @@ class TestP4xCategoryFilterHit:
             name="test_filter",
             p4x_account_id=account.id,
             subject_mode="equals",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
@@ -407,48 +408,6 @@ class TestP4xSpecialcontact:
         db_session.flush()
         assert isinstance(sc.id, uuid.UUID)
         assert sc.id.version == 7
-
-
-class TestP4xSummaryOrder:
-    def test_create(self, db_session):
-        member = Member(vorname="Test", nachname="Orderer")
-        db_session.add(member)
-        db_session.commit()
-
-        order = P4xSummaryOrder(
-            ordered_by=member.id,
-            email="test@example.com",
-            summary_start=date(2025, 1, 1),
-            summary_end=date(2025, 12, 1),
-            finished_ok=False,
-            created_at=_now(),
-            updated_at=_now(),
-        )
-        db_session.add(order)
-        db_session.commit()
-        assert order.id is not None
-        assert order.finished_ok is False
-
-    def test_id_defaults_to_a_valid_uuid7(self, db_session):
-        """Guards the UUID-PK migration's Final-Cutover assumption (see
-        bc095b5fb813_sessions_oauth2bindings_summary_orders_.py): id is
-        generated exclusively by the database's uuidv7() server_default,
-        not by any Python-side default."""
-        member = Member(vorname="Test", nachname="Orderer")
-        db_session.add(member)
-        db_session.commit()
-
-        order = P4xSummaryOrder(
-            ordered_by=member.id,
-            email="test@example.com",
-            summary_start=date(2025, 1, 1),
-            summary_end=date(2025, 12, 1),
-        )
-        db_session.add(order)
-        db_session.flush()
-
-        assert isinstance(order.id, uuid.UUID)
-        assert order.id.version == 7
 
 
 class TestPartnerTransactionRelationship:

@@ -338,7 +338,7 @@ def purge_file(db: Session, storage: StorageClient, file_id: uuid.UUID) -> Purge
 
     # Snapshot the store item before deleting. archive_store_item_id has no
     # unique constraint on ArchiveFile and can be shared across files (real
-    # content dedup from the legacy migration), so the reference count must
+    # content dedup from the initial data import), so the reference count must
     # not rely on "1 hash = 1 file".
     store_item_ids = {file_obj.archive_store_item_id}
 

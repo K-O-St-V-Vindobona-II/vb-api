@@ -28,13 +28,15 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "fe2d67d0309b"
-down_revision: str | None = "4ec3e7fa9cfd"
+down_revision: str | Sequence[str] | None = "4ec3e7fa9cfd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.alter_column(
         "p4x_partners",
         "p4x_specialcontact_id",
@@ -63,6 +65,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.execute(
         "ALTER TABLE p4x_transactions "
         "RENAME CONSTRAINT p4x_transactions_delegating_p4x_special_contact_id_fkey "

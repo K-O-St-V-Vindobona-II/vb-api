@@ -9,7 +9,7 @@ gets its own Final-Cutover (Phase A+C) AND both of its members FKs
 (member_id, resolved_by) cut over in the same migration - same reasoning
 as bc095b5fb813's three leaf tables. Both FKs now point at
 members(id_uuid), not members(id) - members itself won't have a UUID
-primary key until its own Final-Cutover (slice 32) - with the exact
+primary key until its own Final-Cutover (e097221b6c5f) - with the exact
 ondelete/onupdate strategy each FK had before.
 
 member_id carries two indexes that both get rebuilt on the new column:
@@ -17,7 +17,7 @@ the plain lookup index (ix_member_change_requests_member_id) AND the
 partial unique index enforcing "at most one pending request per member"
 (member_change_requests_member_pending_uniq, WHERE status = 'pending') -
 a real business rule, not just a redundant duplicate like the ones
-dropped-and-not-rebuilt in earlier slices. Dropping a column drops every
+dropped-and-not-rebuilt in earlier revisions. Dropping a column drops every
 index defined on it, so both must be explicitly recreated.
 """
 
@@ -73,10 +73,9 @@ def upgrade() -> None:
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
     _batched_uuid_backfill()
     op.alter_column(TABLE, "id_uuid", nullable=False)
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
     op.drop_constraint(f"{TABLE}_pkey", TABLE, type_="primary")
     op.drop_column(TABLE, "id")
     op.execute(f"DROP SEQUENCE IF EXISTS {TABLE}_id_seq")

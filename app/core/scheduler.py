@@ -15,6 +15,7 @@ full traceback rather than silently swallowing it.
 
 import logging
 import subprocess
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -29,13 +30,13 @@ from app.core.security import (
     SESSION_IDLE_TIMEOUT_MINUTES,
 )
 from app.core.storage import get_storage
-from app.core.tasks import TRACKING_RETENTION_MONTHS
 from app.db.database import SessionLocal
 from app.models.auth_session import AuthSession
 from app.models.client_user_agent import ClientUserAgent
 from app.models.enums import JobId
 from app.models.member import Member
 from app.models.member_role import MemberRole
+from app.models.p4x_account import GIROKONTO_ACCOUNT_ID, P4xAccount
 from app.models.p4x_transaction import P4xTransaction
 from app.models.password_reset import PasswordResetToken
 from app.models.request_log import RequestLog
@@ -60,6 +61,31 @@ from app.services.storage_integrity_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Failures of one delivery that must not stop the mails still to be sent: the
+# mail server refusing or dropping a single message (smtplib.SMTPException is an
+# OSError), or the connection failing. Any other error (missing settings, a bug)
+# still ends the whole job.
+_DELIVERY_FAILURES = (OSError,)
+
+
+@dataclass
+class MailRun:
+    """Outcome of a job that sends one mail per member."""
+
+    sent: int = 0
+    failed: list[str] = field(default_factory=list[str])
+
+    @property
+    def exit_code(self) -> int:
+        return 1 if self.failed else 0
+
+    def summary(self, what: str) -> str:
+        text = f"{self.sent} {what} sent."
+        if self.failed:
+            text += f" {len(self.failed)} failed: {', '.join(self.failed)}."
+        return text
+
 
 MONTHS_DE = [
     "",
@@ -109,7 +135,7 @@ def job_cleanup() -> None:
         ).delete()
 
         tracking_cutoff = now - timedelta(
-            days=TRACKING_RETENTION_MONTHS * 30,
+            days=get_settings().tracking_retention_months * 30,
         )
         deleted_logs = (
             db.query(RequestLog)
@@ -231,22 +257,30 @@ def job_birthday_mails() -> None:
             )
             return
 
-        bcc_emails = _get_role_holder_emails(
-            db,
-            ["phil-x", "phil-xxx"],
-            "vbw",
+        run = _send_birthday_mails(db, birthday_members, tomorrow)
+        record_job_run(
+            JobId.BIRTHDAY_MAILS,
+            started,
+            exit_code=run.exit_code,
+            output=run.summary("birthday mail(s)"),
         )
+    except Exception as exc:
+        logger.exception("BirthdayMails failed")
+        record_job_run(JobId.BIRTHDAY_MAILS, started, exit_code=1, output=str(exc))
+    finally:
+        db.close()
 
-        for m in birthday_members:
-            if not m.email:
-                continue
-            birth_year = _parse_year(m.geburtsdatum)
-            age = tomorrow.year - birth_year if birth_year else "?"
-            html = render_template(
-                "birthday.html",
-                name=m.couleurname,
-                age=age,
-            )
+
+def _send_birthday_mails(db: Session, members: list[Member], tomorrow: date) -> MailRun:
+    bcc_emails = _get_role_holder_emails(db, ["phil-x", "phil-xxx"], "vbw")
+    run = MailRun()
+    for m in members:
+        if not m.email:
+            continue
+        birth_year = _parse_year(m.geburtsdatum)
+        age = tomorrow.year - birth_year if birth_year else None
+        html = render_template("birthday.html", name=_greeting_name(m), age=age)
+        try:
             send_to_recipients(
                 to_emails=[m.email],
                 subject="Geburtstagsgruß Deiner Bundesbrüder",
@@ -257,21 +291,13 @@ def job_birthday_mails() -> None:
                 reply_to="philchc@vindobona2.at",
                 bcc_emails=bcc_emails,
             )
-            logger.info(
-                "Birthday mail sent to %s",
-                m.cn,
-            )
-        record_job_run(
-            JobId.BIRTHDAY_MAILS,
-            started,
-            exit_code=0,
-            output=f"{len(birthday_members)} birthday mail(s) sent.",
-        )
-    except Exception as exc:
-        logger.exception("BirthdayMails failed")
-        record_job_run(JobId.BIRTHDAY_MAILS, started, exit_code=1, output=str(exc))
-    finally:
-        db.close()
+        except _DELIVERY_FAILURES:
+            logger.exception("Birthday mail to %s failed", m.cn)
+            run.failed.append(m.cn)
+            continue
+        run.sent += 1
+        logger.info("Birthday mail sent to %s", m.cn)
+    return run
 
 
 def _parse_month_day(
@@ -354,11 +380,28 @@ def _compute_target_date(today: date) -> date:
     return next_month_first - timedelta(days=1)
 
 
+def _greeting_name(member: Member) -> str:
+    """The name a mail greets a member with: the student name, else the name."""
+    return member.couleurname or member.cn
+
+
+def _payment_account(db: Session) -> P4xAccount:
+    """The account a reminder asks to pay into, read from the database so the
+    mail never states bank details that differ from the ones on the payment
+    page. A missing account stops the job (recorded as failed) instead of
+    sending a reminder without or with wrong details."""
+    account = db.get(P4xAccount, GIROKONTO_ACCOUNT_ID)
+    if account is None:
+        msg = "The account for the payment details of the reminder is missing."
+        raise RuntimeError(msg)
+    return account
+
+
 def _send_debtor_reminders(
     db: Session,
     target: date,
     target_str: str,
-) -> None:
+) -> MailRun:
     monthly_fee = fee_for_month(db, target)
     sender_name = _get_phil_xxxx_name(db)
     sender_email = _get_phil_xxxx_email(db)
@@ -376,6 +419,8 @@ def _send_debtor_reminders(
         .all()
     )
 
+    run = MailRun()
+    payment_account: P4xAccount | None = None
     for m in fee_members:
         balance_data = calculate_fee_balance(db, m, None, target_str)
         if not balance_data:
@@ -386,25 +431,35 @@ def _send_debtor_reminders(
         if debt <= 300 or not m.email:
             continue
 
+        payment_account = payment_account or _payment_account(db)
         html = render_template(
             "debtor_reminder.html",
-            name=m.couleurname or m.cn,
+            name=_greeting_name(m),
             fee=monthly_fee,
             target=target_formatted,
             debt=debt,
             sender_name=sender_name,
+            iban=payment_account.iban,
+            bic=payment_account.bic,
         )
-        send_to_recipients(
-            to_emails=[m.email],
-            subject="Erinnerung an Deine Mitgliedsbeiträge",
-            html_content=html,
-            template_key="debtor_reminder",
-            from_addr="philisterkassier@vindobona2.at",
-            from_name=sender_name,
-            reply_to=sender_email,
-            bcc_emails=bcc_emails,
-        )
+        try:
+            send_to_recipients(
+                to_emails=[m.email],
+                subject="Erinnerung an Deine Mitgliedsbeiträge",
+                html_content=html,
+                template_key="debtor_reminder",
+                from_addr="philisterkassier@vindobona2.at",
+                from_name=sender_name,
+                reply_to=sender_email,
+                bcc_emails=bcc_emails,
+            )
+        except _DELIVERY_FAILURES:
+            logger.exception("Debtor reminder to %s failed", m.cn)
+            run.failed.append(m.cn)
+            continue
+        run.sent += 1
         logger.info("Debtor reminder sent to %s (debt: %d)", m.cn, debt)
+    return run
 
 
 def job_debtor_reminder() -> None:
@@ -426,12 +481,12 @@ def job_debtor_reminder() -> None:
 
         target = _compute_target_date(today)
         target_str = target.strftime("%Y-%m-%d")
-        _send_debtor_reminders(db, target, target_str)
+        run = _send_debtor_reminders(db, target, target_str)
         record_job_run(
             JobId.DEBTOR_REMINDER,
             started,
-            exit_code=0,
-            output=f"Debtor reminders sent for target date {target_str}.",
+            exit_code=run.exit_code,
+            output=f"Target date {target_str}: {run.summary('reminder(s)')}",
         )
     except Exception as exc:
         logger.exception("DebtorReminder failed")

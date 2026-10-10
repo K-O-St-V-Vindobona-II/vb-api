@@ -25,13 +25,15 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4ec3e7fa9cfd"
-down_revision: str | None = "a6af1c272f2c"
+down_revision: str | Sequence[str] | None = "a6af1c272f2c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.execute("DROP INDEX IF EXISTS ix_password_reset_tokens_email")
     op.execute("DROP INDEX IF EXISTS ix_request_logs_id")
 

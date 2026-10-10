@@ -6,7 +6,7 @@ Create Date: 2026-07-22 14:19:20.991970
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -44,6 +44,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
+
     op.drop_constraint(
         "personal_access_tokens_member_id_fkey",
         "personal_access_tokens",

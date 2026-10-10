@@ -14,10 +14,17 @@ SQLALCHEMY_DATABASE_URL = cast("str", get_settings().database_url)
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_size=10,
-    max_overflow=20,
+    # At most 15 connections per process: two web workers and the job worker
+    # add up to 45, well below PostgreSQL's default limit of 100 that pg_dump
+    # and the other container share.
+    pool_size=5,
+    max_overflow=10,
     pool_timeout=10,
     pool_recycle=3600,
+    # pool_timeout only bounds the wait for a free pool slot; this bounds the
+    # TCP connect to the database, which otherwise follows the operating
+    # system's timeout.
+    connect_args={"connect_timeout": 5},
     # A restore/downsync (see backup_service.py's _wipe_public_schema())
     # deliberately pg_terminate_backend()s every other session on this
     # database right before it wipes the schema - including whatever of

@@ -35,7 +35,9 @@ class P4xCategoryFilterHit(Base):
         ForeignKey("p4x_category_filters.id", ondelete="CASCADE", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     transaction: Mapped[P4xTransaction] = relationship(

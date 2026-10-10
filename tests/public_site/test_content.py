@@ -35,12 +35,12 @@ ADMIN_PREFIX = "/api/public-content-admin"
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=1,
+                sort_order=1,
             ),
         ]
     )
@@ -774,7 +774,7 @@ class TestSocialLinkUuidDefault:
 
 class TestAboutTabUuidDefault:
     """Same guard as TestSocialLinkUuidDefault, for the second UUID-PK
-    migration slice (see ad4d9aeff7b8_public_site_content_ids_to_uuid.py).
+    migration revision (see ad4d9aeff7b8_public_site_content_ids_to_uuid.py).
     slot is unique and CHECK-constrained to the 3 known values, so this
     replaces one of the already-seeded rows rather than adding a 4th."""
 

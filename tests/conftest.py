@@ -68,7 +68,7 @@ engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 if engine.dialect.name != "postgresql":
     msg = (
         f"Test suite requires PostgreSQL, got dialect {engine.dialect.name!r}. "
-        "SQLite fallbacks are not supported — see scripts/README.md."
+        "Non-PostgreSQL fallbacks are not supported, see scripts/README.md."
     )
     raise RuntimeError(msg)
 

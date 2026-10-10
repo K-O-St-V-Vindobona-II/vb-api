@@ -1,5 +1,5 @@
 """HTTP-level tests for the p4x_response_builders fetch-or-404 helpers
-(get_transaction_or_404, get_member_or_404) introduced in the Slice 3
+(get_transaction_or_404, get_member_or_404) introduced with the
 router->service extraction. The endpoints wiring them in
 (set_transaction_partner, update_transaction, set/unset-category-direct,
 get/update_fee_member) previously only had service-level tests that
@@ -28,9 +28,9 @@ def _now() -> datetime:
 def _seed(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
-            Role(id="phil-xxxx", group="philchc", label="Phil-x", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
+            Role(id="phil-xxxx", group="philchc", label="Phil-x", sort_order=1),
         ]
     )
     db.commit()

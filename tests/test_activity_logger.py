@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.background import BackgroundTask
 from starlette.requests import Request
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 from app.core.activity_logger import (
     ActivityLoggingMiddleware,
@@ -173,7 +176,7 @@ class TestDispatch:
         self, mock_session_local, db_session
     ) -> None:
         mock_session_local.return_value = db_session
-        db_session.add(Org(id="vbw", label="VBW", order=1))
+        db_session.add(Org(id="vbw", label="VBW", sort_order=1))
         member = Member(
             email="found@vbw.at", vorname="Test", nachname="User", org_id="vbw"
         )
@@ -272,3 +275,180 @@ class TestDispatch:
         # dispatch() rebuilds a plain (non-streaming) Response after fully
         # reading call_next()'s body - .body is the direct byte payload.
         assert response.body == b'{"total": 3}'
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_testclient_host_is_logged_outside_the_test_environment(
+        self, mock_session_local, db_session
+    ) -> None:
+        """The host name of the test client is a bypass for tests only; a
+        request that reports it in any other stage is logged like any other."""
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("POST", "/api/standesdb/members", "testclient")
+
+        async def call_next(_req):
+            return _streaming(b'{"ok": true}', status_code=200)
+
+        with patch(
+            "app.core.activity_logger.get_settings",
+            return_value=SimpleNamespace(app_environment="production"),
+        ):
+            asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
+
+        assert db_session.query(RequestLog).one().client_ip == "testclient"
+
+    @pytest.mark.parametrize("error", [ValueError("bad"), TypeError("bad")])
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_payload_the_json_column_rejects_does_not_break_the_response(
+        self, mock_session_local, db_session, error
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("POST", "/api/standesdb/members", "203.0.113.7")
+
+        async def call_next(_req):
+            return _streaming(status_code=200)
+
+        with patch.object(db_session, "commit", side_effect=error):
+            response = asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
+
+        assert response.status_code == 200
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_programming_error_is_not_swallowed(
+        self, mock_session_local, db_session
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("POST", "/api/standesdb/members", "203.0.113.7")
+
+        async def call_next(_req):
+            return _streaming(status_code=200)
+
+        with (
+            patch.object(db_session, "commit", side_effect=RuntimeError("bug")),
+            pytest.raises(RuntimeError, match="bug"),
+        ):
+            asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_large_body_is_streamed_on_and_not_stored(
+        self, mock_session_local, db_session
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("GET", "/api/archive/download", "203.0.113.7")
+        chunk = b"x" * 65_536
+        chunks_read = 0
+        background = BackgroundTask(lambda: None)
+
+        async def body():
+            nonlocal chunks_read
+            for _ in range(200):
+                chunks_read += 1
+                yield chunk
+
+        async def call_next(_req):
+            return StreamingResponse(
+                body(),
+                status_code=206,
+                media_type="application/pdf",
+                headers={"x-kept": "yes"},
+                background=background,
+            )
+
+        async def run() -> tuple[Response, int, int]:
+            response = await ActivityLoggingMiddleware(app=None).dispatch(
+                request, call_next
+            )
+            read_before_sending = chunks_read
+            received = 0
+            async for part in response.body_iterator:  # type: ignore[attr-defined]
+                received += len(part)
+            return response, read_before_sending, received
+
+        with patch("app.core.activity_logger._try_parse_json") as parse:
+            response, read_before_sending, received = asyncio.run(run())
+
+        # About 13 MB in total, of which only the capture limit was held back.
+        assert read_before_sending < 10
+        assert received == 200 * len(chunk)
+        assert response.status_code == 206
+        assert response.media_type == "application/pdf"
+        assert response.headers["x-kept"] == "yes"
+        assert response.background is background
+        parse.assert_not_called()
+        assert db_session.query(RequestLog).one().response_content is None
+
+    def test_a_request_without_a_client_address_is_not_a_test_request(
+        self, db_session
+    ) -> None:
+        request = _make_asgi_request("GET", "/", "203.0.113.7")
+        request.scope["client"] = None
+
+        async def call_next(_req):
+            return _streaming(status_code=200)
+
+        response = asyncio.run(
+            ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+        )
+
+        assert response.status_code == 200
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_body_at_the_capture_limit_is_still_collected(
+        self, mock_session_local, db_session
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("GET", "/api/standesdb/members", "203.0.113.7")
+        content = b"y" * (256 * 1024)
+
+        async def call_next(_req):
+            return _streaming(content, status_code=200)
+
+        response = asyncio.run(
+            ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+        )
+
+        assert not isinstance(response, StreamingResponse)
+        assert response.body == content
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_body_one_byte_over_the_limit_is_streamed_unchanged(
+        self, mock_session_local, db_session
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("GET", "/api/standesdb/members", "203.0.113.7")
+        content = b"y" * (256 * 1024 + 1)
+
+        async def call_next(_req):
+            return _streaming(content, status_code=200)
+
+        async def run() -> tuple[bool, bytes]:
+            response = await ActivityLoggingMiddleware(app=None).dispatch(
+                request, call_next
+            )
+            parts = [part async for part in response.body_iterator]  # type: ignore[attr-defined]
+            return isinstance(response, StreamingResponse), b"".join(parts)
+
+        streamed, received = asyncio.run(run())
+
+        assert streamed
+        assert received == content
+        assert db_session.query(RequestLog).one().response_content is None
+
+    @patch("app.core.activity_logger.SessionLocal")
+    def test_a_small_json_body_is_still_stored(
+        self, mock_session_local, db_session
+    ) -> None:
+        mock_session_local.return_value = db_session
+        request = _make_asgi_request("GET", "/api/standesdb/members", "203.0.113.7")
+
+        async def call_next(_req):
+            return _streaming(b'{"total": 3}', status_code=200)
+
+        asyncio.run(ActivityLoggingMiddleware(app=None).dispatch(request, call_next))
+
+        assert db_session.query(RequestLog).one().response_content == {"total": 3}

@@ -4,16 +4,16 @@ Revision ID: e097221b6c5f
 Revises: 3f82fd850390
 Create Date: 2026-09-02 18:00:00.000000
 
-The largest single-table slice in the whole UUID-PK migration: members is
+The largest single-table revision in the whole UUID-PK migration: members is
 the schema's hub (highest referrer count, self-reference, the auth/
 permission layer). Four steps in fixed order:
 
 1. members_logs.member_id Referrer-Cutover: a genuine existing FK still
    pointing at the still-integer members.id - the one referrer of members
-   left standing after Wave C, discovered the same way
-   contacts_logs.contact_id was discovered before the contacts
-   Final-Cutover (3f82fd850390): members_logs.modified_by ("who made the
-   edit") got its FK in a prior slice, but member_id ("which member was
+   left standing after the other referrer-cutover revisions, discovered
+   the same way contacts_logs.contact_id was discovered before the
+   contacts Final-Cutover (3f82fd850390): members_logs.modified_by ("who
+   made the edit") got its FK in an earlier revision, but member_id ("which member was
    edited", the actual changelog subject) never did.
 2. members.parent_id Referrer-Cutover: the table's own self-reference
    (org hierarchy - "who is this member's father"), still pointing at
@@ -21,7 +21,8 @@ permission layer). Four steps in fixed order:
    the same table via a self-join.
 3. members.modified_by: a bare integer column with no ForeignKey() at
    all (like contacts.modified_by before 3f82fd850390), gets a real FK
-   to members.id_uuid. Same 0-as-"no member" legacy sentinel
+   to members.id_uuid. Same 0-as-"no member" sentinel from before this
+   column had a foreign key
    (199/340 rows), converted to NULL first for the same reason.
 4. members Final-Cutover: own PK moves from the additive id_uuid to id.
    Every other referrer (21 FK columns across 19 tables, plus the two
@@ -60,10 +61,10 @@ class _ReferrerFk(NamedTuple):
 
 
 # All 21 pre-existing referrers (already pointing at id_uuid before this
-# slice) plus the two self-referencing FKs added by steps 2-3 above - every
+# revision) plus the two self-referencing FKs added by steps 2-3 above - every
 # one of them needs its FK dropped before the PK revert and recreated
 # afterward in downgrade(). public_gallery_images is the one asymmetric
-# case: its FK was defined without onupdate="CASCADE" back in Slice 12
+# case: its FK was defined without onupdate="CASCADE" back in bc095b5fb813
 # (public_gallery_images.created_by, see app/models/public_gallery_image.py),
 # preserved here as-is rather than silently tightened.
 REFERRERS: list[_ReferrerFk] = [
@@ -368,10 +369,9 @@ def _revert_members_own_id() -> None:
         server_default=sa.text(f"nextval('{SEQUENCE_NAME}'::regclass)"),
     )
     op.create_primary_key(f"{TABLE}_pkey", TABLE, ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
     for referrer in REFERRERS:
         op.create_foreign_key(

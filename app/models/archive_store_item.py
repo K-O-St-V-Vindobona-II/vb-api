@@ -41,7 +41,9 @@ class ArchiveStoreItem(Base):
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration
     # 10efdd07c37e) - name weighted above extension. Never written from

@@ -5,7 +5,7 @@ Revises: f4d8080a373f
 Create Date: 2026-09-02 12:00:00.000000
 
 Two independent own-PK-only Final-Cutovers, bundled because both already
-completed their Phase A in an earlier slice (a67f0d2a4c5e) and neither has
+completed their Phase A in a67f0d2a4c5e and neither has
 any outgoing FK of its own left to cut over. Every referrer that already
 points at one of these tables' id_uuid column
 (p4x_category_directs.p4x_category_id, p4x_category_filters.p4x_category_id,
@@ -124,10 +124,9 @@ def _revert_own_id(table: str) -> None:
         server_default=sa.text(f"nextval('{seq_name}'::regclass)"),
     )
     op.create_primary_key(f"{table}_pkey", table, ["id"])
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
     for referrer in REFERRERS[table]:
         op.create_foreign_key(

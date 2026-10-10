@@ -9,12 +9,25 @@ from app.models.enums import ChangeLogAction, enum_values
 
 
 class MembersLog(Base):
+    """One changed field of a member: who changed what, when, from which value.
+
+    The reference to the member is set to NULL when the member row is deleted,
+    so the entries stay as a change history without a person attached. They are
+    read only through the member's own change log (filtered by `member_id`),
+    which no query can reach once the id is gone; the system table browser,
+    restricted to system administrators, is the one other place that lists
+    them. To erase a person's values, blank `old` and `new` of their entries
+    before the member row is deleted.
+    """
+
     __tablename__ = "members_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")
     )
-    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    modified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     modified_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,

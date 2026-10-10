@@ -1,4 +1,4 @@
-"""Tests für GET /api/standesdb/roles — Chargen-Liste."""
+"""Tests for GET /api/standesdb/roles - the officer-list."""
 
 from datetime import date
 from unittest.mock import patch
@@ -16,20 +16,23 @@ from app.services.auth_service import create_user_session
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
         ]
     )
     db.commit()
     db.add_all(
         [
-            Role(id="x", group="chc", label="Senior", order=0),
-            Role(id="xx", group="chc", label="Consenior", order=1),
-            Role(id="phil-x", group="philchc", label="Philistersenior", order=9),
-            Role(id="archivar", group="funktion", label="Archivar", order=16),
+            Role(id="x", group="chc", label="Senior", sort_order=0),
+            Role(id="xx", group="chc", label="Consenior", sort_order=1),
+            Role(id="phil-x", group="philchc", label="Philistersenior", sort_order=9),
+            Role(id="archivar", group="funktion", label="Archivar", sort_order=16),
             Role(
-                id="vg_vors", group="verbindungsgericht", label="VG-Vorsitz", order=46
+                id="vg_vors",
+                group="verbindungsgericht",
+                label="VG-Vorsitz",
+                sort_order=46,
             ),
         ]
     )
@@ -274,7 +277,7 @@ class TestRolesListEndpoint:
         assert groups == {"chc", "philchc", "funktion", "verbindungsgericht"}
 
     def test_first_match_per_org_returned(self, client, db_session):
-        """Nur die erste Zuweisung (nach startdate) pro Org wird zurückgegeben."""
+        """Only the first assignment (by startdate) per org is returned."""
         _seed(db_session)
         headers, user = _login(db_session, client)
 

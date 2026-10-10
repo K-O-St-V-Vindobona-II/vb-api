@@ -27,10 +27,12 @@ class PublicSiteAboutTab(Base):
     __tablename__ = "public_site_about_tabs"
     __table_args__ = (
         CheckConstraint(
-            "char_length(title) > 0", name="public_site_about_tabs_title_check"
+            "title ~ '[^[:space:]]' AND char_length(title) <= 100",
+            name="public_site_about_tabs_title_check",
         ),
         CheckConstraint(
-            "char_length(body) > 0", name="public_site_about_tabs_body_check"
+            "body ~ '[^[:space:]]' AND char_length(body) <= 6000",
+            name="public_site_about_tabs_body_check",
         ),
     )
 

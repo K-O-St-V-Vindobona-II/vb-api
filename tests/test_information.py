@@ -1,8 +1,10 @@
 """Tests for the information/payment endpoint."""
 
 import datetime
+from decimal import Decimal
 
 import bcrypt
+import pytest
 
 from app.models.member import Member
 from app.models.org import Org
@@ -15,12 +17,27 @@ from app.services.auth_service import (
 )
 from app.services.information_service import get_current_fee, get_payment_info
 
+AKTIVITAS_ENVIRONMENT = {
+    "AKTIVITAS_ACCOUNT_HOLDER": "Testverein Aktivitas",
+    "AKTIVITAS_IBAN": "AT61 1904 3002 3457 3201",
+    "AKTIVITAS_BIC": "TESTATWWXXX",
+    "AKTIVITAS_FEE_TEXT": "Der Testbeitrag beläuft sich auf EUR 12,- / Semester",
+}
+
+
+@pytest.fixture(autouse=True)
+def _aktivitas_account(monkeypatch):
+    """The Aktivitas half of the page comes from the settings; set them here
+    instead of relying on whatever the container environment holds."""
+    for name, value in AKTIVITAS_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+
 
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="fu", label="Fux", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="fu", label="Fux", sort_order=1),
         ]
     )
     db.commit()
@@ -29,7 +46,7 @@ def _seed(db):
             id="x",
             group="chc",
             label="Senior",
-            order=1,
+            sort_order=1,
         )
     )
     db.commit()
@@ -103,6 +120,25 @@ class TestPaymentEndpoint:
         assert data[0]["title"] == "Aktivitas"
         assert data[1]["title"] == "Altherrenschaft"
 
+    def test_payment_aktivitas_entry_comes_from_the_settings(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        _seed_p4x_account(db_session)
+        headers, _ = _login_user(db_session, client)
+
+        resp = client.get("/api/information/payment", headers=headers)
+
+        assert resp.json()[0] == {
+            "title": "Aktivitas",
+            "name": "Testverein Aktivitas",
+            "iban": "AT61 1904 3002 3457 3201",
+            "bic": "TESTATWWXXX",
+            "fee": "Der Testbeitrag beläuft sich auf EUR 12,- / Semester",
+        }
+
     def test_payment_dynamic_fee(
         self,
         client,
@@ -127,6 +163,21 @@ class TestPaymentEndpoint:
 
 
 class TestGetPaymentInfoService:
+    @pytest.mark.parametrize("name", list(AKTIVITAS_ENVIRONMENT))
+    def test_a_missing_aktivitas_setting_is_reported_by_name(
+        self, db_session, monkeypatch, name
+    ):
+        monkeypatch.delenv(name)
+
+        with pytest.raises(RuntimeError, match=f"{name} is not set"):
+            get_payment_info(db_session)
+
+    def test_aktivitas_entry_is_independent_of_the_account_row(self, db_session):
+        aktivitas = get_payment_info(db_session)[0]
+
+        assert aktivitas["iban"] == "AT61 1904 3002 3457 3201"
+        assert aktivitas["bic"] == "TESTATWWXXX"
+
     def test_falls_back_to_empty_strings_when_account_missing(self, db_session):
         """No p4x_accounts row with GIROKONTO_ACCOUNT_ID — pre-existing
         business assumption, not exercised by the router tests above (they
@@ -168,3 +219,39 @@ class TestGetPaymentInfoService:
         )
         db_session.commit()
         assert get_current_fee(db_session) == "15"
+
+
+class TestFeeText:
+    @pytest.mark.parametrize(
+        ("fee", "expected"),
+        [
+            (Decimal("15.50"), "15,50"),
+            (Decimal("15.00"), "15"),
+            (Decimal("15.05"), "15,05"),
+            (Decimal("9.99"), "9,99"),
+            (Decimal("100.10"), "100,10"),
+            (Decimal(0), "0"),
+        ],
+    )
+    def test_fee_is_stated_exactly(self, db_session, fee, expected):
+        db_session.add(
+            P4xFee(start=datetime.date(2020, 1, 1), fee=fee, protected=False)
+        )
+        db_session.commit()
+
+        assert get_current_fee(db_session) == expected
+
+    def test_no_fee_row_reads_zero(self, db_session):
+        assert get_current_fee(db_session) == "0"
+
+    def test_the_fee_in_force_this_month_is_stated(self, db_session):
+        db_session.add_all(
+            [
+                P4xFee(start=datetime.date(2020, 1, 1), fee=Decimal("10.00")),
+                P4xFee(start=datetime.date(2021, 1, 1), fee=Decimal("12.50")),
+                P4xFee(start=datetime.date(2999, 1, 1), fee=Decimal("99.00")),
+            ]
+        )
+        db_session.commit()
+
+        assert get_current_fee(db_session) == "12,50"

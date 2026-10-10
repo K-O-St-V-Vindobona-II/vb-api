@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Computed, DateTime, ForeignKey, Uuid, text
+from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Uuid, text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 
 class ArchiveFile(Base):
     __tablename__ = "archive_files"
+    __table_args__ = (
+        CheckConstraint(
+            "description IS NULL OR char_length(description) <= 128",
+            name="archive_files_description_check",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")
@@ -33,7 +39,9 @@ class ArchiveFile(Base):
         ForeignKey("archive_store_items.id", ondelete="RESTRICT", onupdate="CASCADE"),
         index=True,
     )
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Postgres-maintained (GENERATED ALWAYS AS ... STORED, see migration

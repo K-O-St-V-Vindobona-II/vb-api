@@ -5,11 +5,13 @@ Revises: 31b5c04b297d
 Create Date: 2026-09-01 16:20:00.000000
 
 Phase A (additive prep) of the schema-wide UUID-PK migration for badges
-and keys, the last two Layer-0-Parents - same bundled pattern as
+and keys, the last two tables of the series without outgoing foreign
+keys - same bundled pattern as
 a908d5613d52_members_and_client_user_agents_id_uuid_.py. No API contract
 changes: the old integer `id` stays the primary key on both tables. Their
 composite-PK referrer tables (badges_members, keys_members) cut over in
-slice 14, once members has its own Phase A too (already done, slice 5).
+a later revision, once members has its own Phase A too (already done in
+a908d5613d52, named above).
 """
 
 import uuid
@@ -50,10 +52,9 @@ def _add_uuid_column(table: str) -> None:
     _batched_uuid_backfill(table)
     op.alter_column(table, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {table}_id_uuid_key ON {table} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{table}_id_uuid_key", table, ["id_uuid"], unique=True)
 
 
 def upgrade() -> None:

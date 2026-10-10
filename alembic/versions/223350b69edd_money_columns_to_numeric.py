@@ -6,7 +6,7 @@ Create Date: 2026-07-22 13:06:22.296962
 
 """
 
-from typing import Sequence, Union
+from typing import Sequence
 
 import sqlalchemy as sa
 
@@ -82,7 +82,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """Downgrade schema.
+
+    Not loss-free: `members.p4x_init_balance` goes back to a whole number,
+    so cents are rounded away (12.50 becomes 13); the other columns return
+    to float8 with the stored value unchanged. Emergency rollback only.
+    """
     op.execute("SET LOCAL lock_timeout = '5s'")
 
     op.alter_column(

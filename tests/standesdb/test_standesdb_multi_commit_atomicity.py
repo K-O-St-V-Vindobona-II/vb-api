@@ -1,4 +1,4 @@
-"""Regression tests for Slice 5 of the backend remediation plan:
+"""Regression tests for atomic member/contact saves:
 apply_member_input()/apply_contact_input() used to commit the entity
 change first, then commit the change-log entry separately - two commits
 for one logical save. The change-log entry is now persisted (via
@@ -20,7 +20,7 @@ from app.services import standesdb_service
 
 
 def _seed_org(db) -> None:
-    db.add(Org(id="vbw", label="VBW", order=1))
+    db.add(Org(id="vbw", label="VBW", sort_order=1))
     db.commit()
 
 

@@ -6,18 +6,16 @@ Create Date: 2026-09-01 11:09:17.203015
 
 Pattern-setter for the schema-wide Integer-PK -> UUID migration: a leaf
 table with no incoming foreign keys runs Phase A (additive `id_uuid`
-column, batched backfill, concurrently-built unique index) and Phase C
+column, set-based backfill, unique index) and Phase C
 (final cutover: drop the old integer `id`, rename `id_uuid` to `id`,
 promote the already-built unique index straight to the primary key - no
 second index build needed) in one migration, since there is no referrer
 table that would need a separate deploy window in between.
 
-`id_uuid` is backfilled in Python via `uuid.uuid7()`, not a server-side
-`gen_random_uuid()`/pgcrypto default, to match the SQLAlchemy model's own
-`default=uuid.uuid7` used for every future insert.
+`id_uuid` is backfilled with one set-based UPDATE using the server-side
+`uuidv7()`, the same function that later became the column default.
 """
 
-import uuid
 from typing import Sequence
 
 import sqlalchemy as sa
@@ -31,23 +29,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLE = "public_site_social_links"
-BATCH_SIZE = 5000
-
-
-def _batched_uuid_backfill() -> None:
-    bind = op.get_bind()
-    while True:
-        rows = bind.execute(
-            sa.text(f"SELECT id FROM {TABLE} WHERE id_uuid IS NULL LIMIT :limit"),  # noqa: S608
-            {"limit": BATCH_SIZE},
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            bind.execute(
-                sa.text(f"UPDATE {TABLE} SET id_uuid = :new_id WHERE id = :old_id"),  # noqa: S608
-                {"new_id": uuid.uuid7(), "old_id": row.id},
-            )
 
 
 def upgrade() -> None:
@@ -56,13 +37,12 @@ def upgrade() -> None:
 
     # --- Phase A: additive prep -------------------------------------------
     op.add_column(TABLE, sa.Column("id_uuid", sa.Uuid(), nullable=True))
-    _batched_uuid_backfill()
+    op.execute(f"UPDATE {TABLE} SET id_uuid = uuidv7() WHERE id_uuid IS NULL")  # noqa: S608
     op.alter_column(TABLE, "id_uuid", nullable=False)
 
-    with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE UNIQUE INDEX CONCURRENTLY {TABLE}_id_uuid_key ON {TABLE} (id_uuid)"
-        )
+    # A plain (not CONCURRENTLY) build keeps the revision in one transaction: it
+    # applies completely or not at all, and the lock timeout stays in force.
+    op.create_index(f"{TABLE}_id_uuid_key", TABLE, ["id_uuid"], unique=True)
 
     # --- Phase C: final cutover (no referrer table to wait for) -----------
     op.drop_constraint(f"{TABLE}_pkey", TABLE, type_="primary")
@@ -73,7 +53,7 @@ def upgrade() -> None:
     # sequence object behind.
     op.execute(f"DROP SEQUENCE IF EXISTS {TABLE}_id_seq")
     op.alter_column(TABLE, "id_uuid", new_column_name="id")
-    # Promotes the index CONCURRENTLY-built above straight to the primary
+    # Promotes the index built above straight to the primary
     # key's backing index - a fast metadata-only operation, no second
     # index build (and no table scan/lock) required.
     op.execute(

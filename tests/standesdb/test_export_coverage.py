@@ -48,18 +48,18 @@ def _seed(db: object) -> None:
     """Insert minimal reference data."""
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bu", label="Bursch", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bu", label="Bursch", sort_order=2),
             Role(
                 id="standesfuehrer",
                 group="funktion",
                 label="Standesführer",
-                order=1,
+                sort_order=1,
             ),
-            Badge(name="Fuxenband", group="jubelband", order=1),
-            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Badge(name="Fuxenband", group="jubelband", sort_order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", sort_order=2),
         ]
     )
     db.commit()
@@ -314,7 +314,7 @@ class TestClassifyBadges:
         )
         db_session.commit()
 
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(m)
         assert len(jubelbaender) == 1
         assert jubelbaender[0]["name"] == "Fuxenband"
         assert len(ehrenzeichen) == 1
@@ -323,7 +323,7 @@ class TestClassifyBadges:
     def test_empty_badges_returns_empty_lists(self, db_session: object) -> None:
         _seed(db_session)
         m = _member(db_session, vorname="NoBadge", nachname="Test")
-        jubelbaender, ehrenzeichen = _classify_badges(db_session, m.id)
+        jubelbaender, ehrenzeichen = _classify_badges(m)
         assert jubelbaender == []
         assert ehrenzeichen == []
 

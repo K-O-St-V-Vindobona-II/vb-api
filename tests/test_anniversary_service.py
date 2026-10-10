@@ -16,10 +16,10 @@ from app.services.anniversary_service import (
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="up", label="Urphilister", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="up", label="Urphilister", sort_order=2),
         ]
     )
     db.commit()
@@ -198,3 +198,115 @@ class TestComputeAnniversaries:
         assert entries[0]["date"] == "29. 2. 2024"
         assert entries[0]["years"] == 28
         assert entries[0]["leap_day_note"] is None
+
+
+class TestWeekSpanningNewYear:
+    @staticmethod
+    def _entries(result, field="geburtsdatum"):
+        return {e["cn"]: e for e in result["vbw"]["lebend"][field]}
+
+    def test_january_anniversary_belongs_to_the_next_year(self, db_session):
+        _seed_base(db_session)
+        _make_member(
+            db_session,
+            email="jan@vbw.at",
+            couleurname=None,
+            vorname="Jan",
+            geburtsdatum=date(1990, 1, 2),
+            geburtsdatum_accuracy=3,
+        )
+        _make_member(
+            db_session,
+            email="dez@vbw.at",
+            couleurname=None,
+            vorname="Dez",
+            geburtsdatum=date(1985, 12, 30),
+            geburtsdatum_accuracy=3,
+        )
+
+        result = compute_anniversaries(db_session, date(2026, 12, 27))
+
+        entries = self._entries(result)
+        assert entries["Jan User"]["date"] == "2. 1. 2027"
+        assert entries["Jan User"]["years"] == 37
+        assert entries["Jan User"]["days_to"] == 6
+        assert entries["Dez User"]["date"] == "30. 12. 2026"
+        assert entries["Dez User"]["years"] == 41
+
+    def test_window_that_starts_in_january_only_from_a_december_given(self, db_session):
+        _seed_base(db_session)
+        _make_member(
+            db_session,
+            couleurname=None,
+            vorname="Jan",
+            geburtsdatum=date(1990, 1, 5),
+            geburtsdatum_accuracy=3,
+        )
+
+        result = compute_anniversaries(db_session, date(2026, 12, 29))
+
+        assert self._entries(result)["Jan User"]["date"] == "5. 1. 2027"
+
+    def test_anniversary_outside_the_window_is_not_listed(self, db_session):
+        _seed_base(db_session)
+        _make_member(
+            db_session,
+            couleurname=None,
+            vorname="Spaet",
+            geburtsdatum=date(1990, 1, 20),
+            geburtsdatum_accuracy=3,
+        )
+
+        assert compute_anniversaries(db_session, date(2026, 12, 29)) == {}
+
+    def test_first_and_last_day_of_the_window_are_included(self, db_session):
+        _seed_base(db_session)
+        for first_name, birth in (
+            ("Vortag", date(1990, 7, 19)),
+            ("Montag", date(1990, 7, 20)),
+            ("Sonntag", date(1990, 7, 26)),
+            ("Folgetag", date(1990, 7, 27)),
+        ):
+            _make_member(
+                db_session,
+                email=f"{first_name}@vbw.at",
+                couleurname=None,
+                vorname=first_name,
+                geburtsdatum=birth,
+                geburtsdatum_accuracy=3,
+            )
+
+        result = compute_anniversaries(db_session, date(2026, 7, 14))
+
+        assert sorted(self._entries(result)) == ["Montag User", "Sonntag User"]
+
+    def test_ordinary_week_inside_a_year_is_unchanged(self, db_session):
+        _seed_base(db_session)
+        _make_member(
+            db_session,
+            couleurname=None,
+            vorname="Juli",
+            geburtsdatum=date(1990, 7, 22),
+            geburtsdatum_accuracy=3,
+        )
+
+        result = compute_anniversaries(db_session, date(2026, 7, 14))
+
+        entry = self._entries(result)["Juli User"]
+        assert (entry["date"], entry["years"]) == ("22. 7. 2026", 36)
+
+    def test_leap_day_birthday_falls_back_to_the_28th(self, db_session):
+        _seed_base(db_session)
+        _make_member(
+            db_session,
+            couleurname=None,
+            vorname="Schalt",
+            geburtsdatum=date(2000, 2, 29),
+            geburtsdatum_accuracy=3,
+        )
+
+        result = compute_anniversaries(db_session, date(2027, 2, 16))
+
+        entry = self._entries(result)["Schalt User"]
+        assert entry["date"] == "28. 2. 2027"
+        assert entry["leap_day_note"] is not None

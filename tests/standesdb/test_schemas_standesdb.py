@@ -1,12 +1,19 @@
 """Pure unit tests for Pydantic validators in app/schemas/standesdb.py."""
 
-import pytest
-from pydantic import ValidationError
+from datetime import date, datetime
 
+import pytest
+from pydantic import BaseModel, ValidationError
+
+from app.schemas import p4x, public_gallery, standesdb
 from app.schemas.standesdb import (
+    MAX_ADDRESS_LINE_LENGTH,
+    MAX_NOTE_LENGTH,
+    MAX_PHONE_LENGTH,
     ContactSaveRequest,
     ImageUpdateRequest,
     MemberSaveRequest,
+    MemberSelfServiceSaveRequest,
 )
 
 # ---------------------------------------------------------------------------
@@ -20,6 +27,13 @@ def _valid_member_data(**overrides: object) -> dict[str, object]:
         "nachname": "Muster",
         "org_id": "vbw",
     }
+    base.update(overrides)
+    return base
+
+
+def _valid_self_service_data(**overrides: object) -> dict[str, object]:
+    """Return the minimum valid MemberSelfServiceSaveRequest payload."""
+    base: dict[str, object] = {"nachname": "Muster"}
     base.update(overrides)
     return base
 
@@ -399,3 +413,246 @@ class TestImageDescription:
     def test_description_none_passes(self) -> None:
         req = ImageUpdateRequest(description=None)
         assert req.description is None
+
+
+# ---------------------------------------------------------------------------
+# Non-string JSON values end in a 422, never in a TypeError
+# ---------------------------------------------------------------------------
+
+_MEMBER_TEXT_FIELDS = [
+    "vortitel",
+    "vorname",
+    "nachname",
+    "couleurname",
+    "arbeitgeber",
+    "rufnummer_mobil",
+    "rufnummer_privat",
+    "rufnummer_beruf",
+    "adresse_privat_plz",
+    "adresse_privat_ort",
+    "url",
+    "mkv_ogv_url",
+]
+_CONTACT_TEXT_FIELDS = [
+    "name",
+    "couleurname",
+    "anrede",
+    "adresse_plz",
+    "adresse_ort",
+    "rufnummer",
+]
+_NON_STRING_VALUES = [5, ["x"], {"a": 1}, True]
+
+
+class TestNonStringValuesAreRejected:
+    @pytest.mark.parametrize("value", _NON_STRING_VALUES)
+    @pytest.mark.parametrize("field", _MEMBER_TEXT_FIELDS)
+    def test_member_save_request(self, field: str, value: object) -> None:
+        with pytest.raises(ValidationError):
+            MemberSaveRequest(**_valid_member_data(**{field: value}))
+
+    @pytest.mark.parametrize("value", _NON_STRING_VALUES)
+    @pytest.mark.parametrize("field", _MEMBER_TEXT_FIELDS)
+    def test_member_self_service_save_request(self, field: str, value: object) -> None:
+        with pytest.raises(ValidationError):
+            MemberSelfServiceSaveRequest(**_valid_self_service_data(**{field: value}))
+
+    @pytest.mark.parametrize("value", _NON_STRING_VALUES)
+    @pytest.mark.parametrize("field", _CONTACT_TEXT_FIELDS)
+    def test_contact_save_request(self, field: str, value: object) -> None:
+        with pytest.raises(ValidationError):
+            ContactSaveRequest(**_valid_contact_data(**{field: value}))
+
+    @pytest.mark.parametrize("value", _NON_STRING_VALUES)
+    def test_image_update_request(self, value: object) -> None:
+        with pytest.raises(ValidationError):
+            ImageUpdateRequest(description=value)
+
+    @pytest.mark.parametrize(
+        "schema_module", [standesdb, p4x, public_gallery], ids=lambda m: m.__name__
+    )
+    def test_no_validator_runs_before_type_validation(self, schema_module) -> None:
+        offenders = [
+            f"{cls.__name__}.{name}"
+            for cls in vars(schema_module).values()
+            if isinstance(cls, type)
+            and issubclass(cls, BaseModel)
+            and cls.__module__ == schema_module.__name__
+            for name, decorator in cls.__pydantic_decorators__.field_validators.items()
+            if decorator.info.mode == "before"
+        ]
+        assert offenders == []
+
+
+# ---------------------------------------------------------------------------
+# Phone numbers: plain space, slash, hyphen, ASCII digits and a leading plus
+# ---------------------------------------------------------------------------
+
+
+class TestPhoneCharacterSet:
+    @pytest.mark.parametrize(
+        "number",
+        ["+43 664/123-456", "0664 1234567", "01/23456", "+4366412345678", "1"],
+    )
+    def test_accepted_numbers(self, number: str) -> None:
+        assert (
+            MemberSaveRequest(
+                **_valid_member_data(rufnummer_mobil=number)
+            ).rufnummer_mobil
+            == number
+        )
+        assert (
+            ContactSaveRequest(**_valid_contact_data(rufnummer=number)).rufnummer
+            == number
+        )
+
+    def test_trailing_line_break_is_cut_off_before_the_check(self) -> None:
+        member = MemberSaveRequest(**_valid_member_data(rufnummer_mobil="0664 123\n"))
+        assert member.rufnummer_mobil == "0664 123"
+        contact = ContactSaveRequest(**_valid_contact_data(rufnummer="0664 123\n"))
+        assert contact.rufnummer == "0664 123"
+
+    @pytest.mark.parametrize(
+        "number",
+        [
+            "0664\t123",
+            "0664\n123",
+            "٠٦٦٤١٢٣",
+            "++43 664",
+            "0664 123 (privat)",
+            "0664" + chr(0xA0) + "123",
+        ],
+    )
+    def test_rejected_numbers(self, number: str) -> None:
+        with pytest.raises(ValidationError, match="Telefonnummernformat"):
+            MemberSaveRequest(**_valid_member_data(rufnummer_privat=number))
+        with pytest.raises(ValidationError, match="Telefonnummernformat"):
+            MemberSelfServiceSaveRequest(
+                **_valid_self_service_data(rufnummer_beruf=number)
+            )
+        with pytest.raises(ValidationError, match="Telefonnummernformat"):
+            ContactSaveRequest(**_valid_contact_data(rufnummer=number))
+
+
+# ---------------------------------------------------------------------------
+# Upper bounds of the free-text fields (one case per constant, both sides)
+# ---------------------------------------------------------------------------
+
+_MEMBER_BOUNDS = [
+    ("rufnummer_mobil", MAX_PHONE_LENGTH, "1"),
+    ("rufnummer_privat", MAX_PHONE_LENGTH, "1"),
+    ("rufnummer_beruf", MAX_PHONE_LENGTH, "1"),
+    ("adresse_privat_anschrift", MAX_ADDRESS_LINE_LENGTH, "a"),
+    ("adresse_beruf_anschrift", MAX_ADDRESS_LINE_LENGTH, "a"),
+    ("grabadresse", MAX_ADDRESS_LINE_LENGTH, "a"),
+    ("mitgliedschaften", MAX_NOTE_LENGTH, "a"),
+    ("verbandchargen", MAX_NOTE_LENGTH, "a"),
+    ("anmerkungen", MAX_NOTE_LENGTH, "a"),
+]
+_SELF_SERVICE_BOUNDS = [
+    b
+    for b in _MEMBER_BOUNDS
+    if b[0]
+    not in (
+        "grabadresse",
+        "anmerkungen",
+    )
+]
+_CONTACT_BOUNDS = [
+    ("rufnummer", MAX_PHONE_LENGTH, "1"),
+    ("adresse_anschrift", MAX_ADDRESS_LINE_LENGTH, "a"),
+    ("anmerkungen", MAX_NOTE_LENGTH, "a"),
+]
+
+
+class TestFreeTextBounds:
+    def test_constants_match_the_agreed_limits(self) -> None:
+        assert (MAX_PHONE_LENGTH, MAX_ADDRESS_LINE_LENGTH, MAX_NOTE_LENGTH) == (
+            32,
+            128,
+            5000,
+        )
+
+    @pytest.mark.parametrize(("field", "limit", "char"), _MEMBER_BOUNDS)
+    def test_member_save_request(self, field: str, limit: int, char: str) -> None:
+        ok = MemberSaveRequest(**_valid_member_data(**{field: char * limit}))
+        assert len(getattr(ok, field)) == limit
+        with pytest.raises(ValidationError):
+            MemberSaveRequest(**_valid_member_data(**{field: char * (limit + 1)}))
+
+    @pytest.mark.parametrize(("field", "limit", "char"), _SELF_SERVICE_BOUNDS)
+    def test_member_self_service_save_request(
+        self, field: str, limit: int, char: str
+    ) -> None:
+        ok = MemberSelfServiceSaveRequest(
+            **_valid_self_service_data(**{field: char * limit})
+        )
+        assert len(getattr(ok, field)) == limit
+        with pytest.raises(ValidationError):
+            MemberSelfServiceSaveRequest(
+                **_valid_self_service_data(**{field: char * (limit + 1)})
+            )
+
+    @pytest.mark.parametrize(("field", "limit", "char"), _CONTACT_BOUNDS)
+    def test_contact_save_request(self, field: str, limit: int, char: str) -> None:
+        ok = ContactSaveRequest(**_valid_contact_data(**{field: char * limit}))
+        assert len(getattr(ok, field)) == limit
+        with pytest.raises(ValidationError):
+            ContactSaveRequest(**_valid_contact_data(**{field: char * (limit + 1)}))
+
+
+# ---------------------------------------------------------------------------
+# Blank strings and surrounding whitespace
+# ---------------------------------------------------------------------------
+
+
+class TestBlankAndTrimmedValues:
+    @pytest.mark.parametrize("blank", ["", " ", "   ", "\t", " \n "])
+    def test_member_without_any_name_is_rejected(self, blank: str) -> None:
+        with pytest.raises(ValidationError, match="Nachname oder Couleurname"):
+            MemberSaveRequest(**_valid_member_data(nachname=blank, couleurname=blank))
+        with pytest.raises(ValidationError, match="Nachname oder Couleurname"):
+            MemberSaveRequest(**_valid_member_data(nachname=blank))
+
+    def test_blank_surname_is_fine_with_a_student_name(self) -> None:
+        member = MemberSaveRequest(
+            **_valid_member_data(nachname="   ", couleurname="  Rex ")
+        )
+        assert member.couleurname == "Rex"
+
+    @pytest.mark.parametrize("blank", ["", " ", "  \t "])
+    def test_contact_name_must_not_be_blank(self, blank: str) -> None:
+        with pytest.raises(ValidationError):
+            ContactSaveRequest(**_valid_contact_data(name=blank))
+
+    def test_member_values_are_trimmed(self) -> None:
+        member = MemberSaveRequest(
+            **_valid_member_data(nachname="  Muster\n", vorname=" Max ")
+        )
+        assert (member.nachname, member.vorname) == ("Muster", "Max")
+
+    def test_self_service_values_are_trimmed(self) -> None:
+        member = MemberSelfServiceSaveRequest(
+            **_valid_self_service_data(vorname="  Max ", url=" https://a.at ")
+        )
+        assert (member.vorname, member.url) == ("Max", "https://a.at")
+
+    def test_contact_values_are_trimmed(self) -> None:
+        contact = ContactSaveRequest(**_valid_contact_data(name="  Kontakt "))
+        assert contact.name == "Kontakt"
+
+    def test_trimming_applies_before_the_length_check(self) -> None:
+        member = MemberSaveRequest(**_valid_member_data(vortitel=" " + "A" * 32 + " "))
+        assert member.vortitel == "A" * 32
+
+
+class TestSelfServiceFieldsAreJsonNative:
+    """Proposed changes are stored as JSONB without conversion, so no
+    self-service field may be a date or datetime."""
+
+    def test_no_field_holds_a_date(self):
+        dumped = MemberSelfServiceSaveRequest(**_valid_self_service_data()).model_dump(
+            mode="python"
+        )
+
+        assert all(not isinstance(value, date | datetime) for value in dumped.values())

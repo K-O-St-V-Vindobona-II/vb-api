@@ -1,6 +1,6 @@
-"""Tests für calculate_permissions().
+"""Tests for calculate_permissions().
 
-Ableitung der Berechtigungen aus aktiven Rollen.
+Derives the permission set from a member's active roles.
 """
 
 from datetime import date, timedelta
@@ -17,21 +17,21 @@ from app.services.permission_service import calculate_permissions
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=2,
+                sort_order=2,
             ),
-            Role(id="senior", group="chc", label="Senior", order=3),
-            Role(id="phil-senior", group="philchc", label="Phil-Senior", order=4),
-            Role(id="phil-xxxx", group="philchc", label="Phil-x", order=5),
-            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", order=6),
-            Role(id="archivar2", group="funktion", label="Archivar 2", order=7),
+            Role(id="senior", group="chc", label="Senior", sort_order=3),
+            Role(id="phil-senior", group="philchc", label="Phil-Senior", sort_order=4),
+            Role(id="phil-xxxx", group="philchc", label="Phil-x", sort_order=5),
+            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", sort_order=6),
+            Role(id="archivar2", group="funktion", label="Archivar 2", sort_order=7),
         ]
     )
     db.commit()

@@ -13,7 +13,7 @@ class P4xSpecialcontact(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("uuidv7()")
     )
-    cn: Mapped[str | None]
+    cn: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
@@ -23,4 +23,4 @@ class P4xSpecialcontact(Base):
 
     @property
     def search_label(self) -> str:
-        return f"Spezial: {self.cn or ''}"
+        return f"Spezial: {self.cn}"

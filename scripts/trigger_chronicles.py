@@ -20,13 +20,14 @@ Usage:
 import argparse
 import re
 import sys
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
 from app.core.config import get_settings
+from app.core.datetime_utils import local_today
 from app.core.mailer import render_template, send_to_recipients
 from app.db.database import SessionLocal
 from app.services.anniversary_service import (
@@ -78,7 +79,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--date",
         type=date.fromisoformat,
-        default=datetime.now(UTC).date(),
+        default=local_today(),
         help="Reference date (YYYY-MM-DD) to compute the anniversary week from.",
     )
     parser.add_argument(

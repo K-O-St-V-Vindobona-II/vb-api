@@ -8,6 +8,7 @@ from app.models.contact import Contact
 from app.models.contacts_log import ContactsLog
 from app.models.key import Key
 from app.models.member import Member
+from app.models.member_badge import MemberBadge
 from app.models.member_role import MemberRole
 from app.models.members_log import MembersLog
 from app.models.org import Org
@@ -20,27 +21,27 @@ def _setup_reference_data(db):
     """Seed orgs, states, roles for tests."""
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bu", label="Bursch", order=2),
-            State(id="up", label="Philister", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bu", label="Bursch", sort_order=2),
+            State(id="up", label="Philister", sort_order=3),
             Role(
                 id="standesfuehrer",
                 group="chc",
                 label="Standesführer",
-                order=1,
+                sort_order=1,
             ),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=2,
+                sort_order=2,
             ),
             Badge(
                 name="Fuxenband",
                 group="jubelband",
-                order=1,
+                sort_order=1,
             ),
             Key(name="Haustorschlüssel"),
         ]
@@ -190,7 +191,9 @@ def test_get_member_active(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["cn"] == "Detail Test v/o Detl"
+    assert data["vorname"] == "Detail"
     assert data["org_id"] == "vbw"
+    assert "org_label" in data
     assert "roles_history" in data
     assert "tree" in data
 
@@ -626,6 +629,63 @@ def test_reference_data(client, db_session):
     assert len(data["roles"]) >= 2
     assert len(data["badges"]) >= 1
     assert len(data["keys"]) >= 1
+
+
+def test_reference_data_exposes_the_sort_position_as_order(client, db_session):
+    """The tables store sort_order; the API keeps calling it order."""
+    _setup_reference_data(db_session)
+    admin = _create_admin(db_session)
+    headers = _auth_headers(client, db_session, admin)
+
+    data = client.get("/api/standesdb/reference-data", headers=headers).json()
+
+    assert [(o["id"], o["order"]) for o in data["orgs"]] == [("vbw", 1), ("vbn", 2)]
+    assert [(s["id"], s["order"]) for s in data["states"]] == [
+        ("fu", 1),
+        ("bu", 2),
+        ("up", 3),
+    ]
+    assert [(r["id"], r["order"]) for r in data["roles"]] == [
+        ("standesfuehrer", 1),
+        ("internetreferent", 2),
+    ]
+    assert [(b["name"], b["order"]) for b in data["badges"]] == [("Fuxenband", 1)]
+    for entries in (data["orgs"], data["states"], data["roles"], data["badges"]):
+        assert all("sort_order" not in entry for entry in entries)
+
+
+def test_reference_data_lists_each_set_by_its_sort_position(client, db_session):
+    _setup_reference_data(db_session)
+    db_session.add_all(
+        [
+            Org(id="vbz", label="VBZ", sort_order=0),
+            Badge(name="Ehrenband", group="jubelband", sort_order=0),
+        ]
+    )
+    db_session.commit()
+    admin = _create_admin(db_session)
+    headers = _auth_headers(client, db_session, admin)
+
+    data = client.get("/api/standesdb/reference-data", headers=headers).json()
+
+    assert [o["id"] for o in data["orgs"]] == ["vbz", "vbw", "vbn"]
+    assert [b["name"] for b in data["badges"]] == ["Ehrenband", "Fuxenband"]
+
+
+def test_member_detail_exposes_role_and_badge_position_as_order(client, db_session):
+    _setup_reference_data(db_session)
+    admin = _create_admin(db_session)
+    badge = db_session.query(Badge).filter_by(name="Fuxenband").one()
+    db_session.add(MemberBadge(member_id=admin.id, badge_id=badge.id))
+    db_session.commit()
+    headers = _auth_headers(client, db_session, admin)
+
+    data = client.get(f"/api/standesdb/members/{admin.id}", headers=headers).json()
+
+    assert [(r["id"], r["order"]) for r in data["roles_history"]] == [
+        ("standesfuehrer", 1)
+    ]
+    assert [(b["name"], b["order"]) for b in data["badges"]] == [("Fuxenband", 1)]
 
 
 # --- Phone Validation ---

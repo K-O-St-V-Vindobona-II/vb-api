@@ -1,8 +1,7 @@
 """Generic prefix mirror between two S3-compatible buckets that share the
-same key structure — used by scripts/downsync_prod.py to clone the
-production AWS bucket into local Garage. Unlike the retired
-downsync_from_prod_aws.py, no key remapping is needed here: source and
-dest are expected to organize objects identically, so this is a plain
+same key structure, used by scripts/downsync_prod.py to clone the production
+AWS bucket into local Garage. Source and destination organize objects
+identically, so no key remapping is needed: this is a plain
 list-diff-copy-delete mirror.
 """
 
@@ -24,10 +23,10 @@ class MirrorResult:
     """Outcome of mirroring one prefix (or the whole bucket) from source
     into dest."""
 
-    synced: list[str] = field(default_factory=list)
+    synced: list[str] = field(default_factory=list[str])
     skipped: int = 0
-    deleted: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list[str])
+    errors: list[str] = field(default_factory=list[str])
 
     @property
     def has_errors(self) -> bool:
@@ -72,12 +71,23 @@ def mirror_prefix(
     failed copy is recorded in the result and does not abort the sync.
     dry_run performs no writes but the result still reports what would
     happen.
+
+    Raises RuntimeError, before anything is copied or deleted, when the source
+    has no objects under the prefix but the destination has some and orphans
+    would be deleted: that is what a wrong bucket name or an empty bucket
+    looks like, and following it would erase the whole destination.
     """
     source_keys = set(source.list_keys(prefix=prefix))
     dest_keys = set(dest.list_keys(prefix=prefix))
 
     missing = sorted(source_keys - dest_keys)
     orphans = dest_keys - source_keys
+    if delete_orphans and orphans and not source_keys:
+        msg = (
+            f"Source has no objects under prefix {prefix!r} but the destination "
+            f"has {len(orphans)}; refusing to delete them."
+        )
+        raise RuntimeError(msg)
 
     result = MirrorResult(skipped=len(source_keys) - len(missing))
     total = len(missing)

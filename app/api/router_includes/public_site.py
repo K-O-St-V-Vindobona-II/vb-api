@@ -42,14 +42,7 @@ def list_gallery(
     """Published images for the public gallery section, in display order."""
     images = public_gallery_service.list_public_images(db)
     return [
-        GalleryImagePublicResponse(
-            id=img.id,
-            url=public_gallery_service.get_presigned_url(img, storage),
-            caption=img.caption,
-            width=img.width,
-            height=img.height,
-        )
-        for img in images
+        public_gallery_service.build_public_response(img, storage) for img in images
     ]
 
 
@@ -101,9 +94,11 @@ async def submit_contact_form(
     once, so a slow or unreachable mail server never holds a request thread.
 
     Rate limit: 5/min per IP. Spam protection is a honeypot field
-    (`website`, validated empty in the schema) rather than reCAPTCHA - no
-    external dependency, no key provisioning needed.
+    (`website`, answered like a success but never queued) rather than
+    reCAPTCHA - no external dependency, no key provisioning needed.
     """
+    if data.website:
+        return StatusResponse(status="ok")
     await arq_pool.enqueue_job(
         "task_send_contact_form_email", data.name, data.email, data.message
     )

@@ -6,20 +6,19 @@ Create Date: 2026-09-01 20:15:00.000000
 
 The three composite-PK junction tables (no surrogate `id` - the primary
 key IS the column combination): badges_members, keys_members,
-members_roles. Pattern (see section 1.2 of the migration plan): add
-`*_uuid` columns for the integer FK halves, join-backfill them, then
-atomically drop the old composite PK/FKs, rename the new columns into
-place, and add the new composite PK/FKs - one migration per table, no
-separate Phase A/C window (composite keys have no meaningful
-"in-between" state).
+members_roles. Pattern: add `*_uuid` columns for the integer FK halves,
+join-backfill them, then atomically drop the old composite PK/FKs, rename
+the new columns into place, and add the new composite PK/FKs - one
+migration for all three tables, no separate additive/cutover window
+(composite keys have no meaningful "in-between" state).
 
-members_roles keeps `role_id`/`startdate` untouched - roles.id is a
-string primary key, entirely outside this migration series' scope (see
-the plan's exclusion list), so only its member_id half moves. badges_members/
-keys_members move both halves, onto badges(id_uuid)/keys(id_uuid)
-respectively (neither table has its own UUID primary key yet - that's
-slice 25 - referrers cut over onto the additive id_uuid column same as
-every other Wave C slice).
+members_roles keeps `role_id`/`startdate` untouched - roles.id is a string
+primary key that stays as it is, so only its member_id half moves.
+badges_members/keys_members move both halves, onto badges(id_uuid) and
+keys(id_uuid) respectively (neither table has its own UUID primary key
+yet - 03c2395ca34e makes id_uuid the primary key of both later; referrers
+point at the additive id_uuid column until then, as in every other
+cutover of this series).
 """
 
 from typing import Sequence

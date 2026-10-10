@@ -34,8 +34,8 @@ def _now() -> datetime:
 def _seed(db) -> tuple[P4xAccount, Member, Contact]:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
         ]
     )
     db.commit()
@@ -201,6 +201,7 @@ class TestBuildTransactionResponse:
             name="Alle Beiträge",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
@@ -318,6 +319,7 @@ class TestBuildCategoryResponse:
             name="Spenden-Filter",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
@@ -350,6 +352,7 @@ class TestBuildFilterResponse:
             name="Alle Beiträge",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),
@@ -383,6 +386,7 @@ class TestGetFilterOr404:
             name="Ein Filter",
             p4x_account_id=account.id,
             subject_mode="contains",
+            subject="Test",
             p4x_category_id=category.id,
             created_at=_now(),
             updated_at=_now(),

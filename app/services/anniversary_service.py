@@ -82,11 +82,27 @@ def _safe_anniversary_date(year: int, month: int, day: int) -> tuple[date, bool]
         return None
 
 
+def _anniversary_in_window(
+    value: date, week_start: date, week_end: date
+) -> tuple[date, bool] | None:
+    """The anniversary of `value` that falls inside [week_start, week_end],
+    as (date, was_leap_day_shifted), or None. A week can span New Year, so
+    both calendar years of the window are tried; comparing real dates (not
+    day-of-year numbers) keeps a January anniversary in a late-December
+    window in the following year instead of the year that already passed.
+    """
+    for year in sorted({week_start.year, week_end.year}):
+        candidate = _safe_anniversary_date(year, value.month, value.day)
+        if candidate and week_start <= candidate[0] <= week_end:
+            return candidate
+    return None
+
+
 def _collect_field_anniversaries(
     db: Session,
     field: AnniversaryField,
     given: date,
-    target_doys: set[int],
+    window: tuple[date, date],
     result: AnniversaryResult,
 ) -> None:
     col = getattr(Member, field)
@@ -107,15 +123,7 @@ def _collect_field_anniversaries(
         if value is None:
             continue
 
-        match = None
-        this_year = _safe_anniversary_date(given.year, value.month, value.day)
-        if this_year and this_year[0].timetuple().tm_yday in target_doys:
-            match = this_year
-        else:
-            next_year = _safe_anniversary_date(given.year + 1, value.month, value.day)
-            if next_year and next_year[0].timetuple().tm_yday in target_doys:
-                match = next_year
-
+        match = _anniversary_in_window(value, *window)
         if not match:
             continue
         next_date, leap_shifted = match
@@ -139,17 +147,11 @@ def _days_to_key(entry: AnniversaryEntry) -> int:
 
 
 def compute_anniversaries(db: Session, given: date) -> AnniversaryResult:
-    week_start, week_end = week_window(given)
-
-    target_doys: set[int] = set()
-    current = week_start
-    while current <= week_end:
-        target_doys.add(current.timetuple().tm_yday)
-        current += timedelta(days=1)
+    window = week_window(given)
 
     result: AnniversaryResult = {}
     for field in ANNIVERSARY_FIELDS:
-        _collect_field_anniversaries(db, field, given, target_doys, result)
+        _collect_field_anniversaries(db, field, given, window, result)
 
     for org in result.values():
         for status in org.values():
