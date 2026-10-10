@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import bcrypt
+import pytest
 
 if TYPE_CHECKING:
     import uuid
@@ -24,6 +25,8 @@ from app.models.state import State
 from app.services.auth_service import create_user_session
 from app.services.p4x_fee_balance_service import (
     _count_months,
+    _end_of_month,
+    _iban_to_member_id_map,
     calculate_fee_balance,
     get_fee_balances,
     is_fee_member,
@@ -185,6 +188,54 @@ class TestCountMonths:
     def test_zero_months_when_end_before_start(self):
         result = _count_months(date(2026, 3, 1), date(2025, 12, 31))
         assert result <= 0
+
+
+class TestCountMonthsAgainstTheCalendar:
+    """The count is the number of calendar months from the first day of the
+    start month to the last day of the end month, both months included."""
+
+    @staticmethod
+    def _expected(start: date, end: date) -> int:
+        return (end.year - start.year) * 12 + end.month - start.month + 1
+
+    def test_every_month_pair_of_several_years(self):
+        for start_year in (2019, 2020, 2023):
+            for start_month in range(1, 13):
+                start = date(start_year, start_month, 1)
+                for end_year in range(start_year, start_year + 3):
+                    for end_month in range(1, 13):
+                        end = date(end_year, end_month, 1)
+                        if end < start:
+                            continue
+                        assert _count_months(start, end) == self._expected(start, end)
+
+    @pytest.mark.parametrize(
+        ("start", "end", "months"),
+        [
+            (date(2024, 12, 31), date(2025, 1, 1), 2),
+            (date(2024, 2, 29), date(2024, 2, 1), 1),
+            (date(2023, 1, 15), date(2023, 3, 31), 3),
+            (date(2020, 1, 1), date(2024, 12, 31), 60),
+        ],
+    )
+    def test_known_spans(self, start, end, months):
+        assert _count_months(start, end) == months
+
+
+class TestEndOfMonth:
+    @pytest.mark.parametrize(
+        ("day", "expected"),
+        [
+            (date(2025, 1, 15), date(2025, 1, 31)),
+            (date(2025, 2, 1), date(2025, 2, 28)),
+            (date(2024, 2, 10), date(2024, 2, 29)),
+            (date(2025, 4, 30), date(2025, 4, 30)),
+            (date(2025, 12, 1), date(2025, 12, 31)),
+            (date(2025, 12, 31), date(2025, 12, 31)),
+        ],
+    )
+    def test_last_calendar_day_of_the_month(self, day, expected):
+        assert _end_of_month(day) == expected
 
 
 class TestIsFeeMember:
@@ -1006,3 +1057,95 @@ class TestFeeBalanceEdgeCases:
         assert balance is not None
         assert balance["end_date"] == "2017-12-31"
         assert balance["count"]["fees"] == 1
+
+    def test_an_end_before_a_december_start_moves_to_the_end_of_december(
+        self, db_session
+    ):
+        _seed_base(db_session)
+        member = _create_fee_member(db_session, p4x_init_balance=0)
+
+        balance = calculate_fee_balance(db_session, member, "2024-12-15", "2024-03-01")
+
+        assert balance is not None
+        assert balance["start_date"] == "2024-12-01"
+        assert balance["end_date"] == "2024-12-31"
+        assert balance["count"]["fees"] == 1
+
+
+class TestBulkBalancesWithoutAttributablePayments:
+    def test_no_fee_members_give_an_empty_list(self, db_session):
+        _seed_base(db_session)
+
+        assert get_fee_balances(db_session) == []
+
+    def test_no_member_ids_give_an_empty_iban_map(self, db_session):
+        assert _iban_to_member_id_map(db_session, set()) == {}
+
+    def test_a_payment_from_the_iban_of_a_non_fee_member_counts_for_nobody(
+        self, db_session
+    ):
+        _seed_base(db_session)
+        fee_member = _create_fee_member(
+            db_session, p4x_freed=True, p4x_init_balance=5, email="fee@t.at"
+        )
+        outsider = _create_fee_member(
+            db_session, org_id="vbn", email="out@t.at", couleurname="Out"
+        )
+        _add_fee_payment(db_session, outsider, date(2017, 3, 1), 40.0, iban="DE777")
+
+        entries = {b["id"]: b for b in get_fee_balances(db_session)}
+
+        assert outsider.id not in entries
+        assert entries[fee_member.id]["end_balance"] == 5.0
+
+    def test_a_payment_delegated_to_a_non_fee_member_counts_for_nobody(
+        self, db_session
+    ):
+        _seed_base(db_session)
+        payer = _create_fee_member(
+            db_session, p4x_freed=True, p4x_init_balance=0, email="pay@t.at"
+        )
+        outsider = _create_fee_member(
+            db_session, org_id="vbn", email="out2@t.at", couleurname="Out2"
+        )
+        _add_fee_payment(db_session, outsider, date(2017, 1, 5), 1.0, iban="DE555")
+        _add_fee_payment(
+            db_session,
+            payer,
+            date(2017, 3, 1),
+            40.0,
+            iban="DE666",
+            delegating_member_id=outsider.id,
+        )
+
+        entries = {b["id"]: b for b in get_fee_balances(db_session)}
+
+        assert entries[payer.id]["end_balance"] == 0.0
+
+    def test_a_payment_before_the_members_own_start_is_not_counted(self, db_session):
+        """The query loads every payment inside the widest window of all fee
+        members, so the window of each member is checked again per payment:
+        a payment of 2018 lies inside the first member's window but before
+        the second member's start."""
+        _seed_base(db_session)
+        _create_fee_member(
+            db_session,
+            p4x_freed=True,
+            p4x_init_balance=0,
+            p4x_init_date=date(2017, 1, 1),
+            email="early@t.at",
+            couleurname="Early",
+        )
+        late = _create_fee_member(
+            db_session,
+            p4x_freed=True,
+            p4x_init_balance=0,
+            p4x_init_date=date(2020, 1, 1),
+            email="late@t.at",
+            couleurname="Late",
+        )
+        _add_fee_payment(db_session, late, date(2018, 5, 1), 60.0, iban="DE-LATE")
+
+        entries = {b["id"]: b for b in get_fee_balances(db_session)}
+
+        assert entries[late.id]["end_balance"] == 0.0

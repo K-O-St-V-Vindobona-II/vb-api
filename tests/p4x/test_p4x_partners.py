@@ -395,3 +395,144 @@ class TestDelegatingPartner:
 
         db_session.refresh(tx)
         assert tx.delegating_partner_type is None
+
+
+_PARTNER_ARC_COLUMNS = {
+    "member": "member_id",
+    "contact": "contact_id",
+    "account": "p4x_account_id",
+    "special": "p4x_special_contact_id",
+}
+_DELEGATING_ARC_COLUMNS = {
+    "member": "delegating_member_id",
+    "contact": "delegating_contact_id",
+    "account": "delegating_p4x_account_id",
+    "special": "delegating_p4x_special_contact_id",
+}
+
+
+def _entities(account, member, contact, special):
+    return {
+        "member": member,
+        "contact": contact,
+        "account": account,
+        "special": special,
+    }
+
+
+def _stored_partner(db, tx):
+    return db.query(P4xPartner).filter(P4xPartner.iban == tx.iban).one()
+
+
+class TestEveryKindOfPartner:
+    """A partner is exactly one of a member, a contact, an account of the
+    club or a special contact, and changing the kind replaces the old link."""
+
+    @pytest.mark.parametrize("kind", ["member", "contact", "account", "special"])
+    def test_each_kind_is_stored_in_its_own_column_only(self, db_session, kind):
+        account, member, contact, special = _seed(db_session)
+        entity = _entities(account, member, contact, special)[kind]
+        tx = _create_tx(db_session, account)
+
+        set_transaction_partner(
+            db_session,
+            tx,
+            partner_data={"type": kind, "id": entity.id},
+            has_delegating=False,
+            delegating_data=None,
+        )
+
+        partner = _stored_partner(db_session, tx)
+        assert partner.partner_type == kind
+        assert partner.partner_id == entity.id
+        stored = {
+            name: getattr(partner, column)
+            for name, column in _PARTNER_ARC_COLUMNS.items()
+        }
+        assert stored == {
+            name: (entity.id if name == kind else None) for name in stored
+        }
+
+    def test_changing_the_kind_resets_the_previous_link(self, db_session):
+        account, member, contact, special = _seed(db_session)
+        entities = _entities(account, member, contact, special)
+        tx = _create_tx(db_session, account)
+
+        for kind in ("member", "account", "special", "contact", "member"):
+            set_transaction_partner(
+                db_session,
+                tx,
+                partner_data={"type": kind, "id": entities[kind].id},
+                has_delegating=False,
+                delegating_data=None,
+            )
+
+            partner = _stored_partner(db_session, tx)
+            linked = [
+                name
+                for name, column in _PARTNER_ARC_COLUMNS.items()
+                if getattr(partner, column) is not None
+            ]
+            assert linked == [kind]
+            assert partner.deleted_at is None
+
+    @pytest.mark.parametrize("kind", ["member", "contact", "account", "special"])
+    def test_each_kind_of_delegating_partner_is_stored_in_its_own_column_only(
+        self, db_session, kind
+    ):
+        account, member, contact, special = _seed(db_session)
+        entity = _entities(account, member, contact, special)[kind]
+        tx = _create_tx(db_session, account)
+
+        set_transaction_partner(
+            db_session,
+            tx,
+            partner_data={"type": "member", "id": member.id},
+            has_delegating=True,
+            delegating_data={"type": kind, "id": entity.id},
+        )
+
+        db_session.refresh(tx)
+        assert tx.delegating_partner_type == kind
+        assert tx.delegating_partner_id == entity.id
+        stored = {
+            name: getattr(tx, column)
+            for name, column in _DELEGATING_ARC_COLUMNS.items()
+        }
+        assert stored == {
+            name: (entity.id if name == kind else None) for name in stored
+        }
+
+    def test_changing_the_delegating_kind_resets_the_previous_link(self, db_session):
+        account, member, contact, special = _seed(db_session)
+        entities = _entities(account, member, contact, special)
+        tx = _create_tx(db_session, account)
+
+        for kind in ("account", "special", "member", "contact"):
+            set_transaction_partner(
+                db_session,
+                tx,
+                partner_data={"type": "member", "id": member.id},
+                has_delegating=True,
+                delegating_data={"type": kind, "id": entities[kind].id},
+            )
+
+            db_session.refresh(tx)
+            linked = [
+                name
+                for name, column in _DELEGATING_ARC_COLUMNS.items()
+                if getattr(tx, column) is not None
+            ]
+            assert linked == [kind]
+
+
+class TestPartnerRowWithoutAReference:
+    """The database CHECK keeps such a row out; the model refuses to guess."""
+
+    def test_the_type_of_a_row_without_a_reference_is_an_error(self):
+        with pytest.raises(ValueError, match="exclusive-arc CHECK"):
+            _ = P4xPartner(iban="DE001").partner_type
+
+    def test_the_id_of_a_row_without_a_reference_is_an_error(self):
+        with pytest.raises(ValueError, match="exclusive-arc CHECK"):
+            _ = P4xPartner(iban="DE001").partner_id

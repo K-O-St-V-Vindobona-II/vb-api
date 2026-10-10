@@ -5,14 +5,18 @@ import uuid
 from datetime import date
 
 import bcrypt
+import pytest
 from PIL import Image as PILImage
 
+from app.core.storage import S3_PATH_STANDESDB_CACHE, S3_PATH_STANDESDB_IMAGES
+from app.models.contact import Contact
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
+from app.services import image_service
 from app.services.auth_service import create_user_session
 
 
@@ -91,6 +95,13 @@ def _self_member(db, email="self@vbw.at"):
     db.add(m)
     db.commit()
     return m
+
+
+def _target_contact(db, name="Target Contact"):
+    c = Contact(kontakttyp="person", name=name)
+    db.add(c)
+    db.commit()
+    return c
 
 
 def _headers(_client, db, member):
@@ -812,3 +823,270 @@ class TestSelfService:
         )
         assert resp.status_code == 201
         mock_arq_pool.enqueue_job.assert_not_called()
+
+
+def _upload_contact_image(client, headers, contact, *, png=False):
+    name, maker, mime = (
+        ("b.png", _make_png, "image/png")
+        if png
+        else ("a.jpg", _make_jpeg, "image/jpeg")
+    )
+    resp = client.post(
+        f"/api/standesdb/contacts/{contact.id}/images",
+        headers=headers,
+        files={"file": (name, maker(), mime)},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+class TestContactImages:
+    """The same image routes for contacts: readable by any signed-in member,
+    changed only with the contact administration permission."""
+
+    def test_the_first_upload_becomes_the_default_and_both_are_listed(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        contact = _target_contact(db_session)
+        first = _upload_contact_image(client, headers, contact)
+        second = _upload_contact_image(client, headers, contact, png=True)
+
+        body = client.get(
+            f"/api/standesdb/contacts/{contact.id}/images", headers=headers
+        ).json()
+
+        assert {item["id"]: item["default"] for item in body["images"]} == {
+            first: True,
+            second: False,
+        }
+        assert body["owner"]["type"] == "contact"
+        assert body["owner"]["default_image"] == first
+
+    def test_download_returns_the_stored_file_under_a_contact_file_name(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        contact = _target_contact(db_session)
+        image_id = _upload_contact_image(client, headers, contact)
+
+        resp = client.get(
+            f"/api/standesdb/contacts/{contact.id}/images/{image_id}/download",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/jpeg"
+        assert "contact_" in resp.headers["content-disposition"]
+        assert resp.content.startswith(b"\xff\xd8")
+
+    def test_the_original_and_the_thumbnail_get_different_presigned_urls(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        contact = _target_contact(db_session)
+        image_id = _upload_contact_image(client, headers, contact)
+        base = f"/api/standesdb/contacts/{contact.id}/images/{image_id}/url"
+
+        original = client.get(base, headers=headers)
+        thumb = client.get(base + "?thumb=true", headers=headers)
+
+        assert original.status_code == thumb.status_code == 200
+        assert original.json()["url"].startswith("http")
+        assert thumb.json()["url"] != original.json()["url"]
+
+    def test_an_image_is_only_reachable_through_its_own_contact(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        owner = _target_contact(db_session, "Owner")
+        other = _target_contact(db_session, "Other")
+        image_id = _upload_contact_image(client, headers, owner)
+        base = f"/api/standesdb/contacts/{other.id}/images/{image_id}"
+
+        responses = [
+            client.get(base + "/download", headers=headers),
+            client.get(base + "/url", headers=headers),
+            client.put(base, headers=headers, json={"description": "x"}),
+            client.delete(base, headers=headers),
+        ]
+
+        assert [r.status_code for r in responses] == [404, 404, 404, 404]
+        assert db_session.get(StandesdbImage, image_id).deleted_at is None
+
+    def test_uploading_for_an_unknown_contact_is_not_found(self, client, db_session):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+
+        resp = client.post(
+            f"/api/standesdb/contacts/{uuid.uuid4()}/images",
+            headers=headers,
+            files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
+        )
+
+        assert resp.status_code == 404
+
+    def test_update_sets_the_description_and_moves_the_default(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        contact = _target_contact(db_session)
+        first = _upload_contact_image(client, headers, contact)
+        second = _upload_contact_image(client, headers, contact, png=True)
+        bystander = _upload_contact_image(
+            client, headers, _target_contact(db_session, "Bystander")
+        )
+
+        resp = client.put(
+            f"/api/standesdb/contacts/{contact.id}/images/{second}",
+            headers=headers,
+            json={"description": "Neues Foto", "default": True},
+        )
+
+        assert resp.status_code == 200
+        db_session.expire_all()
+        assert db_session.get(StandesdbImage, first).is_default is False
+        moved = db_session.get(StandesdbImage, second)
+        assert (moved.is_default, moved.description) == (True, "Neues Foto")
+        assert db_session.get(StandesdbImage, bystander).is_default is True
+
+    def test_delete_hides_the_image_and_its_download(self, client, db_session):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        contact = _target_contact(db_session)
+        image_id = _upload_contact_image(client, headers, contact)
+        base = f"/api/standesdb/contacts/{contact.id}/images"
+
+        deleted = client.delete(f"{base}/{image_id}", headers=headers)
+
+        assert deleted.status_code == 204
+        db_session.expire_all()
+        assert db_session.get(StandesdbImage, image_id).deleted_at is not None
+        assert client.get(base, headers=headers).json()["images"] == []
+        assert (
+            client.get(f"{base}/{image_id}/download", headers=headers).status_code
+            == 404
+        )
+
+    def test_any_member_may_read_but_only_the_administration_may_change(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        admin_headers = _headers(client, db_session, _admin(db_session))
+        member_headers = _headers(client, db_session, _nonadmin(db_session))
+        contact = _target_contact(db_session)
+        image_id = _upload_contact_image(client, admin_headers, contact)
+        base = f"/api/standesdb/contacts/{contact.id}/images"
+
+        reads = [
+            client.get(base, headers=member_headers),
+            client.get(f"{base}/{image_id}/download", headers=member_headers),
+            client.get(f"{base}/{image_id}/url", headers=member_headers),
+        ]
+        writes = [
+            client.post(
+                base,
+                headers=member_headers,
+                files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
+            ),
+            client.put(
+                f"{base}/{image_id}", headers=member_headers, json={"default": True}
+            ),
+            client.delete(f"{base}/{image_id}", headers=member_headers),
+        ]
+
+        assert [r.status_code for r in reads] == [200, 200, 200]
+        assert [r.status_code for r in writes] == [403, 403, 403]
+        assert db_session.get(StandesdbImage, image_id).deleted_at is None
+
+    def test_every_contact_image_route_requires_a_login(self, client, db_session):
+        contact_id, image_id = uuid.uuid4(), uuid.uuid4()
+        base = f"/api/standesdb/contacts/{contact_id}/images"
+
+        statuses = [
+            client.get(base).status_code,
+            client.get(f"{base}/{image_id}/download").status_code,
+            client.get(f"{base}/{image_id}/url").status_code,
+            client.post(
+                base, files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")}
+            ).status_code,
+            client.put(f"{base}/{image_id}", json={"default": True}).status_code,
+            client.delete(f"{base}/{image_id}").status_code,
+        ]
+
+        assert statuses == [401] * 6
+
+
+class TestStorageFailures:
+    """What the image routes answer when the object store no longer holds the
+    file, or holds something that is not an image."""
+
+    @staticmethod
+    def _drop_cached_thumbnails(mock_s3):
+        """The upload already writes a thumbnail into the cache, which would
+        answer a thumbnail request without touching the original."""
+        for key in mock_s3.list_keys(S3_PATH_STANDESDB_CACHE):
+            mock_s3.delete(key)
+
+    @staticmethod
+    def _stored_original_key(db_session, image_id):
+        db_session.expire_all()
+        image = db_session.get(StandesdbImage, image_id)
+        return f"{S3_PATH_STANDESDB_IMAGES}/{image.sha256_hash}"
+
+    def test_a_missing_original_is_not_found_for_download_and_thumbnail(
+        self, client, db_session, mock_s3
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        target = _target_member(db_session)
+        image_id = client.post(
+            f"/api/standesdb/members/{target.id}/images",
+            headers=headers,
+            files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
+        ).json()["id"]
+        mock_s3.delete(self._stored_original_key(db_session, image_id))
+        self._drop_cached_thumbnails(mock_s3)
+        base = f"/api/standesdb/members/{target.id}/images/{image_id}"
+
+        download = client.get(base + "/download", headers=headers)
+        thumbnail = client.get(base + "/url?thumb=true", headers=headers)
+
+        assert download.status_code == 404
+        assert thumbnail.status_code == 404
+        assert download.json()["detail"] == "Originaldatei nicht gefunden."
+
+    def test_an_original_that_is_not_an_image_gets_no_thumbnail(
+        self, client, db_session, mock_s3
+    ):
+        _seed(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        target = _target_member(db_session)
+        image_id = client.post(
+            f"/api/standesdb/members/{target.id}/images",
+            headers=headers,
+            files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
+        ).json()["id"]
+        mock_s3.upload(
+            self._stored_original_key(db_session, image_id),
+            b"this is not an image",
+            "image/jpeg",
+        )
+        self._drop_cached_thumbnails(mock_s3)
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/images/{image_id}/url?thumb=true",
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert mock_s3.list_keys(S3_PATH_STANDESDB_CACHE) == []
+
+    def test_an_unknown_owner_type_is_refused(self, db_session):
+        with pytest.raises(ValueError, match="Unbekannter owner_type: 'robot'"):
+            image_service.get_images_for_owner(db_session, "robot", uuid.uuid4())

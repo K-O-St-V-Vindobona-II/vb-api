@@ -3,16 +3,21 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import bcrypt
+import jwt
 import pytest
 
 from app.core.rate_limit import limiter
 from app.core.security import (
+    ALGORITHM,
+    SECRET_KEY,
     build_refresh_cookie_value,
     generate_refresh_secret,
     hash_refresh_secret,
 )
 from app.models.auth_session import AuthSession
 from app.models.member import Member
+from app.models.members_oauth2binding import MembersOauth2Binding
+from app.services.auth_service import logout_user, unlink_google_account
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -192,6 +197,18 @@ class TestRefreshFailures:
         resp = client.post("/api/auth/refresh")
         assert resp.status_code == 401
 
+    def test_a_member_without_an_email_address_is_refused_and_logged_out(
+        self, client, member, db_session
+    ):
+        _login(client)
+        member.email = None
+        db_session.commit()
+
+        resp = client.post("/api/auth/refresh")
+
+        assert resp.status_code == 401
+        assert db_session.query(AuthSession).filter_by(member_id=member.id).count() == 0
+
     def test_nonexistent_session_returns_401(self, client, member):
         cookie = build_refresh_cookie_value("fake-id", "fake-secret")
         _set_refresh_cookie(client, cookie)
@@ -224,3 +241,123 @@ class TestAuthSessionUuidDefault:
 
         assert isinstance(session.id, uuid.UUID)
         assert session.id.version == 7
+
+
+def _signed_token(**claims):
+    return jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
+
+
+class TestLogoutEdgeCases:
+    """A logout never fails and never touches anything it cannot match."""
+
+    def _session_count(self, db_session):
+        db_session.expire_all()
+        return db_session.query(AuthSession).count()
+
+    def test_a_token_without_a_session_id_changes_nothing(
+        self, client, member, db_session
+    ):
+        _login(client)
+        before = self._session_count(db_session)
+
+        logout_user(db_session, _signed_token(sub="refresh@test.at"))
+
+        assert self._session_count(db_session) == before
+        assert member.auth_lastlogout is None
+
+    def test_a_token_for_an_unknown_session_changes_nothing(
+        self, client, member, db_session
+    ):
+        _login(client)
+        before = self._session_count(db_session)
+
+        logout_user(db_session, _signed_token(jti="no-such-session"))
+
+        assert self._session_count(db_session) == before
+        assert member.auth_lastlogout is None
+
+    def test_a_token_that_is_not_a_token_is_ignored(self, db_session):
+        logout_user(db_session, "garbage")
+
+    def test_a_valid_logout_removes_the_session_and_records_the_time(
+        self, client, member, db_session
+    ):
+        token = _login(client)
+
+        logout_user(db_session, token)
+
+        db_session.refresh(member)
+        assert self._session_count(db_session) == 0
+        assert member.auth_lastlogout is not None
+
+
+class TestUnlinkGoogleAccount:
+    def _bind(self, db_session, member, remote_id):
+        db_session.add(
+            MembersOauth2Binding(
+                member_id=member.id,
+                provider="google",
+                remote_id=remote_id,
+                remote_name="test",
+            )
+        )
+        db_session.commit()
+
+    def _bindings(self, db_session, member):
+        db_session.expire_all()
+        return (
+            db_session.query(MembersOauth2Binding)
+            .filter_by(member_id=member.id)
+            .count()
+        )
+
+    def test_the_route_removes_only_the_callers_link(self, client, member, db_session):
+        other = Member(
+            email="other@test.at", auth_password=HASHED, vorname="O", nachname="T"
+        )
+        db_session.add(other)
+        db_session.commit()
+        self._bind(db_session, member, "mine")
+        self._bind(db_session, other, "theirs")
+        token = _login(client)
+
+        resp = client.delete(
+            "/api/auth/google/link", headers={"Authorization": f"Bearer {token}"}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "ok",
+            "message": "Google-Verknüpfung wurde erfolgreich gelöst.",
+        }
+        assert self._bindings(db_session, member) == 0
+        assert self._bindings(db_session, other) == 1
+
+    def test_unlinking_without_a_link_is_not_an_error(self, client, member, db_session):
+        token = _login(client)
+
+        resp = client.delete(
+            "/api/auth/google/link", headers={"Authorization": f"Bearer {token}"}
+        )
+
+        assert resp.status_code == 200
+        assert self._bindings(db_session, member) == 0
+
+    def test_the_route_requires_a_login(self, client, member):
+        client.cookies.jar.clear()
+
+        assert client.delete("/api/auth/google/link").status_code == 401
+
+    def test_the_service_leaves_other_members_links_alone(self, member, db_session):
+        other = Member(
+            email="other2@test.at", auth_password=HASHED, vorname="O", nachname="T"
+        )
+        db_session.add(other)
+        db_session.commit()
+        self._bind(db_session, member, "a")
+        self._bind(db_session, other, "b")
+
+        unlink_google_account(db_session, member.id)
+
+        assert self._bindings(db_session, member) == 0
+        assert self._bindings(db_session, other) == 1

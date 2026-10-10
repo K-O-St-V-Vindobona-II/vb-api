@@ -13,15 +13,18 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.mailer import (
+    _as_date,
     _build_from_header,
     _format_diff_value,
     _log_sent_email,
+    _prepare_diff_for_display,
     _resolve_date_accuracy,
     _send_message,
     render_template,
     send_entry_changed_email,
     send_member_change_request_resolved_email,
     send_member_change_request_submitted_email,
+    send_own_image_changed_email,
     send_to_recipients,
 )
 from app.core.mailer import _send_to_multiple as _real_send_to_multiple
@@ -536,3 +539,98 @@ class TestMemberChangeRequestEmailsEscapeUserInput:
         html = mock_send.call_args.kwargs["html_content"]
         assert self._PAYLOAD not in html
         assert "&lt;img src=x onerror=alert(1)&gt;" in html
+
+
+class TestSendOwnImageChangedEmail:
+    @patch("app.core.mailer.send_to_recipients")
+    def test_nothing_is_sent_without_recipients(self, mock_send):
+        send_own_image_changed_email([], "Max Muster", "upload")
+
+        mock_send.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("action", "wording"),
+        [
+            ("upload", "ein neues Profilbild hochgeladen"),
+            ("update", "ein Profilbild bearbeitet"),
+            ("delete", "ein Profilbild gelöscht"),
+            ("something-else", "ein Profilbild geändert"),
+        ],
+    )
+    @patch("app.core.mailer.send_to_recipients")
+    def test_the_mail_names_the_member_and_what_happened(
+        self, mock_send, action, wording
+    ):
+        send_own_image_changed_email(["admin@test.at"], "Max Muster", action)
+
+        mock_send.assert_called_once()
+        assert mock_send.call_args.args == (["admin@test.at"],)
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["subject"] == "Profilbild geändert: Max Muster"
+        assert kwargs["template_key"] == "own-image-changed"
+        assert wording in kwargs["html_content"]
+        assert "Max Muster" in kwargs["html_content"]
+
+    @patch("app.core.mailer.send_to_recipients")
+    def test_the_member_name_is_escaped_in_the_body(self, mock_send):
+        send_own_image_changed_email(
+            ["admin@test.at"], "<img src=x onerror=alert(1)>", "upload"
+        )
+
+        html = mock_send.call_args.kwargs["html_content"]
+        assert "<img src=x" not in html
+        assert "&lt;img src=x" in html
+
+
+class TestEarlyReturnsOfTheChangeRequestMails:
+    @patch("app.core.mailer.send_to_recipients")
+    def test_submitted_mail_needs_recipients_and_a_diff(self, mock_send):
+        diff = {"taetigkeit": {"old": "a", "new": "b"}}
+
+        send_member_change_request_submitted_email([], "Max", diff)
+        send_member_change_request_submitted_email(["a@test.at"], "Max", {})
+
+        mock_send.assert_not_called()
+
+    @patch("app.core.mailer.send_to_recipients")
+    def test_resolved_mail_needs_an_address_and_a_diff(self, mock_send):
+        diff = {"taetigkeit": {"old": "a", "new": "b"}}
+
+        send_member_change_request_resolved_email("", diff, {"taetigkeit": "approved"})
+        send_member_change_request_resolved_email("m@test.at", {}, {})
+
+        mock_send.assert_not_called()
+
+
+class TestDateValuesInDiffs:
+    def test_a_date_and_an_iso_string_are_dates(self):
+        assert _as_date(date(2001, 5, 4)) == date(2001, 5, 4)
+        assert _as_date("2001-05-04") == date(2001, 5, 4)
+
+    @pytest.mark.parametrize("value", [5, None, ["2001-05-04"], "not a date", ""])
+    def test_anything_else_is_not_a_date(self, value):
+        assert _as_date(value) is None
+
+    def test_a_birth_date_string_is_converted_for_display(self):
+        prepared = _prepare_diff_for_display(
+            {"geburtsdatum": {"old": "2001-05-04", "new": "2002-06-07"}}
+        )
+
+        assert prepared["geburtsdatum"] == {
+            "old": date(2001, 5, 4),
+            "new": date(2002, 6, 7),
+        }
+
+    def test_a_birth_date_that_is_not_a_date_is_left_as_written(self):
+        prepared = _prepare_diff_for_display(
+            {"geburtsdatum": {"old": "unknown", "new": "2002-06-07"}}
+        )
+
+        assert prepared["geburtsdatum"] == {"old": "unknown", "new": date(2002, 6, 7)}
+
+    def test_other_fields_are_not_converted(self):
+        prepared = _prepare_diff_for_display(
+            {"arbeitgeber": {"old": "2001-05-04", "new": "x"}}
+        )
+
+        assert prepared["arbeitgeber"] == {"old": "2001-05-04", "new": "x"}
