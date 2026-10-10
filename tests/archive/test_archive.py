@@ -9,6 +9,8 @@ from app.models.archive_file_comment import (
 from app.models.archive_permission import (
     ArchivePermission,
 )
+from app.models.org import Org
+from app.models.state import State
 from app.services.archive_service import (
     _load_perm_sets,
     get_effective_permissions,
@@ -155,6 +157,26 @@ class TestDirEndpoints:
             data["content"]["subdirs"]["admin"]
         )
         assert total >= 1
+
+    def test_permission_sets_are_listed_by_sort_position(
+        self,
+        client,
+        db_session,
+    ):
+        _seed(db_session)
+        db_session.add_all(
+            [
+                Org(id="aaa", label="AAA", sort_order=0),
+                State(id="aa", label="Anfang", sort_order=9),
+            ]
+        )
+        db_session.commit()
+        headers, _ = _login_admin(db_session, client)
+
+        sets = client.get("/api/archive/dirs", headers=headers).json()["sets"]
+
+        assert [o["id"] for o in sets["orgs"]] == ["aaa", "vbw", "vbn"]
+        assert [s["id"] for s in sets["states"]] == ["fu", "bi", "aa"]
 
     def test_create_dir_requires_admin(
         self,

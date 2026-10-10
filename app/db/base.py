@@ -29,7 +29,6 @@ from app.models.p4x_category_filter_hit import P4xCategoryFilterHit  # noqa: F40
 from app.models.p4x_fee import P4xFee  # noqa: F401
 from app.models.p4x_partner import P4xPartner  # noqa: F401
 from app.models.p4x_specialcontact import P4xSpecialcontact  # noqa: F401
-from app.models.p4x_summary_order import P4xSummaryOrder  # noqa: F401
 from app.models.p4x_transaction import P4xTransaction  # noqa: F401
 from app.models.password_reset import PasswordResetToken  # noqa: F401
 from app.models.public_gallery_image import PublicGalleryImage  # noqa: F401

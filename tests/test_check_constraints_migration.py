@@ -22,7 +22,6 @@ from app.models.p4x_account import P4xAccount
 from app.models.p4x_category import P4xCategory
 from app.models.p4x_category_filter import P4xCategoryFilter
 from app.models.p4x_fee import P4xFee
-from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.role import Role
 from app.models.standesdb_image import StandesdbImage
@@ -107,25 +106,6 @@ class TestMemberRoleDateOrdering:
         db_session.commit()
 
 
-class TestSummaryOrderDateOrdering:
-    def test_end_before_start_is_rejected(self, db_session):
-        member = Member(nachname="Test")
-        db_session.add(member)
-        db_session.commit()
-
-        db_session.add(
-            P4xSummaryOrder(
-                ordered_by=member.id,
-                email="test@example.com",
-                summary_start=datetime.date(2020, 6, 15),
-                summary_end=datetime.date(2020, 6, 14),
-            )
-        )
-        with pytest.raises(IntegrityError):
-            db_session.commit()
-        db_session.rollback()
-
-
 class TestNumericLowerBounds:
     def test_negative_archive_store_item_size_is_rejected(self, db_session):
         db_session.add(
@@ -167,17 +147,17 @@ class TestNumericLowerBounds:
 
 
 class TestNullableNumericBounds:
-    """orgs.order (and the identical pattern on roles/states/badges) allows
+    """orgs.sort_order (and the identical pattern on roles/states/badges) allows
     NULL but rejects negative values once set."""
 
-    def test_negative_order_is_rejected(self, db_session):
-        db_session.add(Org(id="check-test-org", order=-1))
+    def test_negative_sort_order_is_rejected(self, db_session):
+        db_session.add(Org(id="check-test-org", sort_order=-1))
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
-    def test_null_order_is_allowed(self, db_session):
-        db_session.add(Org(id="check-test-org", order=None))
+    def test_null_sort_order_is_allowed(self, db_session):
+        db_session.add(Org(id="check-test-org", sort_order=None))
         db_session.commit()
 
 

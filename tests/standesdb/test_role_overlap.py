@@ -32,12 +32,12 @@ from app.services.standesdb_service import (
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            Role(id="senior", group="chc", label="Senior", order=1),
-            Role(id="schriftfuehrer", group="chc", label="Schriftführer", order=2),
-            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="senior", group="chc", label="Senior", sort_order=1),
+            Role(id="schriftfuehrer", group="chc", label="Schriftführer", sort_order=2),
+            Role(id="fuchsmajor", group="chc", label="Fuchsmajor", sort_order=3),
         ]
     )
     db.commit()

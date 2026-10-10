@@ -750,11 +750,11 @@ def _get_sets(db: Session) -> dict[str, object]:
     return {
         "orgs": [
             {"id": o.id, "label": o.label}
-            for o in db.query(Org).order_by(Org.order).all()
+            for o in db.query(Org).order_by(Org.sort_order).all()
         ],
         "states": [
             {"id": s.id, "label": s.label}
-            for s in db.query(State).order_by(State.order).all()
+            for s in db.query(State).order_by(State.sort_order).all()
         ],
     }
 

@@ -35,12 +35,12 @@ ADMIN_PREFIX = "/api/public-content-admin"
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=1,
+                sort_order=1,
             ),
         ]
     )

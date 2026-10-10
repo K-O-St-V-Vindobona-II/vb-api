@@ -82,7 +82,10 @@ def before(revision: _Revision, db_session: Session) -> _Revision:
     """The schema as it was before the revision, with an organisation and a state."""
     revision.downgrade()
     db_session.add_all(
-        [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+        [
+            Org(id="vbw", label="V", sort_order=1),
+            State(id="up", label="U", sort_order=1),
+        ]
     )
     db_session.flush()
     return revision

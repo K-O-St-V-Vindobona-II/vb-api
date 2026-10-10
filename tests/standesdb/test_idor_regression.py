@@ -20,8 +20,8 @@ from app.services.auth_service import create_user_session
 def _seed_orgs(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
         ]
     )
     db.commit()

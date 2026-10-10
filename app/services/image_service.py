@@ -207,7 +207,7 @@ def build_image_list_response(
                 width=image.width,
                 size=image.size,
                 description=image.description,
-                default=image.default,
+                default=image.is_default,
             )
             for image in images
         ],
@@ -319,7 +319,7 @@ def upload_image(
         height=height,
         sha256_hash=sha256,
         description=description,
-        default=existing_count == 0,
+        is_default=existing_count == 0,
         created_by=created_by,
         created_at=now,
         updated_at=now,
@@ -346,8 +346,8 @@ def update_image(
         db.query(StandesdbImage).filter(
             sibling_filter,
             StandesdbImage.deleted_at.is_(None),
-        ).update({"default": False})
-        img.default = True
+        ).update({"is_default": False})
+        img.is_default = True
 
     db.commit()
 

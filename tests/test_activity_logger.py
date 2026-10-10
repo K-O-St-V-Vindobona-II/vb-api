@@ -176,7 +176,7 @@ class TestDispatch:
         self, mock_session_local, db_session
     ) -> None:
         mock_session_local.return_value = db_session
-        db_session.add(Org(id="vbw", label="VBW", order=1))
+        db_session.add(Org(id="vbw", label="VBW", sort_order=1))
         member = Member(
             email="found@vbw.at", vorname="Test", nachname="User", org_id="vbw"
         )

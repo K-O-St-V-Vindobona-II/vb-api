@@ -62,15 +62,15 @@ def mock_record_job_run():
 def _seed_base(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="up", label="Urphilister", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="up", label="Urphilister", sort_order=2),
             Role(
                 id="phil-x",
                 group="philchc",
                 label="Phil-x",
-                order=1,
+                sort_order=1,
             ),
         ]
     )
@@ -232,7 +232,7 @@ class TestRefreshCategoryFilterHits:
 
 
 def _make_admin_member(db, email: str, role_id: str, role_group: str) -> Member:
-    db.add(Role(id=role_id, group=role_group, label=role_id, order=9))
+    db.add(Role(id=role_id, group=role_group, label=role_id, sort_order=9))
     m = Member(
         email=email,
         vorname="Admin",
@@ -1060,7 +1060,9 @@ class TestDebtorReminder:
     def test_sends_with_treasurers_real_name(self, db_session):
         _seed_base(db_session)
         _seed_girokonto(db_session)
-        db_session.add(Role(id="phil-xxxx", group="philchc", label="Kassier", order=9))
+        db_session.add(
+            Role(id="phil-xxxx", group="philchc", label="Kassier", sort_order=9)
+        )
         db_session.commit()
 
         treasurer = Member(

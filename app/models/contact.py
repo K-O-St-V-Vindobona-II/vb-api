@@ -126,7 +126,7 @@ class Contact(Base):
     @property
     def default_image(self) -> uuid.UUID | None:
         for img in self.images:
-            if img.default and not img.deleted_at:
+            if img.is_default and not img.deleted_at:
                 return img.id
         for img in self.images:
             if not img.deleted_at:

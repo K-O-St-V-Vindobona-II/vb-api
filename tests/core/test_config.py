@@ -185,6 +185,148 @@ class TestAppTimezone:
         assert get_settings().app_timezone == "America/New_York"
 
 
+def _iban_with_valid_checksum(country: str, bban: str) -> str:
+    """An IBAN of the given country and basic account number whose check
+    digits are computed, so only its length decides whether it is accepted."""
+    digits = "".join(str(int(char, 36)) for char in bban + country) + "00"
+    return f"{country}{98 - int(digits) % 97:02d}{bban}"
+
+
+class TestAktivitasPaymentSettings:
+    """Tier 2 (feature-required): unset is allowed at start and refused where
+    the payment page needs the value; a value that is set must be well formed."""
+
+    NAMES = (
+        "AKTIVITAS_ACCOUNT_HOLDER",
+        "AKTIVITAS_IBAN",
+        "AKTIVITAS_BIC",
+        "AKTIVITAS_FEE_TEXT",
+    )
+
+    def test_all_four_are_unset_by_default(self, monkeypatch) -> None:
+        for name in self.NAMES:
+            monkeypatch.delenv(name, raising=False)
+
+        settings = get_settings()
+
+        assert settings.aktivitas_account_holder is None
+        assert settings.aktivitas_iban is None
+        assert settings.aktivitas_bic is None
+        assert settings.aktivitas_fee_text is None
+
+    def test_the_values_are_read_as_given(self, monkeypatch) -> None:
+        monkeypatch.setenv("AKTIVITAS_ACCOUNT_HOLDER", "Verein Muster")
+        monkeypatch.setenv("AKTIVITAS_IBAN", "AT61 1904 3002 3457 3201")
+        monkeypatch.setenv("AKTIVITAS_BIC", "BKAUATWW")
+        monkeypatch.setenv("AKTIVITAS_FEE_TEXT", "Beitrag: EUR 30,- / Semester")
+
+        settings = get_settings()
+
+        assert settings.aktivitas_account_holder == "Verein Muster"
+        assert settings.aktivitas_iban == "AT61 1904 3002 3457 3201"
+        assert settings.aktivitas_bic == "BKAUATWW"
+        assert settings.aktivitas_fee_text == "Beitrag: EUR 30,- / Semester"
+
+    @pytest.mark.parametrize(
+        "iban",
+        [
+            "AT611904300234573201",
+            "AT61 1904 3002 3457 3201",
+            "DE89370400440532013000",
+            "GB82WEST12345698765432",
+        ],
+    )
+    def test_a_valid_iban_is_accepted(self, monkeypatch, iban) -> None:
+        monkeypatch.setenv("AKTIVITAS_IBAN", iban)
+
+        assert get_settings().aktivitas_iban == iban
+
+    @pytest.mark.parametrize(
+        "iban",
+        [
+            "AT611904300234573202",
+            "AT62 1904 3002 3457 3201",
+            "at611904300234573201",
+            "AT61",
+            "AT61-1904-3002-3457-3201",
+            "",
+            "   ",
+        ],
+    )
+    def test_a_malformed_iban_or_wrong_checksum_is_refused(
+        self, monkeypatch, iban
+    ) -> None:
+        monkeypatch.setenv("AKTIVITAS_IBAN", iban)
+
+        with pytest.raises(ValidationError, match="AKTIVITAS_IBAN"):
+            get_settings()
+
+    def test_surrounding_whitespace_is_dropped(self, monkeypatch) -> None:
+        monkeypatch.setenv("AKTIVITAS_ACCOUNT_HOLDER", "  Verein Muster ")
+        monkeypatch.setenv("AKTIVITAS_IBAN", " AT61 1904 3002 3457 3201 ")
+        monkeypatch.setenv("AKTIVITAS_BIC", "BKAUATWW ")
+        monkeypatch.setenv("AKTIVITAS_FEE_TEXT", " Beitrag ")
+
+        settings = get_settings()
+
+        assert settings.aktivitas_account_holder == "Verein Muster"
+        assert settings.aktivitas_iban == "AT61 1904 3002 3457 3201"
+        assert settings.aktivitas_bic == "BKAUATWW"
+        assert settings.aktivitas_fee_text == "Beitrag"
+
+    @pytest.mark.parametrize("bban_length", [11, 30])
+    def test_the_shortest_and_longest_iban_are_accepted(
+        self, monkeypatch, bban_length
+    ) -> None:
+        iban = _iban_with_valid_checksum("XX", "1" * bban_length)
+        monkeypatch.setenv("AKTIVITAS_IBAN", iban)
+
+        assert get_settings().aktivitas_iban == iban
+
+    @pytest.mark.parametrize("bban_length", [10, 31])
+    def test_an_iban_outside_the_length_range_is_refused(
+        self, monkeypatch, bban_length
+    ) -> None:
+        monkeypatch.setenv(
+            "AKTIVITAS_IBAN", _iban_with_valid_checksum("XX", "1" * bban_length)
+        )
+
+        with pytest.raises(ValidationError, match="AKTIVITAS_IBAN"):
+            get_settings()
+
+    @pytest.mark.parametrize("bic", ["GIBAATWWXXX", "GIBAATWW", "BKAUATWW123"])
+    def test_a_valid_bic_is_accepted(self, monkeypatch, bic) -> None:
+        monkeypatch.setenv("AKTIVITAS_BIC", bic)
+
+        assert get_settings().aktivitas_bic == bic
+
+    @pytest.mark.parametrize(
+        "bic",
+        [
+            "gibaatwwxxx",
+            "GIBAAT",
+            "GIBAATWWXX",
+            "GIBAATWWXXXX",
+            "GIBAATWWXXXXXX",
+            "GIBA-ATWW",
+            "",
+        ],
+    )
+    def test_a_malformed_bic_is_refused(self, monkeypatch, bic) -> None:
+        monkeypatch.setenv("AKTIVITAS_BIC", bic)
+
+        with pytest.raises(ValidationError, match="AKTIVITAS_BIC"):
+            get_settings()
+
+    @pytest.mark.parametrize("name", ["AKTIVITAS_ACCOUNT_HOLDER", "AKTIVITAS_FEE_TEXT"])
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_a_blank_text_is_refused(self, monkeypatch, name, blank) -> None:
+        monkeypatch.setenv(name, blank)
+
+        with pytest.raises(ValidationError, match=name):
+            get_settings()
+
+
 class TestPlaceholderSecretKey:
     @pytest.mark.parametrize(
         "key",

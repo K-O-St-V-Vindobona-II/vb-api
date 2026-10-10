@@ -20,21 +20,21 @@ from app.services.auth_service import create_user_session
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bi", label="Bandinhaber", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bi", label="Bandinhaber", sort_order=3),
             Role(
                 id="standesfuehrer",
                 group="chc",
                 label="Standesführer",
-                order=1,
+                sort_order=1,
             ),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=2,
+                sort_order=2,
             ),
         ]
     )

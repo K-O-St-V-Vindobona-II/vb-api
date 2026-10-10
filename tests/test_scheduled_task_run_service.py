@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import DataError, IntegrityError
 
 from app.db.database import SessionLocal
@@ -68,6 +69,19 @@ class TestScheduledTaskRunConstraints:
         )
         with pytest.raises(DataError):
             db_session.commit()
+
+    def test_database_enum_labels_match_the_job_id_members(self, db_session):
+        """The `job_id` ENUM type is created by a migration while the
+        application binds to the JobId class: adding a member to one
+        without a migration for the other would fail every run record of
+        that job only at runtime, so both lists must stay identical."""
+        labels = (
+            db_session.execute(text("SELECT unnest(enum_range(NULL::job_id))::text"))
+            .scalars()
+            .all()
+        )
+
+        assert sorted(labels) == sorted(job_id.value for job_id in JobId)
 
     def test_negative_exit_code_rejected(self, db_session):
         started = datetime.now(UTC)

@@ -22,9 +22,9 @@ from tests.scripts._subprocess_helpers import (
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
         ]
     )
     db.commit()

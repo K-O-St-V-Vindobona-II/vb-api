@@ -34,8 +34,8 @@ def _now() -> datetime:
 def _seed(db) -> tuple[P4xAccount, Member, Contact]:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="up", label="UP", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="up", label="UP", sort_order=1),
         ]
     )
     db.commit()

@@ -26,11 +26,11 @@ from app.services.permission_service import (
 def _setup(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
-            Role(id="senior", group="chc", label="Senior", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
+            Role(id="senior", group="chc", label="Senior", sort_order=2),
         ]
     )
     db.commit()

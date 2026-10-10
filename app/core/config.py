@@ -2,9 +2,9 @@ import re
 import sys
 import uuid  # noqa: TC003 -- pydantic-settings resolves field types eagerly
 from functools import lru_cache
-from typing import NoReturn
+from typing import Annotated, NoReturn
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Kept in sync by convention with the equivalent frontend guards
@@ -22,10 +22,30 @@ _PLACEHOLDER_SECRET_MARKERS = ("change-me", "changeme", "replace-me", "your-secr
 _ORIGIN_PATTERN = re.compile(r"https?://[^/\s*]+")
 
 
+# Surrounding whitespace is a typo in an env file, never part of the value.
+_TrimmedText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# 2 letters, 2 check digits, then up to 30 letters or digits (spaces allowed
+# for readability and ignored by the checksum).
+_IBAN_PATTERN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}")
+
+# 4-letter bank code, 2-letter country, 2-character location, optional
+# 3-character branch.
+_BIC_PATTERN = re.compile(r"[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?")
+
+
 def _fail(message: str) -> NoReturn:
     sys.stderr.write(f"FATAL: {message} Aborting.\n")
     sys.stderr.flush()
     sys.exit(1)
+
+
+def _has_valid_iban_checksum(iban: str) -> bool:
+    """ISO 13616 check: move the first four characters to the end, read the
+    letters as numbers (A=10 ... Z=35) and require the remainder modulo 97
+    to be 1."""
+    rearranged = iban[4:] + iban[:4]
+    return int("".join(str(int(char, 36)) for char in rearranged)) % 97 == 1
 
 
 class Settings(BaseSettings):
@@ -115,6 +135,22 @@ class Settings(BaseSettings):
     # Tier 3: has a sensible default, unlike the three prod AWS fields above.
     aws_prod_region: str = Field(default="eu-central-1", validation_alias="AWS_REGION")
 
+    # Account and fee text of the Aktivitas shown on the payment page. Public
+    # data, but specific to the deployment and changed without a release, so
+    # they are checked on first use like the other feature-required settings.
+    aktivitas_account_holder: _TrimmedText | None = Field(
+        default=None, validation_alias="AKTIVITAS_ACCOUNT_HOLDER"
+    )
+    aktivitas_iban: _TrimmedText | None = Field(
+        default=None, validation_alias="AKTIVITAS_IBAN"
+    )
+    aktivitas_bic: _TrimmedText | None = Field(
+        default=None, validation_alias="AKTIVITAS_BIC"
+    )
+    aktivitas_fee_text: _TrimmedText | None = Field(
+        default=None, validation_alias="AKTIVITAS_FEE_TEXT"
+    )
+
     # Tier 3 (SMTP) — optional with defaults, no boot-time validation.
     # "null" (not "") mirrors the historical env convention: an explicit
     # sentinel meaning "no SMTP auth", checked via `.lower() != "null"`.
@@ -198,6 +234,27 @@ class Settings(BaseSettings):
         # crash boot for what should be a harmless Tier 3 default).
         if isinstance(value, str):
             return value.lower() != "false"
+        return value
+
+    @field_validator("aktivitas_iban")
+    @classmethod
+    def _validate_aktivitas_iban(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        compact = value.replace(" ", "")
+        if not _IBAN_PATTERN.fullmatch(compact) or not _has_valid_iban_checksum(
+            compact
+        ):
+            msg = "AKTIVITAS_IBAN is not a valid IBAN."
+            raise ValueError(msg)
+        return value
+
+    @field_validator("aktivitas_bic")
+    @classmethod
+    def _validate_aktivitas_bic(cls, value: str | None) -> str | None:
+        if value is not None and not _BIC_PATTERN.fullmatch(value):
+            msg = "AKTIVITAS_BIC is not a valid BIC."
+            raise ValueError(msg)
         return value
 
     @model_validator(mode="after")

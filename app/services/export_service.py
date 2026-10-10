@@ -123,8 +123,8 @@ def _format_recipient(name: str, email: str) -> str:
 
 
 def get_export_config(db: Session) -> dict[str, object]:
-    orgs = db.query(Org).order_by(Org.order).all()
-    states = db.query(State).order_by(State.order).all()
+    orgs = db.query(Org).order_by(Org.sort_order).all()
+    states = db.query(State).order_by(State.sort_order).all()
     return {
         "modules": AVAILABLE_MODULES,
         "orgs": [{"id": o.id, "label": o.label} for o in orgs],

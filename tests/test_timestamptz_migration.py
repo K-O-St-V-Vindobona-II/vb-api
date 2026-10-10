@@ -36,8 +36,8 @@ def _login_admin(db) -> dict[str, str]:
     """Org 'vbw' + role 'internetreferent' grants both archiveAdmin and
     publicContentEditor (see app/services/permission_service.py) — one
     seed covers both endpoint tests below."""
-    db.add(Org(id="vbw", label="VBW", order=1))
-    db.add(Role(id="internetreferent", group="funktion", label="IR", order=0))
+    db.add(Org(id="vbw", label="VBW", sort_order=1))
+    db.add(Role(id="internetreferent", group="funktion", label="IR", sort_order=0))
     db.commit()
 
     hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()

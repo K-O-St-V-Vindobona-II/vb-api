@@ -19,9 +19,9 @@ from app.services.auth_service import create_user_session
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="fu", label="Fux", order=1),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="fu", label="Fux", sort_order=1),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
         ]
     )
     db.commit()
@@ -198,7 +198,7 @@ class TestUpload:
         )
         img_id = resp.json()["id"]
         img = db_session.get(StandesdbImage, img_id)
-        assert img.default is True
+        assert img.is_default is True
 
     def test_second_image_not_default(self, client, db_session):
         _seed(db_session)
@@ -217,7 +217,7 @@ class TestUpload:
             files={"file": ("b.jpg", _make_jpeg(90, 90), "image/jpeg")},
         )
         img2 = db_session.get(StandesdbImage, resp2.json()["id"])
-        assert img2.default is False
+        assert img2.is_default is False
 
 
 class TestUpdate:
@@ -270,8 +270,31 @@ class TestUpdate:
             json={"description": None, "default": True},
         )
         db_session.expire_all()
-        assert db_session.get(StandesdbImage, id1).default is False
-        assert db_session.get(StandesdbImage, id2).default is True
+        assert db_session.get(StandesdbImage, id1).is_default is False
+        assert db_session.get(StandesdbImage, id2).is_default is True
+
+
+class TestList:
+    def test_list_flags_the_default_image(self, client, db_session):
+        _seed(db_session)
+        admin = _admin(db_session)
+        target = _target_member(db_session)
+        headers = _headers(client, db_session, admin)
+        url = f"/api/standesdb/members/{target.id}/images"
+        first = client.post(
+            url, headers=headers, files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")}
+        ).json()["id"]
+        second = client.post(
+            url, headers=headers, files={"file": ("b.png", _make_png(), "image/png")}
+        ).json()["id"]
+
+        body = client.get(url, headers=headers).json()
+
+        assert {item["id"]: item["default"] for item in body["images"]} == {
+            first: True,
+            second: False,
+        }
+        assert body["owner"]["default_image"] == first
 
 
 class TestDelete:
@@ -543,7 +566,7 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         img = db_session.get(StandesdbImage, resp.json()["id"])
-        assert img.default is True
+        assert img.is_default is True
 
     def test_self_can_update_own_image_description(self, client, db_session):
         _seed(db_session)
@@ -589,8 +612,8 @@ class TestSelfService:
             json={"description": None, "default": True},
         )
         db_session.expire_all()
-        assert db_session.get(StandesdbImage, id1).default is False
-        assert db_session.get(StandesdbImage, id2).default is True
+        assert db_session.get(StandesdbImage, id1).is_default is False
+        assert db_session.get(StandesdbImage, id2).is_default is True
 
     def test_self_can_delete_own_image(self, client, db_session):
         _seed(db_session)

@@ -43,15 +43,15 @@ def _member(db, email: str | None, *, verified: bool = True, **fields) -> Member
 def _seed_roles(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            State(id="fu", label="Fux", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            State(id="fu", label="Fux", sort_order=1),
             Role(
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=1,
+                sort_order=1,
             ),
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=2),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=2),
         ]
     )
     db.commit()

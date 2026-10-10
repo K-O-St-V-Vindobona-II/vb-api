@@ -28,9 +28,9 @@ from app.services.auth_service import create_user_session
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="up", label="UP", order=1),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="up", label="UP", sort_order=1),
             # standesfuehrer is what _create_admin() grants (needed for the
             # standesdbVbwAdmin/standesdbVbnAdmin permission) - it's a
             # per-org singleton office (validate_roles_history() rejects a
@@ -39,8 +39,8 @@ def _seed_base(db) -> None:
             # regression test) must use a different role like "senior" to
             # avoid an unrelated, correctly-enforced conflict with the
             # admin fixture.
-            Role(id="standesfuehrer", group="chc", label="Standesführer", order=1),
-            Role(id="senior", group="chc", label="Senior", order=2),
+            Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
+            Role(id="senior", group="chc", label="Senior", sort_order=2),
         ]
     )
     db.commit()
@@ -568,7 +568,7 @@ class TestDecideMemberChangeRequest:
         resolve_change_request() would do, since apply_member_input() fully
         replaces these from whatever lists it's given."""
         _seed_base(db_session)
-        badge = Badge(name="Testabzeichen", group="ehrenzeichen", order=1)
+        badge = Badge(name="Testabzeichen", group="ehrenzeichen", sort_order=1)
         key = Key(name="Testschluessel")
         db_session.add_all([badge, key])
         db_session.commit()

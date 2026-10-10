@@ -63,7 +63,7 @@ class StandesdbImage(Base):
             "owner_member_id",
             unique=True,
             postgresql_where=text(
-                '"default" AND deleted_at IS NULL AND owner_member_id IS NOT NULL'
+                "is_default AND deleted_at IS NULL AND owner_member_id IS NOT NULL"
             ),
         ),
         Index(
@@ -71,7 +71,7 @@ class StandesdbImage(Base):
             "owner_contact_id",
             unique=True,
             postgresql_where=text(
-                '"default" AND deleted_at IS NULL AND owner_contact_id IS NOT NULL'
+                "is_default AND deleted_at IS NULL AND owner_contact_id IS NOT NULL"
             ),
         ),
     )
@@ -94,7 +94,9 @@ class StandesdbImage(Base):
     width: Mapped[int | None]
     sha256_hash: Mapped[str] = mapped_column(String(64))
     description: Mapped[str | None]
-    default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    is_default: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL", onupdate="CASCADE"),
         index=True,

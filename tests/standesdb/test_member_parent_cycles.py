@@ -17,7 +17,10 @@ from app.services import standesdb_service
 def _members(db, n, prefix):
     if not db.get(Org, "vbw"):
         db.add_all(
-            [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+            [
+                Org(id="vbw", label="V", sort_order=1),
+                State(id="up", label="U", sort_order=1),
+            ]
         )
         db.commit()
     members = [

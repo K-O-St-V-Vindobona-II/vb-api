@@ -97,7 +97,10 @@ class TestDebtorReminder:
     @staticmethod
     def _debtor(db_session):
         db_session.add_all(
-            [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+            [
+                Org(id="vbw", label="V", sort_order=1),
+                State(id="up", label="U", sort_order=1),
+            ]
         )
         db_session.add(
             Member(

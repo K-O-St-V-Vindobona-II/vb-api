@@ -17,10 +17,10 @@ def _now() -> datetime:
 def _seed_base(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="up", label="UP", order=1),
-            State(id="fu", label="FU", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="up", label="UP", sort_order=1),
+            State(id="fu", label="FU", sort_order=2),
         ]
     )
     db.commit()

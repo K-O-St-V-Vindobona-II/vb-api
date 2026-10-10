@@ -244,13 +244,6 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
     },
     "p4x_partners": lambda s: {"member_id": f"'{_make_member(s)}'"},
     "p4x_special_contacts": lambda _s: {"cn": "'uuidv7-test'"},
-    "p4x_summary_orders": lambda s: {
-        "ordered_by": f"'{_make_member(s)}'",
-        "email": "'uuidv7-test@vindobona.at'",
-        "summary_start": "'2026-01-01'",
-        "summary_end": "'2026-01-31'",
-        "finished_ok": "false",
-    },
     "p4x_transactions": lambda s: {
         "sha256_hash": "'uuidv7-tx-direct-test'",
         "booking": "'2026-01-01'",
@@ -306,7 +299,7 @@ _EXTRA_COLUMNS: dict[str, Callable[[Session], dict[str, str]]] = {
     "standesdb_images": lambda s: {
         "sha256_hash": "'uuidv7-standesdb-test'",
         "owner_member_id": f"'{_make_member(s)}'",
-        '"default"': "false",
+        "is_default": "false",
     },
 }
 

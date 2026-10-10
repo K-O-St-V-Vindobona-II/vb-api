@@ -33,7 +33,6 @@ from app.models.org import Org
 from app.models.p4x_account import P4xAccount
 from app.models.p4x_partner import P4xPartner
 from app.models.p4x_specialcontact import P4xSpecialcontact
-from app.models.p4x_summary_order import P4xSummaryOrder
 from app.models.p4x_transaction import P4xTransaction
 from app.models.public_gallery_image import PublicGalleryImage
 from app.models.request_log import RequestLog
@@ -286,23 +285,6 @@ class TestFkInsertEnforcement:
                 provider="google",
                 remote_id="fk-test-remote-id",
                 remote_name="FK Test",
-            )
-        )
-        with pytest.raises(IntegrityError):
-            db_session.commit()
-        db_session.rollback()
-
-    def test_inserting_a_summary_order_with_unknown_ordered_by_is_rejected(
-        self, db_session
-    ):
-        """p4x_summary_orders.ordered_by -> members.id (Alembic
-        revision bc095b5fb813)."""
-        db_session.add(
-            P4xSummaryOrder(
-                ordered_by=uuid.uuid4(),
-                email="fk-test@vindobona.at",
-                summary_start=datetime.date(2020, 1, 1),
-                summary_end=datetime.date(2020, 1, 2),
             )
         )
         with pytest.raises(IntegrityError):

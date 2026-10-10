@@ -112,10 +112,20 @@ def revision(db_session: Session) -> _Revision:
 
 @pytest.fixture
 def before(revision: _Revision, db_session: Session) -> _Revision:
-    """The schema as it was before the revision, with an organisation and a state."""
+    """The schema as it was before the revision, with an organisation and a state.
+
+    A later revision renamed standesdb_images.default to is_default; this
+    revision's statements still name the column default, so the old name is
+    put back inside the test transaction."""
     revision.downgrade()
+    db_session.execute(
+        text('ALTER TABLE standesdb_images RENAME COLUMN is_default TO "default"')
+    )
     db_session.add_all(
-        [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+        [
+            Org(id="vbw", label="V", sort_order=1),
+            State(id="up", label="U", sort_order=1),
+        ]
     )
     db_session.flush()
     return revision

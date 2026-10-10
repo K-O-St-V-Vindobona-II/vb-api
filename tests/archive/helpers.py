@@ -27,10 +27,10 @@ def _now() -> datetime:
 def _seed(db) -> None:
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bi", label="Bandinhaber", order=3),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bi", label="Bandinhaber", sort_order=3),
         ]
     )
     db.commit()
@@ -40,13 +40,13 @@ def _seed(db) -> None:
                 id="internetreferent",
                 group="funktion",
                 label="Internetreferent",
-                order=0,
+                sort_order=0,
             ),
             Role(
                 id="x",
                 group="chc",
                 label="Senior",
-                order=1,
+                sort_order=1,
             ),
         ]
     )

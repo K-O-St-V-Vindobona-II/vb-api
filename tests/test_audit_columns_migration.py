@@ -26,6 +26,10 @@ REVISION_FILE = (
     / "alembic/versions/5c1d7e9a3b42_audit_columns_and_uniqueness.py"
 )
 PERMISSION_CONSTRAINT = "archive_permissions_dir_org_state_key"
+SUMMARY_ORDERS_REVISION_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "alembic/versions/d5f7b9c1e3a4_drop_unused_p4x_summary_orders.py"
+)
 
 
 def _load_revision():
@@ -90,9 +94,26 @@ def revision(db_session):
     return _Revision(db_session)
 
 
+def _restore_dropped_summary_orders(db_session):
+    """A later revision dropped p4x_summary_orders, which this revision still
+    adds the audit columns to: run that revision's downgrade to bring the
+    (empty) table back."""
+    spec = importlib.util.spec_from_file_location(
+        "summary_orders_drop_revision", SUMMARY_ORDERS_REVISION_FILE
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    db_session.flush()
+    with Operations.context(MigrationContext.configure(db_session.connection())):
+        module.downgrade()
+
+
 @pytest.fixture
-def before(revision):
+def before(revision, db_session):
     """The schema as it was before the revision."""
+    _restore_dropped_summary_orders(db_session)
     revision.downgrade()
     return revision
 
@@ -109,7 +130,10 @@ def _insert_contact(db_session, name, *, created_at=None, deleted=False):
 
 def _permission_directory(db_session):
     db_session.add_all(
-        [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+        [
+            Org(id="vbw", label="V", sort_order=1),
+            State(id="up", label="U", sort_order=1),
+        ]
     )
     directory = ArchiveDir(name="Dir1x")
     db_session.add(directory)
@@ -180,7 +204,7 @@ class TestArchivePermissions:
 
     def test_different_pairs_are_kept(self, db_session, before):
         directory_id = _permission_directory(db_session)
-        db_session.add(State(id="ex", label="E", order=2))
+        db_session.add(State(id="ex", label="E", sort_order=2))
         db_session.flush()
         _insert_permission(db_session, directory_id, uuid.uuid4(), state="up")
         _insert_permission(db_session, directory_id, uuid.uuid4(), state="ex")

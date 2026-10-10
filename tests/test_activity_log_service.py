@@ -33,7 +33,7 @@ from app.services.activity_log_service import (
 
 def _create_member(db_session, **overrides: object) -> Member:
     if not db_session.get(Org, "vbw"):
-        db_session.add(Org(id="vbw", label="VBW", order=1))
+        db_session.add(Org(id="vbw", label="VBW", sort_order=1))
     member = Member(
         email=overrides.pop("email", f"{uuid.uuid4()}@vbw.at"),
         vorname=overrides.pop("vorname", "Test"),

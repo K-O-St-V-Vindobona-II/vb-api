@@ -284,7 +284,7 @@ def _build_roles_list(member: Member) -> list[RoleHistoryResponse]:
             id=mr.role_id,
             label=mr.role.label if mr.role else None,
             group=mr.role.group if mr.role else None,
-            order=(mr.role.order or 0) if mr.role else 0,
+            order=(mr.role.sort_order or 0) if mr.role else 0,
             startdate=mr.startdate,
             enddate=mr.enddate,
         )
@@ -298,7 +298,7 @@ def _build_badges_list(member: Member) -> list[BadgeDetailResponse]:
             id=mb.badge_id,
             name=mb.badge.name or "",
             group=mb.badge.group,
-            order=mb.badge.order or 0,
+            order=mb.badge.sort_order or 0,
             presentationdate=mb.presentationdate,
             presentationdate_accuracy=mb.presentationdate_accuracy or 0,
         )
@@ -1298,7 +1298,7 @@ def get_roles_list(
         start = None
         end = None
 
-    roles = db.query(Role).order_by(Role.order).all()
+    roles = db.query(Role).order_by(Role.sort_order).all()
     role_ids = [role.id for role in roles]
 
     query = (
@@ -1367,10 +1367,10 @@ def get_roles_list(
 
 def get_reference_data(db: Session) -> dict[str, object]:
     return {
-        "orgs": db.query(Org).order_by(Org.order).all(),
-        "states": (db.query(State).order_by(State.order).all()),
-        "roles": (db.query(Role).order_by(Role.order).all()),
-        "badges": (db.query(Badge).order_by(Badge.order).all()),
+        "orgs": db.query(Org).order_by(Org.sort_order).all(),
+        "states": (db.query(State).order_by(State.sort_order).all()),
+        "roles": (db.query(Role).order_by(Role.sort_order).all()),
+        "badges": (db.query(Badge).order_by(Badge.sort_order).all()),
         "keys": db.query(Key).all(),
     }
 

@@ -24,13 +24,18 @@ from app.services.export_service import (
 def _seed(db):
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bu", label="Bursch", order=2),
-            Role(id="standesfuehrer", group="funktion", label="Standesführer", order=1),
-            Badge(name="Fuxenband", group="jubelband", order=1),
-            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bu", label="Bursch", sort_order=2),
+            Role(
+                id="standesfuehrer",
+                group="funktion",
+                label="Standesführer",
+                sort_order=1,
+            ),
+            Badge(name="Fuxenband", group="jubelband", sort_order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", sort_order=2),
         ]
     )
     db.commit()
@@ -191,6 +196,25 @@ class TestExportAuth:
         assert "flags" in data
         assert len(data["modules"]) == 4
         assert len(data["orgs"]) == 2
+
+    def test_export_config_lists_orgs_and_states_by_sort_position(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        db_session.add_all(
+            [
+                Org(id="vbz", label="VBZ", sort_order=0),
+                State(id="aa", label="Anfang", sort_order=9),
+            ]
+        )
+        db_session.commit()
+        admin = _admin(db_session)
+        headers = _headers(client, db_session, admin)
+
+        data = client.get("/api/standesdb/export/config", headers=headers).json()
+
+        assert [o["id"] for o in data["orgs"]] == ["vbz", "vbw", "vbn"]
+        assert [s["id"] for s in data["states"]] == ["fu", "bu", "aa"]
 
     def test_unknown_module_rejected(self, client, db_session):
         _seed(db_session)

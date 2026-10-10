@@ -20,7 +20,7 @@ from app.services import standesdb_service
 
 
 def _seed_org(db) -> None:
-    db.add(Org(id="vbw", label="VBW", order=1))
+    db.add(Org(id="vbw", label="VBW", sort_order=1))
     db.commit()
 
 

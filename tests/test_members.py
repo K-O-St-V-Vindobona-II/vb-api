@@ -17,7 +17,10 @@ from app.services.permission_service import calculate_permissions
 @pytest.fixture(autouse=True)
 def _seed_orgs(db_session):
     db_session.add_all(
-        [Org(id="vbw", label="VBW", order=1), Org(id="vbn", label="VBN", order=2)]
+        [
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+        ]
     )
     db_session.commit()
 
@@ -123,7 +126,7 @@ class TestReadCurrentUserIsFeeMember:
     drives the 'Mein Beitragskonto' nav item's visibility on the frontend."""
 
     def test_true_for_fee_eligible_member(self, client, db_session):
-        db_session.add(State(id="up", label="UP", order=1))
+        db_session.add(State(id="up", label="UP", sort_order=1))
         db_session.commit()
         member = Member(
             email="fee-eligible@vindobona.at",
@@ -142,7 +145,7 @@ class TestReadCurrentUserIsFeeMember:
         assert resp.json()["is_fee_member"] is True
 
     def test_false_for_non_fee_member(self, client, db_session):
-        db_session.add(State(id="up", label="UP", order=1))
+        db_session.add(State(id="up", label="UP", sort_order=1))
         db_session.commit()
         member = Member(
             email="not-fee-eligible@vindobona.at",
@@ -164,7 +167,7 @@ class TestReadCurrentUserIsFeeMember:
 
 class TestReadCurrentUserIdleTimeout:
     def test_reports_the_idle_timeout_the_server_enforces(self, client, db_session):
-        db_session.add(State(id="up", label="UP", order=1))
+        db_session.add(State(id="up", label="UP", sort_order=1))
         db_session.commit()
         member = Member(
             email="idle-timeout@vindobona.at",

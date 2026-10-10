@@ -48,18 +48,18 @@ def _seed(db: object) -> None:
     """Insert minimal reference data."""
     db.add_all(
         [
-            Org(id="vbw", label="VBW", order=1),
-            Org(id="vbn", label="VBN", order=2),
-            State(id="fu", label="Fux", order=1),
-            State(id="bu", label="Bursch", order=2),
+            Org(id="vbw", label="VBW", sort_order=1),
+            Org(id="vbn", label="VBN", sort_order=2),
+            State(id="fu", label="Fux", sort_order=1),
+            State(id="bu", label="Bursch", sort_order=2),
             Role(
                 id="standesfuehrer",
                 group="funktion",
                 label="Standesführer",
-                order=1,
+                sort_order=1,
             ),
-            Badge(name="Fuxenband", group="jubelband", order=1),
-            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", order=2),
+            Badge(name="Fuxenband", group="jubelband", sort_order=1),
+            Badge(name="Ehrenzeichen Gold", group="ehrenzeichen", sort_order=2),
         ]
     )
     db.commit()

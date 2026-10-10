@@ -47,7 +47,10 @@ def _upload(db_session, owner_type, owner_id, content):
 @pytest.fixture
 def member(db_session):
     db_session.add_all(
-        [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+        [
+            Org(id="vbw", label="V", sort_order=1),
+            State(id="up", label="U", sort_order=1),
+        ]
     )
     member = Member(vorname="A", nachname="B", org_id="vbw", state_id="up")
     db_session.add(member)
@@ -120,7 +123,7 @@ class TestUpload:
 
         again = _upload(db_session, "member", member.id, _png())
 
-        assert again.default is True
+        assert again.is_default is True
         assert db_session.query(StandesdbImage).count() == 2
 
     def test_first_image_is_the_default_and_a_second_one_is_not(
@@ -129,7 +132,7 @@ class TestUpload:
         first = _upload(db_session, "member", member.id, _png((1, 2, 3)))
         second = _upload(db_session, "member", member.id, _png((4, 5, 6)))
 
-        assert (first.default, second.default) == (True, False)
+        assert (first.is_default, second.is_default) == (True, False)
 
     def test_setting_another_default_moves_it(self, db_session, member):
         first = _upload(db_session, "member", member.id, _png((1, 2, 3)))
@@ -138,7 +141,7 @@ class TestUpload:
         image_service.update_image(db_session, second, None, set_default=True)
 
         db_session.refresh(first)
-        assert (first.default, second.default) == (False, True)
+        assert (first.is_default, second.is_default) == (False, True)
 
 
 class TestConcurrentDuplicate:
@@ -214,14 +217,14 @@ class TestDatabaseRules:
     def test_two_default_images_for_one_member_are_refused(self, db_session, member):
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id, sha256_hash="a" * 64, default=True
+                owner_member_id=member.id, sha256_hash="a" * 64, is_default=True
             )
         )
         db_session.commit()
 
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id, sha256_hash="b" * 64, default=True
+                owner_member_id=member.id, sha256_hash="b" * 64, is_default=True
             )
         )
         with pytest.raises(IntegrityError):
@@ -230,14 +233,14 @@ class TestDatabaseRules:
     def test_two_default_images_for_one_contact_are_refused(self, db_session, contact):
         db_session.add(
             StandesdbImage(
-                owner_contact_id=contact.id, sha256_hash="a" * 64, default=True
+                owner_contact_id=contact.id, sha256_hash="a" * 64, is_default=True
             )
         )
         db_session.commit()
 
         db_session.add(
             StandesdbImage(
-                owner_contact_id=contact.id, sha256_hash="b" * 64, default=True
+                owner_contact_id=contact.id, sha256_hash="b" * 64, is_default=True
             )
         )
         with pytest.raises(IntegrityError):
@@ -246,7 +249,7 @@ class TestDatabaseRules:
     def test_a_deleted_default_does_not_block_a_new_one(self, db_session, member):
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id, sha256_hash="a" * 64, default=True
+                owner_member_id=member.id, sha256_hash="a" * 64, is_default=True
             )
         )
         db_session.commit()
@@ -255,7 +258,7 @@ class TestDatabaseRules:
 
         db_session.add(
             StandesdbImage(
-                owner_member_id=member.id, sha256_hash="b" * 64, default=True
+                owner_member_id=member.id, sha256_hash="b" * 64, is_default=True
             )
         )
         db_session.commit()
@@ -264,10 +267,10 @@ class TestDatabaseRules:
         db_session.add_all(
             [
                 StandesdbImage(
-                    owner_member_id=member.id, sha256_hash="a" * 64, default=True
+                    owner_member_id=member.id, sha256_hash="a" * 64, is_default=True
                 ),
                 StandesdbImage(
-                    owner_contact_id=contact.id, sha256_hash="a" * 64, default=True
+                    owner_contact_id=contact.id, sha256_hash="a" * 64, is_default=True
                 ),
             ]
         )

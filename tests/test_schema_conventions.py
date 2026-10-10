@@ -120,7 +120,10 @@ def test_the_model_declares_the_member_rules_of_the_database():
 
 def test_a_directory_permission_pair_is_unique(db_session):
     db_session.add_all(
-        [Org(id="vbw", label="V", order=1), State(id="up", label="U", order=1)]
+        [
+            Org(id="vbw", label="V", sort_order=1),
+            State(id="up", label="U", sort_order=1),
+        ]
     )
     directory = ArchiveDir(name="Dir1x")
     db_session.add(directory)

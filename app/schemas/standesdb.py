@@ -45,18 +45,22 @@ _DATE_ACCURACY_DESCRIPTION = (
 
 # --- Reference Data ---
 
+# The reference tables store the display position as sort_order (order is an
+# SQL reserved word). The response models read that attribute and still
+# serialize it under the API field name order.
+
 
 class OrgResponse(BaseModel):
     id: str
     label: str
-    order: int
+    order: int = Field(validation_alias="sort_order")
     model_config = ConfigDict(from_attributes=True)
 
 
 class StateResponse(BaseModel):
     id: str
     label: str
-    order: int
+    order: int = Field(validation_alias="sort_order")
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -64,7 +68,7 @@ class RoleResponse(BaseModel):
     id: str
     group: RoleGroup | None = None
     label: str | None = None
-    order: int = 0
+    order: int = Field(default=0, validation_alias="sort_order")
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -72,7 +76,7 @@ class BadgeResponse(BaseModel):
     id: uuid.UUID
     name: str
     group: BadgeGroup | None = None
-    order: int = 0
+    order: int = Field(default=0, validation_alias="sort_order")
     model_config = ConfigDict(from_attributes=True)
 
 

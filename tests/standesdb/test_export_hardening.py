@@ -126,11 +126,15 @@ def _add_members_and_contacts(db, count, prefix):
     db.commit()
     db.add_all(MemberBadge(member_id=m.id, badge_id=badge.id) for m in members)
     db.add_all(
-        StandesdbImage(owner_member_id=m.id, sha256_hash=f"{prefix}m{i}", default=True)
+        StandesdbImage(
+            owner_member_id=m.id, sha256_hash=f"{prefix}m{i}", is_default=True
+        )
         for i, m in enumerate(members)
     )
     db.add_all(
-        StandesdbImage(owner_contact_id=c.id, sha256_hash=f"{prefix}c{i}", default=True)
+        StandesdbImage(
+            owner_contact_id=c.id, sha256_hash=f"{prefix}c{i}", is_default=True
+        )
         for i, c in enumerate(contacts)
     )
     db.commit()
