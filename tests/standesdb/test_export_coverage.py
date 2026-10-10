@@ -348,10 +348,75 @@ class TestLabelEntries:
             adresse_privat_land="AT",
         )
         entry = _member_label_entry(m)
-        assert entry["name"] == "Max Muster v/o Maxl"
+        assert entry["name"] == "Max Muster"
         assert entry["address"] == "Teststr. 1"
         assert entry["plz_ort"] == "1010 Wien"
         assert entry["land"] == "AT"
+
+    def test_member_label_name_has_titles_but_never_the_couleur_name(
+        self, db_session: object
+    ) -> None:
+        _seed(db_session)
+        m = _member(
+            db_session,
+            vortitel="Mag.",
+            vorname="Nikolaus",
+            nachname="Dabsch",
+            nachtitel="BA",
+            couleurname="Seneca",
+        )
+
+        assert _member_label_entry(m)["name"] == "Mag. Nikolaus Dabsch BA"
+
+    @pytest.mark.parametrize("status", ["verstorben", "entlassen"])
+    def test_member_label_name_has_no_prefix_for_a_dismissed_or_deceased_member(
+        self, db_session: object, status: str
+    ) -> None:
+        _seed(db_session)
+        m = _member(
+            db_session,
+            vorname="Max",
+            nachname="Muster",
+            couleurname="Maxl",
+            **{status: True},
+        )
+
+        assert _member_label_entry(m)["name"] == "Max Muster"
+
+    def test_member_label_name_falls_back_to_the_couleur_name_without_a_real_name(
+        self, db_session: object
+    ) -> None:
+        _seed(db_session)
+        m = _member(db_session, couleurname="Seneca")
+
+        assert _member_label_entry(m)["name"] == "Seneca"
+
+    def test_member_label_name_collapses_repeated_blanks(
+        self, db_session: object
+    ) -> None:
+        _seed(db_session)
+        m = _member(db_session, vorname=" Max ", nachname="  Muster", couleurname="M")
+
+        assert _member_label_entry(m)["name"] == "Max Muster"
+
+    def test_the_printed_label_page_never_contains_the_couleur_name(
+        self, db_session: object
+    ) -> None:
+        _seed(db_session)
+        m = _member(
+            db_session,
+            vorname="Nikolaus",
+            nachname="Dabsch",
+            couleurname="Seneca",
+        )
+
+        with patch("app.services.export_service._render_pdf") as render:
+            generate_labels(db_session, [m], [])
+
+        html = render.call_args.args[0]
+        assert "Nikolaus Dabsch" in html
+        assert "v/o" not in html
+        assert "Seneca" not in html
 
     def test_member_label_entry_deaktiviert(self, db_session: object) -> None:
         _seed(db_session)
