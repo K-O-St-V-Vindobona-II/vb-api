@@ -17,7 +17,7 @@ properly isolated.
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -120,6 +120,43 @@ class TestScheduledTaskRunConstraints:
         db_session.refresh(run)
 
         assert round(float(run.duration_seconds)) == 5
+
+
+class TestRecordJobRunFailure:
+    """A failed history write is logged and never reaches the job."""
+
+    MESSAGE = "Failed to record run history for a scheduled job"
+
+    def test_a_session_that_cannot_be_opened_is_logged_without_the_job_id(self):
+        with (
+            patch(
+                "app.services.scheduled_task_run_service.SessionLocal",
+                side_effect=RuntimeError("database down"),
+            ),
+            patch("app.services.scheduled_task_run_service.logger") as log,
+        ):
+            record_job_run(
+                JobId.BIRTHDAY_MAILS, datetime.now(UTC), exit_code=0, output="ok"
+            )
+
+        log.exception.assert_called_once_with(self.MESSAGE)
+
+    def test_a_failing_commit_is_logged_and_the_session_is_closed(self):
+        session = MagicMock()
+        session.commit.side_effect = RuntimeError("commit failed")
+        with (
+            patch(
+                "app.services.scheduled_task_run_service.SessionLocal",
+                return_value=session,
+            ),
+            patch("app.services.scheduled_task_run_service.logger") as log,
+        ):
+            record_job_run(
+                JobId.DEBTOR_REMINDER, datetime.now(UTC), exit_code=1, output=None
+            )
+
+        log.exception.assert_called_once_with(self.MESSAGE)
+        session.close.assert_called_once_with()
 
 
 @pytest.mark.usefixtures("_cleanup_real_runs")
