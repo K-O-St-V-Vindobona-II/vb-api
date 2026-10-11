@@ -54,6 +54,17 @@ class TestReleaseJob:
         assert "github.event_name" in group
 
 
+class TestCoverageGate:
+    def test_the_separate_coverage_check_runs_after_the_test_suite(self, workflow):
+        commands = [
+            step.get("run", "") for step in workflow["jobs"]["quality"]["steps"]
+        ]
+        suite = next(i for i, c in enumerate(commands) if c.startswith("pytest"))
+        gate = next(i for i, c in enumerate(commands) if "check_coverage_gate" in c)
+
+        assert suite < gate
+
+
 class TestLockedDependencies:
     def test_the_locked_dependencies_are_audited_with_hashes_enforced(self, workflow):
         steps = workflow["jobs"]["dependency-audit"]["steps"]

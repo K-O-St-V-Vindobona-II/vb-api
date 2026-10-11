@@ -114,7 +114,7 @@ testpaths = ["tests"]
 markers = [
     "slow: runs for several seconds (a full migration round trip in a database of its own)",
 ]
-addopts = "--cov=app --cov=scripts --cov=main --cov-report=term-missing --cov-report=xml --cov-fail-under=81"
+addopts = "--cov=app --cov=scripts --cov=main --cov-report=term-missing --cov-report=xml --cov-report=json --cov-fail-under=95"
 filterwarnings = [
     "error",
     "default::DeprecationWarning",
@@ -123,6 +123,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["app", "scripts", "main.py"]
+branch = true
 omit = [
     "alembic/*",
     "tests/*",
@@ -136,6 +137,14 @@ exclude_lines = [
     "raise NotImplementedError",
     "^\\s*pass$",
 ]
+
+# Separate minimums for statement and branch coverage, enforced by
+# scripts/check_coverage_gate.py on the JSON report of a test run. The
+# --cov-fail-under floor above judges one combined figure; these two keep a
+# drop in one kind of coverage from hiding behind the other.
+[tool.coverage_gate]
+statements = 97
+branches = 92
 
 [tool.pyright]
 include = ["app", "scripts", "main.py"]

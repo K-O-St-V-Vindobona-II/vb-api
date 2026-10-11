@@ -11,7 +11,7 @@ SCRIPTS_README = (ROOT / "scripts/README.md").read_text(encoding="utf-8")
 GERMAN_MARKER = "\n# Deutsch\n"
 SCRIPTS_GERMAN_MARKER = "\n# Scripts (Deutsch)\n"
 # Developer tooling, not an operational script run during regular ops.
-_NOT_OPERATIONAL = {"check_router_soc.py"}
+_NOT_OPERATIONAL = {"check_router_soc.py", "check_coverage_gate.py"}
 _OPERATIONAL_SCRIPTS = sorted(
     path.name
     for path in (ROOT / "scripts").glob("*.py")
