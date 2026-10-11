@@ -315,6 +315,21 @@ def get_unfiled(
     )
 
 
+@archive_router.delete(
+    "/upload/unfiled/{file_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_unfiled_upload(
+    file_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    storage: Annotated[StorageClient, Depends(get_storage)],
+) -> None:
+    """Permanently delete one of the caller's own uploads that has not yet been
+    filed into a directory (database row and stored content). Another member's
+    upload or an unknown id gives 404, an already filed file 409."""
+    archive_service.delete_unfiled_upload(db, file_id, user, storage)
+
+
 @archive_router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload(
     file: Annotated[UploadFile, File()],

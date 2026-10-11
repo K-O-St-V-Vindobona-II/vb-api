@@ -152,12 +152,15 @@ podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
 ## `maintain_deleted_archive_files.py`
 
 Inspects, restores, or hard-deletes soft-deleted archive files. Hard-delete
-removes data from **both** the database and S3 — the only way to
-permanently remove an archive file's data, since the regular API only ever
-soft-deletes. Deliberately CLI-only by design: none of this must ever be
-exposed via the API or frontend (see
-`app/services/archive_maintenance_service.py`'s module docstring, which
-enforces that as an explicit rule, not just a convention).
+removes data from **both** the database and S3 — the way to permanently
+remove an archive file's data, since the regular API only ever soft-deletes.
+The one exception is a member deleting their own, still unfiled upload on the
+upload page (`DELETE /archive/upload/unfiled/{file_id}`, handled by
+`archive_service.delete_unfiled_upload`; both paths share
+`archive_store_cleanup.hard_delete_file`). Everything this script does is
+deliberately CLI-only by design: none of it must ever be exposed via the API
+or frontend (see `app/services/archive_maintenance_service.py`'s module
+docstring, which enforces that as an explicit rule, not just a convention).
 
 Called without a subcommand, prints a short usage text — nothing is read
 from the database and nothing is changed.
