@@ -278,35 +278,16 @@ def update_fee_member(
 
 
 def _count_months(start_date: date, end_date: date) -> int:
-    """Count the months from the first day of start_date's month to the last day
-    of end_date's month.
+    """Count the calendar months from the month of start_date through the month
+    of end_date, both months included.
 
-    The span is split into whole years, whole months and remaining days; the
-    result is years * 12 + months + days / 30, rounded.
+    The span runs from the first day of start_date's month to the last day of
+    end_date's month, so it is always a whole number of months. It is zero or
+    negative when end_date lies before the month of start_date.
     """
-    first = start_date.replace(day=1)
-    if end_date.month == 12:
-        last = date(end_date.year + 1, 1, 1) - timedelta(days=1)
-    else:
-        last = date(end_date.year, end_date.month + 1, 1) - timedelta(days=1)
-
-    # Manual relativedelta: years, months, days between first and last
-    years = last.year - first.year
-    months = last.month - first.month
-    days = last.day - first.day
-
-    if days < 0:
-        months -= 1
-        # Days in the previous month of 'last'
-        prev_month = last.replace(day=1) - timedelta(days=1)
-        days += prev_month.day
-
-    if months < 0:
-        years -= 1
-        months += 12
-
-    total = years * 12 + months + days / 30
-    return round(total)
+    return (
+        (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
+    )
 
 
 def _get_fee_payments_sum(
@@ -314,10 +295,9 @@ def _get_fee_payments_sum(
     member: Member,
     from_date: date,
     to_date: date,
-    *,
-    inclusive_end: bool = False,
 ) -> Decimal:
-    """Get sum of fee payments for a member in a date range.
+    """Get sum of fee payments for a member from from_date up to, but excluding,
+    to_date.
 
     Fee payments = byPartner('member', id)
     AND byCategory(membership fee category) AND amount > 0
@@ -340,24 +320,22 @@ def _get_fee_payments_sum(
     if not fee_cat_tx_ids:
         return Decimal(0)
 
-    query = db.query(func.sum(P4xTransaction.amount)).filter(
-        P4xTransaction.deleted_at.is_(None),
-        P4xTransaction.amount > 0,
-        P4xTransaction.id.in_(fee_cat_tx_ids),
-        P4xTransaction.booking >= from_date,
-        (
-            P4xTransaction.iban.in_(partner_ibans)
-            & p4x_account_service.no_delegation_filter()
+    result = (
+        db.query(func.sum(P4xTransaction.amount))
+        .filter(
+            P4xTransaction.deleted_at.is_(None),
+            P4xTransaction.amount > 0,
+            P4xTransaction.id.in_(fee_cat_tx_ids),
+            P4xTransaction.booking >= from_date,
+            P4xTransaction.booking < to_date,
+            (
+                P4xTransaction.iban.in_(partner_ibans)
+                & p4x_account_service.no_delegation_filter()
+            )
+            | (P4xTransaction.delegating_member_id == member.id),
         )
-        | (P4xTransaction.delegating_member_id == member.id),
+        .scalar()
     )
-
-    if inclusive_end:
-        query = query.filter(P4xTransaction.booking <= to_date)
-    else:
-        query = query.filter(P4xTransaction.booking < to_date)
-
-    result = query.scalar()
     return result or Decimal(0)
 
 
@@ -483,7 +461,6 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
         member,
         init_date,
         start_date,
-        inclusive_end=False,
     )
 
     # Build progress

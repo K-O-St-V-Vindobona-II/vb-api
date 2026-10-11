@@ -466,6 +466,35 @@ class TestFeeBalanceStartBalance:
         # end_balance = 10 - 10 (March fee) = 0
         assert balance["end_balance"] == 0.0
 
+    def test_a_payment_on_the_start_day_belongs_to_the_window_not_to_the_start_balance(
+        self, db_session
+    ):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session, p4x_init_balance=0, p4x_init_date=date(2017, 1, 1)
+        )
+        _add_fee_payment(db_session, member, date(2017, 3, 1), 15.0)
+
+        balance = calculate_fee_balance(db_session, member, "2017-03-01", "2017-03-31")
+
+        assert balance is not None
+        # Two fees (Jan, Feb) are due before the window; the payment of March 1 is not.
+        assert balance["start_balance"] == -20.0
+        # March fee 10 and the payment 15 fall inside the window.
+        assert balance["end_balance"] == -15.0
+
+    def test_a_payment_on_the_init_day_is_part_of_the_start_balance(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session, p4x_init_balance=0, p4x_init_date=date(2017, 1, 1)
+        )
+        _add_fee_payment(db_session, member, date(2017, 1, 1), 15.0)
+
+        balance = calculate_fee_balance(db_session, member, "2017-03-01", "2017-03-31")
+
+        assert balance is not None
+        assert balance["start_balance"] == -5.0
+
 
 class TestGetFeeBalances:
     """Bulk equivalent of get_debtors(), now listing every fee-liable
