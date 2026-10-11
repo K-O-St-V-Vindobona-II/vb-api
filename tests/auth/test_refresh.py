@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import bcrypt
 import jwt
@@ -17,7 +18,11 @@ from app.core.security import (
 from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.members_oauth2binding import MembersOauth2Binding
-from app.services.auth_service import logout_user, unlink_google_account
+from app.services.auth_service import (
+    logout_user,
+    refresh_session,
+    unlink_google_account,
+)
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -143,6 +148,46 @@ class TestRefreshReuseDetection:
             .count()
         )
         assert sessions == 0
+
+
+class TestRefreshKeepsTheSessionId:
+    def test_the_cookie_keeps_the_session_id_when_the_secret_rotates(
+        self, client, member
+    ):
+        _login(client)
+        id_before, secret_before = _get_refresh_cookie(client).split(":", 1)
+        client.post("/api/auth/refresh")
+        id_after, secret_after = _get_refresh_cookie(client).split(":", 1)
+        assert id_after == id_before
+        assert secret_after != secret_before
+
+    def test_the_session_id_comes_from_the_stored_row_not_from_the_request(
+        self, monkeypatch
+    ):
+        stored = AuthSession(
+            jti="stored-id",
+            member_id=uuid.uuid4(),
+            refresh_token_hash="unused",
+            last_used_at=datetime.now(UTC),
+        )
+        db = MagicMock()
+        filtered = db.query.return_value.filter.return_value
+        filtered.with_for_update.return_value.first.return_value = stored
+        filtered.first.return_value = Member(email="stub@test.at", auth_locked=False)
+        monkeypatch.setattr(
+            "app.services.auth_service._validate_refresh_token", lambda *_: None
+        )
+        monkeypatch.setattr(
+            "app.services.auth_service._validate_session_expiry", lambda *_: None
+        )
+
+        access_token, session_id, _ = refresh_session(
+            db, "id-from-the-request", "ignored"
+        )
+
+        assert session_id == "stored-id"
+        claims = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
+        assert claims["jti"] == "stored-id"
 
 
 class TestRefreshFailures:
