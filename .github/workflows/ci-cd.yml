@@ -92,6 +92,8 @@ jobs:
         run: alembic upgrade head
       - name: Run Test Suite & Coverage
         run: pytest --tb=short -q
+      - name: Check Statement and Branch Coverage
+        run: python scripts/check_coverage_gate.py
 
   security:
     name: CodeQL Security Scan

@@ -656,3 +656,91 @@ class TestSelfServiceFieldsAreJsonNative:
         )
 
         assert all(not isinstance(value, date | datetime) for value in dumped.values())
+
+
+# ---------------------------------------------------------------------------
+# MemberSelfServiceSaveRequest — the length rules of every validated field
+# ---------------------------------------------------------------------------
+
+_SELF_SERVICE_LENGTH_RULES = [
+    ("vortitel", 32, "Maximal 32 Zeichen."),
+    ("nachtitel", 32, "Maximal 32 Zeichen."),
+    ("vorname", 64, "Maximal 64 Zeichen."),
+    ("nachname", 64, "Maximal 64 Zeichen."),
+    ("nachname_geburt", 64, "Maximal 64 Zeichen."),
+    ("couleurname", 64, "Maximal 64 Zeichen."),
+    ("arbeitgeber", 64, "Maximal 64 Zeichen."),
+    ("taetigkeit", 64, "Maximal 64 Zeichen."),
+    ("adresse_privat_plz", 8, "PLZ maximal 8 Zeichen."),
+    ("adresse_beruf_plz", 8, "PLZ maximal 8 Zeichen."),
+    ("adresse_privat_ort", 32, "Maximal 32 Zeichen."),
+    ("adresse_privat_land", 32, "Maximal 32 Zeichen."),
+    ("adresse_beruf_ort", 32, "Maximal 32 Zeichen."),
+    ("adresse_beruf_land", 32, "Maximal 32 Zeichen."),
+]
+
+
+class TestSelfServiceLengthRules:
+    """A member editing their own data meets the same limits as an
+    administrator, each with its own message."""
+
+    @pytest.mark.parametrize(("field", "limit", "message"), _SELF_SERVICE_LENGTH_RULES)
+    def test_a_value_of_exactly_the_limit_is_accepted(
+        self, field: str, limit: int, message: str
+    ) -> None:
+        del message
+        request = MemberSelfServiceSaveRequest(
+            **_valid_self_service_data(**{field: "x" * limit})
+        )
+
+        assert getattr(request, field) == "x" * limit
+
+    @pytest.mark.parametrize(("field", "limit", "message"), _SELF_SERVICE_LENGTH_RULES)
+    def test_a_value_one_over_the_limit_is_rejected_with_the_rule_message(
+        self, field: str, limit: int, message: str
+    ) -> None:
+        with pytest.raises(ValidationError) as excinfo:
+            MemberSelfServiceSaveRequest(
+                **_valid_self_service_data(**{field: "x" * (limit + 1)})
+            )
+
+        errors = excinfo.value.errors()
+        assert [e["loc"] for e in errors] == [(field,)]
+        assert message in errors[0]["msg"]
+
+
+class TestSelfServiceUrlRule:
+    """The link fields of the self-service form are shown to other members as
+    clickable links, so only web addresses may be stored."""
+
+    @pytest.mark.parametrize("field", ["url", "mkv_ogv_url"])
+    @pytest.mark.parametrize(
+        "value", ["http://example.com", "https://example.com", "HTTPS://Example.com"]
+    )
+    def test_web_addresses_are_accepted(self, field: str, value: str) -> None:
+        request = MemberSelfServiceSaveRequest(
+            **_valid_self_service_data(**{field: value})
+        )
+
+        assert getattr(request, field) == value
+
+    @pytest.mark.parametrize("field", ["url", "mkv_ogv_url"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "example.com",
+            "ftp://example.com",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "//example.com",
+        ],
+    )
+    def test_anything_else_is_rejected_with_the_rule_message(
+        self, field: str, value: str
+    ) -> None:
+        with pytest.raises(ValidationError) as excinfo:
+            MemberSelfServiceSaveRequest(**_valid_self_service_data(**{field: value}))
+
+        errors = excinfo.value.errors()
+        assert [e["loc"] for e in errors] == [(field,)]
+        assert "http://" in errors[0]["msg"]
