@@ -413,15 +413,19 @@ def refresh_from_cookie(db: Session, cookie_value: str | None) -> tuple[str, str
     except ValueError:
         msg = "Malformed refresh cookie"
         raise RefreshRejectedError(msg) from None
-    access_token, new_secret = refresh_session(db, session_id, refresh_secret)
-    return access_token, session_id, new_secret
+    return refresh_session(db, session_id, refresh_secret)
 
 
 def refresh_session(
     db: Session,
     session_id: str,
     refresh_secret: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
+    """Rotate the refresh secret of a session and issue a new access token.
+
+    Returns (access token, session id, new refresh secret). The session id is
+    the one stored on the session row, never the value taken from the request.
+    """
     # FOR UPDATE serialises concurrent refreshes of the same session: the
     # second request waits for the first to commit, then sees the rotated
     # hash and is rejected as reuse. Without the lock both requests pass the
@@ -456,10 +460,13 @@ def refresh_session(
     session.last_used_at = now
     member.auth_lastsignal = now
 
-    access_token, _ = create_access_token(subject=member.email, jti_override=session_id)
+    stored_session_id = session.jti
+    access_token, _ = create_access_token(
+        subject=member.email, jti_override=stored_session_id
+    )
     db.commit()
 
-    return access_token, new_secret
+    return access_token, stored_session_id, new_secret
 
 
 def _verify_google_credential(

@@ -106,7 +106,7 @@ class TestConcurrentRefresh:
         session_id, secret = committed_session
         db = Session(bind=engine)
         try:
-            _, new_secret = auth_service.refresh_session(db, session_id, secret)
+            _, _, new_secret = auth_service.refresh_session(db, session_id, secret)
             stored = (
                 db.query(AuthSession.refresh_token_hash)
                 .filter(AuthSession.jti == session_id)
