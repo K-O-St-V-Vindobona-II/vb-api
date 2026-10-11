@@ -72,8 +72,9 @@ same convention against its own ephemeral `postgres:18` service container
 **Coverage gate:** a test run measures statements and branches and writes
 `coverage.json`. `pytest` itself enforces a combined floor
 (`--cov-fail-under`), and `scripts/check_coverage_gate.py` then holds
-statement coverage and branch coverage to separate minimums, so a drop in one
-cannot hide behind the other. The minimums live in `pyproject.toml` under
+statement coverage, branch coverage and function coverage (the share of
+functions and methods of which at least one statement ran) to separate
+minimums, so a drop in one cannot hide behind the others. The minimums live in `pyproject.toml` under
 `[tool.coverage_gate]`. The pre-commit hook (`scripts/run_pytest.sh`) and the
 pipeline both run the check after the tests:
 
@@ -309,9 +310,10 @@ verwendet dieselbe Konvention gegen seinen eigenen, ephemeren
 **Coverage-Gate:** Ein Testlauf misst Anweisungen und Verzweigungen und
 schreibt `coverage.json`. `pytest` selbst erzwingt eine gemeinsame
 Untergrenze (`--cov-fail-under`), und `scripts/check_coverage_gate.py`
-prüft danach die Abdeckung der Anweisungen und die der Verzweigungen gegen
-getrennte Mindestwerte, damit ein Rückgang bei der einen nicht hinter der
-anderen verschwindet. Die Mindestwerte stehen in `pyproject.toml` unter
+prüft danach die Abdeckung der Anweisungen, der Verzweigungen und der
+Funktionen (Anteil der Funktionen und Methoden, von denen mindestens eine
+Anweisung lief) gegen getrennte Mindestwerte, damit ein Rückgang bei einer
+nicht hinter den anderen verschwindet. Die Mindestwerte stehen in `pyproject.toml` unter
 `[tool.coverage_gate]`. Der pre-commit-Hook (`scripts/run_pytest.sh`) und die
 Pipeline führen die Prüfung nach den Tests aus:
 

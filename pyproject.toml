@@ -138,13 +138,14 @@ exclude_lines = [
     "^\\s*pass$",
 ]
 
-# Separate minimums for statement and branch coverage, enforced by
+# Separate minimums for statement, branch and function coverage, enforced by
 # scripts/check_coverage_gate.py on the JSON report of a test run. The
-# --cov-fail-under floor above judges one combined figure; these two keep a
+# --cov-fail-under floor above judges one combined figure; these keep a
 # drop in one kind of coverage from hiding behind the other.
 [tool.coverage_gate]
 statements = 97
 branches = 92
+functions = 97
 
 [tool.pyright]
 include = ["app", "scripts", "main.py"]
