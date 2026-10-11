@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Inspect, restore, or permanently hard-delete soft-deleted archive files.
 
-Hard-delete is the ONLY way to permanently remove an archive file's data —
-the regular API only ever soft-deletes (see app/services/archive_service.py).
-Deliberately CLI-only: none of this must ever be exposed via the API/frontend
+Hard-delete is the way to permanently remove an archive file's data — the
+regular API only ever soft-deletes (see app/services/archive_service.py). The
+one exception is a member deleting their own, still unfiled upload from the
+upload page (archive_service.delete_unfiled_upload). Everything handled here
+is deliberately CLI-only: none of it must ever be exposed via the API/frontend
 (see app/services/archive_maintenance_service.py's module docstring).
 
 Without a subcommand, prints a short usage text — nothing is read from the

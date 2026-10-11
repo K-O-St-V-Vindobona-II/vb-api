@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
@@ -26,6 +27,7 @@ from app.models.archive_store_item import (
 )
 from app.models.org import Org
 from app.models.state import State
+from app.services.archive_store_cleanup import hard_delete_file
 from app.services.permission_service import (
     calculate_permissions,
 )
@@ -38,6 +40,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from app.models.member import Member
+
+logger = logging.getLogger(__name__)
 
 THUMB_SIZES = {"xs": 16, "sm": 128, "md": 256, "lg": 550}
 
@@ -975,6 +979,46 @@ def get_unfiled_uploads(
         .all()
     )
     return [_file_short(f) for f in files]
+
+
+def delete_unfiled_upload(
+    db: Session,
+    file_id: uuid.UUID,
+    user: Member,
+    storage: StorageClient,
+) -> None:
+    """Permanently deletes the caller's own upload while it is still unfiled.
+
+    This is the one hard-delete reachable over HTTP; every other removal of
+    archive data stays soft-delete or CLI-only. Another member's upload and an
+    unknown id are both reported as 404, a file an admin has meanwhile filed
+    into a directory as 409. The file row is locked first, so a concurrent
+    filing by an admin cannot slip in between the check and the deletion.
+    """
+    file_obj = (
+        db.query(ArchiveFile)
+        .filter(ArchiveFile.id == file_id)
+        .with_for_update(of=ArchiveFile)
+        .first()
+    )
+    if file_obj is None or file_obj.store_item.created_by != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Datei nicht gefunden.",
+        )
+    if file_obj.archive_dir_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Die Datei wurde bereits einsortiert und kann nicht mehr "
+            "gelöscht werden.",
+        )
+    outcome = hard_delete_file(db, storage, file_obj)
+    for error in outcome.s3_errors:
+        logger.warning(
+            "Unfiled upload %s deleted, storage cleanup incomplete: %s",
+            file_id,
+            error,
+        )
 
 
 def get_unsorted_upload_count(db: Session) -> int:
