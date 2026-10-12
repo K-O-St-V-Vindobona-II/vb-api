@@ -1,7 +1,7 @@
 """Shared pytest fixtures.
 
 The test suite runs exclusively against a real PostgreSQL database — see
-scripts/README.md for the local/CI test-database setup convention. The
+README.md ("Tests") for the local/CI test-database setup convention. The
 schema is built once per test session via the actual Alembic migrations
 (not Base.metadata.create_all()), so the tests also catch model/migration
 drift. Each test runs inside an outer transaction (with a SAVEPOINT for the
@@ -24,7 +24,7 @@ if not TEST_DATABASE_URL:
         "TEST_DATABASE_URL (or DATABASE_URL) is not set. Point it at a "
         "dedicated PostgreSQL test database, e.g. "
         "postgresql+psycopg2://vb:<pw>@localhost:5432/vb_test — see "
-        "scripts/README.md."
+        "README.md, section Tests."
     )
     raise RuntimeError(msg)
 
@@ -68,7 +68,7 @@ engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 if engine.dialect.name != "postgresql":
     msg = (
         f"Test suite requires PostgreSQL, got dialect {engine.dialect.name!r}. "
-        "Non-PostgreSQL fallbacks are not supported, see scripts/README.md."
+        "Non-PostgreSQL fallbacks are not supported, see README.md, section Tests."
     )
     raise RuntimeError(msg)
 

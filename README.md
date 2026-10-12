@@ -1,529 +1,193 @@
 # vb-api
 
-FastAPI backend for **vb** — the internal management system of Vindobona II / Vindobona nova.
+[English](README.md) | [Deutsch](README.de.md)
 
-> All related repos live in the [K-O-St-V-Vindobona-II](https://github.com/K-O-St-V-Vindobona-II) GitHub organization.
+The backend of the Vindobona II system. This README covers what is specific to this repository and assumes you know the [`vb-deploy` README](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md), the leading document for how the whole system is built, run and restored. All four repositories live in the GitHub organization [K-O-St-V-Vindobona-II](https://github.com/K-O-St-V-Vindobona-II).
 
-## Tech Stack
+## 1. Purpose and naming
 
-- **Runtime:** Python 3.14, FastAPI, SQLAlchemy (sync), Alembic
-- **Database:** PostgreSQL 18
-- **Storage:** S3-compatible (Garage on non-production stages, AWS S3 on production)
-- **Scheduler:** ARQ (async worker with cron jobs)
-- **Container:** Podman Quadlets (rootless systemd)
+`vb-api` provides the **backend**: the JSON API, the database logic and the scheduled jobs of the club's management system (members and the member database "Standesdatenbank", fees and the bookkeeping of the alumni association "AH-Kassen"/`p4x`, the archive, the public website's content, mail notifications). The frontends `vb-intern` (members and officials, login required) and `vb-www` (public website) talk to it; nothing else is needed to use the data.
 
-## Development Setup
+**Naming convention:** the repository name is the subdomain. `vb-api` is served at **`api.vindobona2.at`** (and `vb-intern` at `intern.vindobona2.at`, `vb-www` at `www.vindobona2.at`). On other stages the domains come from the stage's inventory in `vb-deploy`.
 
-### Prerequisites
+Tech stack: Python 3.14, FastAPI, SQLAlchemy (synchronous), Alembic, PostgreSQL 18, S3 compatible storage (AWS S3 on production, Garage on other stages), ARQ with Valkey for jobs. Interactive API documentation is served at `/docs` on the `development` stage only.
 
-- Podman with the `vb-api` container running (see Quadlet config)
-- Python dev dependencies are installed inside the container (`requirements-dev.lock`)
+## 2. Containers of this repository
 
-For the local dev Quadlet/env setup and production/stage prerequisites, see
-[`vb-deploy`'s Prerequisites](../vb-deploy/README.md#prerequisites).
+Everything of `vb-api` runs in **one pod, `vb-api-pod`**; its containers share a network namespace and reach each other over `localhost`:
 
-### After cloning
-
-```bash
-# Install git hooks — required once per clone, prevents CI failures from formatting mismatches
-pre-commit install
-```
-
-> **Why this matters:** Without `pre-commit install`, commits bypass ruff formatting and
-> type-checking entirely. The CI pipeline runs `ruff format --check`, `pyright`, and `pytest`
-> - all of which the pre-commit hooks mirror locally. Three of the hooks (router
-> separation-of-concerns check, `pyright`, `pytest`) run inside the `vb-api` container via
-> `podman exec`, so it must be running when you commit. A further hook refuses `.env*`
-> files (except `.env.example`) and shell history files.
-
-### Running tests
-
-The test suite runs exclusively against a real PostgreSQL database, never
-against a lighter embedded database (see `tests/conftest.py`) - this is what
-lets it actually exercise DB-native behavior like foreign-key
-`ON DELETE`/`ON UPDATE` rules, which a suite on a lighter database would
-silently never enforce. The schema is rebuilt from
-scratch every session via the real Alembic migrations, so drift between
-models and migrations surfaces here too.
-
-**One-time setup** — create a dedicated test database on the same Postgres
-server as your Dev database (never point tests at the real `vb` database;
-the test session destructively drops and rebuilds its schema):
-
-```bash
-podman exec vb-api-pg psql -U vb -c "CREATE DATABASE vb_test OWNER vb;"
-```
-
-**Run the suite:**
-
-```bash
-podman exec -e TEST_DATABASE_URL=postgresql+psycopg2://vb:<pw>@localhost:5432/vb_test vb-api python -m pytest
-```
-
-(`<pw>` is the Postgres password from your `.env`; `localhost:5432` resolves
-because `vb-api` and `vb-api-pg` share a Podman pod.) If `TEST_DATABASE_URL`
-is unset, `conftest.py` falls back to `DATABASE_URL` — but only accepts it
-if it points at an allowlisted test database name (`vb_test`/`test`); any
-other target is refused with a loud error, precisely to prevent a
-misconfigured `DATABASE_URL` from ever wiping a real database. CI uses the
-same convention against its own ephemeral `postgres:18` service container
-(database `test`).
-
-**Coverage gate:** a test run measures statements and branches and writes
-`coverage.json`. `pytest` itself enforces a combined floor
-(`--cov-fail-under`), and `scripts/check_coverage_gate.py` then holds
-statement coverage, branch coverage and function coverage (the share of
-functions and methods of which at least one statement ran) to separate
-minimums, so a drop in one cannot hide behind the others. The minimums live in `pyproject.toml` under
-`[tool.coverage_gate]`. The pre-commit hook (`scripts/run_pytest.sh`) and the
-pipeline both run the check after the tests:
-
-```bash
-podman exec vb-api python scripts/check_coverage_gate.py
-```
-
-### Linting & formatting
-
-```bash
-# Check
-podman exec vb-api python -m ruff check .
-podman exec vb-api python -m ruff format --check .
-
-# Fix in-place
-podman exec vb-api python -m ruff check --fix .
-podman exec vb-api python -m ruff format .
-```
-
-### Type checking
-
-```bash
-podman exec vb-api python -m pyright
-```
-
-## Environment Variables
-
-Copy `.env.example` and fill in the required values:
-
-```bash
-cp .env.example .env
-```
-
-For the actual production/stage values (and how they're managed), see
-[`vb-deploy`'s Stages](../vb-deploy/README.md#stages).
-
-`APP_ENVIRONMENT` is **required** — the application refuses to start without it:
-
-| Value | Use case |
-|---|---|
-| `development` | Local / Dev-VPS |
-| `test` | Automated test runs |
-| `qa` | QA staging |
-| `production` | Production VPS |
-
-## Database Migrations
-
-```bash
-# Apply pending migrations
-podman exec vb-api alembic upgrade head
-
-# Create a new migration
-podman exec vb-api alembic revision --autogenerate -m "description"
-```
-
-The prod image's `docker-entrypoint.sh` runs `alembic upgrade head` automatically before starting gunicorn, so every container restart (including `podman-auto-update` pulling a new image) applies pending migrations itself — no separate manual step needed there. The manual command above stays relevant for local development (the dev image keeps its plain `uvicorn --reload` command, no auto-migration) and for creating new migrations.
-
-### Rollbacks and compatibility
-
-The entrypoint also starts an older image against a newer database: if the database is at a revision the image does not know (a rollback after a release with a migration), it logs a warning and starts without migrating. That is safe only while each migration stays compatible with the previous release. So a schema change follows *expand first, contract later*: add the new column/table/constraint in one release (nullable or with a default, old code keeps working), switch the code over, and remove the old structure in a later release. A change that cannot follow this rule needs a note in its migration docstring and a fresh backup (`scripts/backup_db.py`) before the rollout.
-
-The worker container runs with `SKIP_MIGRATIONS=true`; only the web container migrates, so there is exactly one migrating process per rollout.
-
-### Dependencies
-
-`requirements.lock` and `requirements-dev.lock` pin every package with hashes and are generated from `requirements.txt` / `requirements-dev.txt`:
-
-```bash
-uv pip compile requirements.txt -o requirements.lock --python-version 3.14 --generate-hashes
-uv pip compile requirements-dev.txt -o requirements-dev.lock --python-version 3.14 --generate-hashes
-```
-
-Add `--upgrade` to both commands once a month to pick up new versions. The `dependency-audit` CI job runs `pip-audit` over both locks (on every run and weekly): when it fails, upgrade the affected package with `--upgrade-package <name>` and regenerate the locks; if no fixed version exists yet, accept the advisory with a written reason by adding `--ignore-vuln <ID>` to the job's command.
-
-## Scheduler
-
-Scheduled (cron) jobs run in a dedicated ARQ worker process — its own container (`vb-api-worker`, see `vb-deploy`), separate from the web container. Job bodies live in `app/core/scheduler.py` (unchanged sync functions — each opens its own `SessionLocal()`, records its own outcome); `app/worker.py` wraps each one in a thin async task and builds arq's real `cron_jobs` list from the declarative schedule in `app/core/job_schedule_registry.py`. Since the worker container is always a single process, there's no cross-worker duplication to guard against (no advisory lock needed, unlike the pre-ARQ, in-web-process design).
-
-All 9 jobs share one configurable timezone (`Settings.app_timezone`, default `Europe/Vienna`) — arq's `Worker` only supports one global timezone, not a per-job override, so `db_backup`/`downsync` are no longer UTC-pinned as they were historically; the `BACKUP_HOUR + 1 = DOWNSYNC_HOUR` relationship stays the same, just computed in the configured timezone instead of UTC.
-
-### Job registration is gated by `APP_ENVIRONMENT`
-
-- `cleanup` runs in every stage.
-- All "business" jobs (mails, reminders, chronicles, health-check reports, category-filter refresh) and `db_backup` only run in `production`.
-- `downsync` only runs outside `production` — see below.
-
-| Job ID | Schedule | Stage | Purpose |
+| Container | Image | Runs code of this repository? | Always present? |
 |---|---|---|---|
-| `cleanup` | hourly | all | Deletes expired sessions, reset tokens, and tracking data past retention. |
-| `refresh_category_filter_hits` | daily 07:00 | production | Recomputes which transactions match each P4x category filter. |
-| `birthday_mails` | daily 15:53 | production | Sends birthday greetings to VBW members whose birthday is tomorrow. |
-| `debtor_reminder` | monthly, 25th 18:32 | production | Sends fee-arrears reminders (debt > 300€). |
-| `standesdb_chronicles` | weekly, Tue 17:00 | production | Sends the weekly anniversaries digest (birthdays, admissions, ...). |
-| `archive_health_check` | weekly, Tue 01:00 | production | Verifies archive files referenced in the DB exist in S3, reports orphans. |
-| `standesdb_health_check` | weekly, Tue 03:00 | production | Same integrity check for Standesdb images. |
-| `db_backup` | daily, `BACKUP_HOUR` (default 03:00) | production (+ `BACKUP_ENABLED`) | Dumps PostgreSQL, uploads to S3, deletes backups older than `BACKUP_RETENTION_DAYS`. |
-| `downsync` | daily, `DOWNSYNC_HOUR` (`BACKUP_HOUR + 1`, default 04:00) | non-production | See below. |
+| `vb-api` | `ghcr.io/k-o-st-v-vindobona-ii/vb-api` | **Yes** | yes |
+| `vb-api-worker` | same image as `vb-api` | **Yes** | yes |
+| `vb-api-pg` | `postgres:18` | no | yes |
+| `vb-api-valkey` | `valkey/valkey:8` | no | yes |
+| `vb-garage` | `dxflrs/garage` | no | no, **non-production stages only** |
 
-(All times are in the configured `APP_TIMEZONE`.)
+Quadlet definitions, ports, hardening and the exact pod layout are in `vb-deploy` (chapter [1.4](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#14-containers-and-pods)).
 
-### Downsync — keeping non-production stages current with prod
+## 3. What each container does
 
-The overall idea: **once a day, every non-production stage (dev, test, qa) automatically gets refreshed with real production data** — nobody has to run a script by hand.
+- **`vb-api`**: serves the API (gunicorn with two uvicorn workers, container port 8000, host port 21000 on `127.0.0.1`, reached through Caddy). On start its entrypoint applies pending database migrations. Health check: the root URL answers.
+- **`vb-api-worker`**: runs the scheduled and background jobs with `arq app.worker.WorkerSettings`: the nightly backup, the weekly mails, integrity checks, cleanup and, on other stages, the nightly downsync. It reads the job queue from Valkey. It does **not** migrate (`SKIP_MIGRATIONS=true`).
+- **`vb-api-pg`**: the PostgreSQL database. The application connects as the non-superuser role `vb_app`, which owns the database; the bootstrap superuser is used only to create it.
+- **`vb-api-valkey`**: the queue the worker takes its jobs from. Persistence is off on purpose; a lost job is a notification mail or a manually repeatable downsync.
+- **`vb-garage`**: an S3 stand-in on non-production stages, holding a mirror of the production bucket.
 
-`job_downsync()` fires shortly after the production `db_backup` job (default: one hour later, so that day's dump already exists on prod S3) and does, in this fixed order:
+## 4. Where the code of this repository runs
 
-1. Mirrors the **entire** production AWS S3 bucket (`archive/`, `standesdb/`, `public/`, `db-backups/` — everything) down into this stage's own S3-compatible storage (Garage).
-2. Immediately restores the local PostgreSQL database from the now freshly-mirrored `db-backups/` prefix (the latest prod dump) and runs `alembic upgrade head`.
+The code is baked into **one container image**, built from the `prod` target of the `Dockerfile` by the CI and published as `ghcr.io/k-o-st-v-vindobona-ii/vb-api:latest` and `...:<full commit sha>`. That single image is started twice: as `vb-api` (default command: gunicorn) and as `vb-api-worker` (the Quadlet replaces the command with `arq app.worker.WorkerSettings`). The entrypoint `docker-entrypoint.sh` runs `alembic upgrade head` before starting, unless `SKIP_MIGRATIONS=true`; if the database is at a revision the image does not know (a rollback), it logs a warning and starts without migrating.
 
-This is the same logic `scripts/downsync_prod.py` already performs for manual/interactive use (see [Scripts](#scripts)) — the shared prod-credential-loading and storage-building code lives in `app/services/downsync_service.py`, used by both the CLI script and the automated job. Production never registers this job at all: it's guarded twice — once via the `APP_ENVIRONMENT` check in `build_cron_jobs()`, and again inside `job_downsync()` itself as a belt-and-suspenders safety net. `POST /api/system/downsync/trigger` (requires `systemAdmin`) enqueues the exact same task on demand (`arq_pool.enqueue_job("task_downsync")`), for an immediate re-run outside the nightly schedule.
+The `dev` target of the same `Dockerfile` (`localhost/vb-api:dev`) is what the local development stage runs: the source folder is mounted into the container and `uvicorn --reload` restarts on every change.
 
-### Inspecting the schedule
+Layout of the code, from the outside in; each layer calls only the next:
 
-`GET /api/system/scheduled-jobs` (requires `systemAdmin`) computes each applicable job's next run straight from the declarative schedule in `app/core/job_schedule_registry.py` (via arq's own `next_cron()`) — no live worker instance needed for this, so the web and worker containers can never disagree on what's scheduled where.
+```
+app/api/        routers and dependencies: HTTP only, no business logic, no database access
+app/services/   business logic and every database query
+app/models/     SQLAlchemy models
+app/schemas/    Pydantic request and response models
+app/core/       settings, storage, scheduler jobs and the declarative job schedule
+app/worker.py   wraps the jobs for ARQ
+alembic/        database migrations
+scripts/        operational scripts (see scripts/README.md)
+```
 
-### Reading the worker container's logs
-
-The `vb-api-worker` container logs every job start/success/retry/failure via arq's own default logging — a cron run and an ad-hoc `enqueue_job()` run (e.g. a mail triggered by a request) otherwise look almost identical there. `app/core/worker_logging.py` tags each of these lines with `[scheduled]` or `[triggered]`, so a container log viewer (e.g. Dozzle) makes the distinction obvious at a glance without needing to know arq's own job-id-prefix convention.
-
-`downsync` is the one exception: since it's registered under the same name as both a cron job and a manual-trigger target (see above), arq itself can no longer tell those two apart in its log line once a name is cron-registered — `task_downsync()` therefore logs its own `[scheduled]`/`[triggered]` line explicitly instead, from the actual job it was given.
-
-## Scripts
-
-Operational scripts, re-run on demand as part of regular ops:
-
-| Script | Purpose |
-|---|---|
-| `scripts/backup_db.py` | Manually trigger a PostgreSQL backup to S3 (`--list`, `--cleanup`) |
-| `scripts/restore_db.py` | Restore PostgreSQL from S3 backup (`--list`, `--backup-name`, `--force`) |
-| `scripts/check_s3_integrity.py` | Bidirectional DB↔S3 integrity check + orphan report (read-only) |
-| `scripts/downsync_prod.py` | Downsync prod AWS S3 (full mirror) → local Garage, then restore local DB from it (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
-| `scripts/trigger_chronicles.py` | Manually trigger the chronicle-mail job for an arbitrary reference date (`--date`, `--send`, `--to`) |
-| `scripts/maintain_deleted_archive_files.py` | List, purge (hard-delete) or restore soft-deleted archive files; the only tool that permanently deletes archive data (`list`, `purge`, `purge-duplicates`, `restore`) |
-
-Full docs (usage, parameters, env vars) for every script: [`scripts/README.md`](scripts/README.md).
-
-## Branching
-
-- `main` — protected, merge via PR only
-- `development` — active development branch
-
-## CI/CD
-
-The pipeline (`.github/workflows/ci-cd.yml`) runs on pushes and pull requests to `main`, weekly (Monday 06:00 UTC) and on manual trigger:
-
-1. **Lint & Format** - `ruff check` + `ruff format --check` + router separation-of-concerns check
-2. **Typecheck, Migrations & Test** — `pyright` + `alembic upgrade head` + `pytest --cov`
-3. **CodeQL Security Scan**
-4. **Dependency Audit** - `pip-audit` over both lock files
-5. **Read-Only Rootfs Smoke Test** - the production image started with the production hardening
-6. **Build & Push Image** - pushes to `ghcr.io` only from `main` (push or manual trigger) and only after all other jobs passed
-
-Production/stage rollout itself happens outside this pipeline: the host's own
-`podman-auto-update.timer` picks up the new `:latest` image automatically, or
-an operator triggers it immediately via `--tags deploy-api` — see
-[`vb-deploy`'s Phase 2 — Day-2 Operations](../vb-deploy/README.md#phase-2--day-2-operations).
+`scripts/check_router_soc.py` enforces the rule "routers call services only".
 
 ---
 
-# Deutsch
+## Development
 
-FastAPI-Backend für **vb** — das interne Verwaltungssystem von Vindobona II / Vindobona nova.
+### Setup
 
-> Alle zugehörigen Repos liegen in der GitHub-Organisation [K-O-St-V-Vindobona-II](https://github.com/K-O-St-V-Vindobona-II).
-
-## Tech-Stack
-
-- **Laufzeitumgebung:** Python 3.14, FastAPI, SQLAlchemy (synchron), Alembic
-- **Datenbank:** PostgreSQL 18
-- **Storage:** S3-kompatibel (Garage auf Non-Prod-Stages, AWS S3 in Produktion)
-- **Scheduler:** ARQ (asynchroner Worker mit Cron-Jobs)
-- **Container:** Podman Quadlets (rootless systemd)
-
-## Entwicklungs-Setup
-
-### Voraussetzungen
-
-- Podman mit laufendem `vb-api`-Container (siehe Quadlet-Konfiguration)
-- Python-Dev-Abhängigkeiten werden im Container installiert (`requirements-dev.lock`)
-
-Für das lokale Dev-Quadlet-/Env-Setup sowie Production-/Stage-Voraussetzungen
-siehe [`vb-deploy`s Voraussetzungen](../vb-deploy/README.md#voraussetzungen).
-
-### Nach dem Klonen
+- Podman with the `vb-api` container running from the local development Quadlets ([`vb-deploy` 5.7](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#57-local-development-environment)). Python dev dependencies are installed inside the container (`requirements-dev.lock`).
+- Run every command through `podman exec vb-api ...`; never install packages on the host.
 
 ```bash
-# Git-Hooks installieren — einmalig pro Klon nötig, verhindert CI-Fehlschläge durch Formatierungs-Abweichungen
+# once per clone: install the git hooks (they mirror the CI checks)
 pre-commit install
 ```
 
-> **Warum das wichtig ist:** Ohne `pre-commit install` umgehen Commits die
-> Ruff-Formatierung und Typprüfung komplett. Die CI-Pipeline führt `ruff format --check`,
-> `pyright` und `pytest` aus — alle davon werden lokal von den Pre-Commit-Hooks gespiegelt.
-> Drei der Hooks (Router-Schichtentrennungs-Check, `pyright`, `pytest`) laufen per `podman exec`
-> im `vb-api`-Container, der beim Commit also laufen muss. Ein weiterer Hook weist `.env*`-Dateien
-> (außer `.env.example`) und Shell-History-Dateien ab.
+Without the hooks, commits skip ruff formatting, type checking and the tests, and the CI fails later. Three hooks (router separation check, `pyright`, `pytest`) run inside the `vb-api` container, so it must be running when you commit. A further hook refuses `.env*` files (except `.env.example`) and shell history files.
 
-### Tests ausführen
+### Tests
 
-Die Testsuite läuft ausschließlich gegen eine echte PostgreSQL-Datenbank,
-niemals gegen eine leichtere eingebettete Datenbank (siehe
-`tests/conftest.py`) - nur so lässt sich DB-natives Verhalten wie
-Foreign-Key-`ON DELETE`/`ON UPDATE`-Regeln tatsächlich prüfen, was eine Suite
-auf einer leichteren Datenbank stillschweigend nie durchsetzen würde. Das Schema wird bei jeder Session von Grund auf über die
-echten Alembic-Migrationen neu aufgebaut, sodass auch Drift zwischen
-Modellen und Migrationen hier sichtbar wird.
+The suite runs only against a real PostgreSQL database, never a lighter embedded one (see `tests/conftest.py`): that is what lets it exercise database behavior such as foreign-key `ON DELETE`/`ON UPDATE` rules. The schema is rebuilt from scratch every session through the real Alembic migrations, so drift between models and migrations shows up here too.
 
-**Einmalige Einrichtung** — eine eigene Testdatenbank auf demselben
-Postgres-Server wie die Dev-Datenbank anlegen (Tests niemals gegen die
-echte `vb`-Datenbank laufen lassen; die Testsession löscht und baut ihr
-Schema destruktiv neu auf):
+**One-time setup:** create a dedicated test database on the same Postgres server (never point tests at the real `vb` database; the test session drops and rebuilds its schema):
 
 ```bash
 podman exec vb-api-pg psql -U vb -c "CREATE DATABASE vb_test OWNER vb;"
 ```
 
-**Suite ausführen:**
+**Run the suite** (the helper derives the test database from `DATABASE_URL` and runs the coverage gate afterwards):
+
+```bash
+podman exec vb-api sh scripts/run_pytest.sh -q
+```
+
+or directly, with an explicit database:
 
 ```bash
 podman exec -e TEST_DATABASE_URL=postgresql+psycopg2://vb:<pw>@localhost:5432/vb_test vb-api python -m pytest
 ```
 
-(`<pw>` ist das Postgres-Passwort aus der eigenen `.env`; `localhost:5432`
-funktioniert, weil sich `vb-api` und `vb-api-pg` einen Podman-Pod teilen.)
-Ist `TEST_DATABASE_URL` nicht gesetzt, fällt `conftest.py` auf
-`DATABASE_URL` zurück — akzeptiert diese aber nur, wenn sie auf einen
-erlaubten Testdatenbanknamen zeigt (`vb_test`/`test`); jedes andere Ziel
-wird mit einem lauten Fehler verweigert, genau um zu verhindern, dass eine
-falsch konfigurierte `DATABASE_URL` je eine echte Datenbank löscht. CI
-verwendet dieselbe Konvention gegen seinen eigenen, ephemeren
-`postgres:18`-Service-Container (Datenbank `test`).
+`<pw>` is the Postgres password from your `.env`; `localhost:5432` resolves because `vb-api` and `vb-api-pg` share a pod. If `TEST_DATABASE_URL` is unset, `conftest.py` falls back to `DATABASE_URL`, but accepts it only when it names an allow-listed test database (`vb_test` or `test`); anything else is refused, so a misconfigured URL can never wipe a real database. Run only one pytest session at a time against `vb_test`.
 
-**Coverage-Gate:** Ein Testlauf misst Anweisungen und Verzweigungen und
-schreibt `coverage.json`. `pytest` selbst erzwingt eine gemeinsame
-Untergrenze (`--cov-fail-under`), und `scripts/check_coverage_gate.py`
-prüft danach die Abdeckung der Anweisungen, der Verzweigungen und der
-Funktionen (Anteil der Funktionen und Methoden, von denen mindestens eine
-Anweisung lief) gegen getrennte Mindestwerte, damit ein Rückgang bei einer
-nicht hinter den anderen verschwindet. Die Mindestwerte stehen in `pyproject.toml` unter
-`[tool.coverage_gate]`. Der pre-commit-Hook (`scripts/run_pytest.sh`) und die
-Pipeline führen die Prüfung nach den Tests aus:
+**Coverage gate.** A run writes `coverage.json`. `pytest` enforces a combined floor (`--cov-fail-under`), and `scripts/check_coverage_gate.py` then holds statement, branch and function coverage to separate minimums (`[tool.coverage_gate]` in `pyproject.toml`), so a drop in one cannot hide behind another. New business logic needs tests, and endpoints that return lists or deep relations need a test that limits the number of SQL statements (N+1 protection).
+
+### Linting, formatting and types
 
 ```bash
-podman exec vb-api python scripts/check_coverage_gate.py
+podman exec vb-api python -m ruff check .          # lint
+podman exec vb-api python -m ruff format --check . # format check
+podman exec vb-api python -m ruff check --fix . && podman exec vb-api python -m ruff format .   # fix in place
+podman exec vb-api python -m pyright               # strict type check (app, scripts, main.py)
+podman exec vb-api python scripts/check_router_soc.py
 ```
 
-### Linting & Formatierung
+### Environment variables
 
-```bash
-# Prüfen
-podman exec vb-api python -m ruff check .
-podman exec vb-api python -m ruff format --check .
+Copy `.env.example` to `.env` and fill in the required values. For real stage values and how they are managed, see `vb-deploy` ([Appendix A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#appendix-a-secrets-and-required-variables)). All settings are typed in `app/core/config.py`; the code never reads the environment directly.
 
-# Direkt beheben
-podman exec vb-api python -m ruff check --fix .
-podman exec vb-api python -m ruff format .
-```
+`APP_ENVIRONMENT` is **required**; the application refuses to start without it:
 
-### Typprüfung
-
-```bash
-podman exec vb-api python -m pyright
-```
-
-## Umgebungsvariablen
-
-`.env.example` kopieren und die nötigen Werte eintragen:
-
-```bash
-cp .env.example .env
-```
-
-Für die echten Production-/Stage-Werte (und wie sie verwaltet werden) siehe
-[`vb-deploy`s Stages](../vb-deploy/README.md#stages-1).
-
-`APP_ENVIRONMENT` ist **Pflicht** — die Anwendung startet ohne diese Variable nicht:
-
-| Wert | Anwendungsfall |
+| Value | Use |
 |---|---|
-| `development` | Lokal / Dev-VPS |
-| `test` | Automatisierte Testläufe |
-| `qa` | QA-Staging |
-| `production` | Production-VPS |
+| `development` | Local development stage |
+| `test` | Automated test runs |
+| `qa` | QA stage |
+| `production` | Production |
 
-## Datenbank-Migrationen
+### Database migrations
 
 ```bash
-# Ausstehende Migrationen anwenden
+# apply pending migrations
 podman exec vb-api alembic upgrade head
 
-# Neue Migration erzeugen
-podman exec vb-api alembic revision --autogenerate -m "Beschreibung"
+# create a new migration from the models
+podman exec vb-api alembic revision --autogenerate -m "description"
 ```
 
-`docker-entrypoint.sh` des Prod-Images führt `alembic upgrade head`
-automatisch vor dem Start von gunicorn aus, sodass jeder Container-Neustart
-(auch wenn `podman-auto-update` ein neues Image zieht) ausstehende
-Migrationen selbst anwendet — dort ist kein separater manueller Schritt
-nötig. Der obige manuelle Befehl bleibt relevant für die lokale Entwicklung
-(das Dev-Image behält seinen einfachen `uvicorn --reload`-Befehl, keine
-Auto-Migration) sowie für das Erzeugen neuer Migrationen.
+The production image applies pending migrations itself on every start (including after `podman auto-update` pulls a new image). The manual command is for the development stage (its image keeps a plain `uvicorn --reload` command without auto-migration) and for creating migrations.
 
-### Rollbacks und Kompatibilität
+**Rollbacks and compatibility.** The entrypoint also starts an older image against a newer database: it logs a warning and starts without migrating. That is safe only while each migration stays compatible with the previous release. A schema change therefore follows *expand first, contract later*: add the new column, table or constraint in one release (nullable or with a default, old code keeps working), switch the code over, and remove the old structure in a later release. A change that cannot follow this rule needs a note in its migration docstring and a fresh backup (`scripts/backup_db.py`) before the rollout. Only the web container migrates, so there is exactly one migrating process per rollout. To undo a migration: `podman exec vb-api alembic downgrade -1`.
 
-Der Entrypoint startet auch ein älteres Image gegen eine neuere Datenbank: steht die Datenbank auf einer Revision, die das Image nicht kennt (Rollback nach einem Release mit Migration), loggt er eine Warnung und startet ohne zu migrieren. Das ist nur sicher, solange jede Migration zum vorherigen Release kompatibel bleibt. Eine Schemaänderung folgt daher *erst erweitern, später aufräumen*: Spalte/Tabelle/Constraint in einem Release hinzufügen (nullable oder mit Default, der alte Code funktioniert weiter), den Code umstellen und die alte Struktur in einem späteren Release entfernen. Eine Änderung, die dieser Regel nicht folgen kann, braucht einen Hinweis im Docstring der Migration und ein frisches Backup (`scripts/backup_db.py`) vor dem Rollout.
+New tables follow the project's database rules: UUID primary keys, foreign keys with explicit `ON DELETE`/`ON UPDATE` and an index, `TIMESTAMPTZ` columns, `created_at`/`updated_at` maintained by the database trigger.
 
-Der Worker-Container läuft mit `SKIP_MIGRATIONS=true`; nur der Web-Container migriert, pro Rollout gibt es also genau einen migrierenden Prozess.
+### Dependencies
 
-### Abhängigkeiten
-
-`requirements.lock` und `requirements-dev.lock` pinnen jedes Paket mit Hashes und werden aus `requirements.txt` / `requirements-dev.txt` erzeugt:
+`requirements.lock` and `requirements-dev.lock` pin every package with hashes and are generated from `requirements.txt` and `requirements-dev.txt`:
 
 ```bash
 uv pip compile requirements.txt -o requirements.lock --python-version 3.14 --generate-hashes
 uv pip compile requirements-dev.txt -o requirements-dev.lock --python-version 3.14 --generate-hashes
 ```
 
-Einmal im Monat `--upgrade` an beide Befehle hängen, um neue Versionen zu übernehmen. Der CI-Job `dependency-audit` führt `pip-audit` über beide Locks aus (bei jedem Lauf und wöchentlich): schlägt er fehl, das betroffene Paket mit `--upgrade-package <name>` aktualisieren und die Locks neu erzeugen; gibt es noch keine behobene Version, die Meldung mit schriftlicher Begründung akzeptieren, indem `--ignore-vuln <ID>` an den Befehl des Jobs angehängt wird.
+Add `--upgrade` to both once a month to pick up new versions. The CI job `dependency-audit` runs `pip-audit` over both lock files (on every run and weekly): when it fails, upgrade the affected package with `--upgrade-package <name>` and regenerate the locks; if no fixed version exists yet, accept the advisory with a written reason by adding `--ignore-vuln <ID>` to the job's command. GitHub's dependency graph lists only the unpinned `requirements*.txt` files, not the lock files, so its alerts say little about the pinned versions; this CI job is what covers the Python packages.
 
-## Scheduler
+### Scheduler
 
-Geplante (Cron-)Jobs laufen in einem eigenen ARQ-Worker-Prozess — einem
-eigenen Container (`vb-api-worker`, siehe `vb-deploy`), getrennt vom
-Web-Container. Die Job-Bodies liegen weiterhin in `app/core/scheduler.py`
-(unveränderte synchrone Funktionen — jede öffnet ihre eigene
-`SessionLocal()`, protokolliert ihr eigenes Ergebnis); `app/worker.py`
-verpackt jede davon in einen dünnen Async-Task und baut arqs echte
-`cron_jobs`-Liste aus dem deklarativen Zeitplan in
-`app/core/job_schedule_registry.py`. Da der Worker-Container immer nur
-ein einzelner Prozess ist, gibt es keine Mehrfach-Registrierung zu
-verhindern (kein Advisory-Lock mehr nötig, anders als im früheren,
-im Web-Prozess laufenden Design).
+Scheduled jobs run in the `vb-api-worker` container. The job bodies live in `app/core/scheduler.py` (each opens its own database session and records its own outcome); `app/worker.py` wraps each in a thin async task and builds ARQ's cron list from the declarative schedule in `app/core/job_schedule_registry.py`, the single source of truth that both the web and the worker container read, so they can never disagree about what is scheduled where. All jobs share one timezone (`APP_TIMEZONE`, default `Europe/Vienna`).
 
-Alle 9 Jobs teilen sich eine konfigurierbare Zeitzone
-(`Settings.app_timezone`, Standard `Europe/Vienna`) — arqs `Worker`
-unterstützt nur eine globale Zeitzone, kein Per-Job-Override, deshalb
-sind `db_backup`/`downsync` nicht mehr wie historisch auf UTC gepinnt;
-die Beziehung `BACKUP_HOUR + 1 = DOWNSYNC_HOUR` bleibt gleich, wird nur
-jetzt in der konfigurierten Zeitzone statt in UTC berechnet.
+Registration depends on `APP_ENVIRONMENT`: `cleanup` runs everywhere, the business jobs and `db_backup` only on `production`, `downsync` only outside `production`.
 
-### Job-Registrierung ist über `APP_ENVIRONMENT` gesteuert
-
-- `cleanup` läuft in jeder Stage.
-- Alle "Business"-Jobs (Mails, Erinnerungen, Chroniken, Health-Check-Berichte,
-  Kategoriefilter-Refresh) sowie `db_backup` laufen nur in `production`.
-- `downsync` läuft nur außerhalb von `production` — siehe unten.
-
-| Job-ID | Zeitplan | Stage | Zweck |
+| Job | Schedule | Stage | Purpose |
 |---|---|---|---|
-| `cleanup` | stündlich | alle | Löscht abgelaufene Sessions, Reset-Tokens und Tracking-Daten nach Ablauf der Aufbewahrungsfrist. |
-| `refresh_category_filter_hits` | täglich 07:00 | production | Berechnet neu, welche Transaktionen auf welchen P4x-Kategoriefilter passen. |
-| `birthday_mails` | täglich 15:53 | production | Sendet Geburtstagsgrüße an VBW-Mitglieder, die morgen Geburtstag haben. |
-| `debtor_reminder` | monatlich, 25. um 18:32 | production | Sendet Beitragsrückstands-Erinnerungen (Schuld > 300 €). |
-| `standesdb_chronicles` | wöchentlich, Di 17:00 | production | Sendet die wöchentliche Jubiläums-Übersicht (Geburtstage, Aufnahmen, ...). |
-| `archive_health_check` | wöchentlich, Di 01:00 | production | Prüft, ob in der DB referenzierte Archiv-Dateien in S3 existieren, meldet Waisen. |
-| `standesdb_health_check` | wöchentlich, Di 03:00 | production | Derselbe Integritätscheck für Standesdb-Bilder. |
-| `db_backup` | täglich, `BACKUP_HOUR` (Standard 03:00) | production (+ `BACKUP_ENABLED`) | Erstellt einen PostgreSQL-Dump, lädt ihn nach S3 hoch, löscht Backups älter als `BACKUP_RETENTION_DAYS`. |
-| `downsync` | täglich, `DOWNSYNC_HOUR` (`BACKUP_HOUR + 1`, Standard 04:00) | non-production | Siehe unten. |
+| `cleanup` | hourly | all | Deletes expired sessions, reset tokens, old activity logs, sent mails, orphaned user agents. |
+| `refresh_category_filter_hits` | daily 07:00 | production | Recomputes which transactions match each category filter. |
+| `birthday_mails` | daily 15:53 | production | Birthday greetings to members whose birthday is tomorrow. |
+| `debtor_reminder` | 25th, 18:32 | production | Fee arrears reminders (more than 300 EUR). |
+| `standesdb_chronicles` | Tuesday 17:00 | production | The weekly anniversaries mail. |
+| `archive_health_check` | Tuesday 01:00 | production | Archive files against S3, report to the archive administrators. |
+| `standesdb_health_check` | Tuesday 03:00 | production | Member images against S3, report to the administrators. |
+| `db_backup` | daily, `BACKUP_HOUR` (03:00) | production | Dump to S3, delete dumps older than `BACKUP_RETENTION_DAYS`. |
+| `downsync` | daily, `BACKUP_HOUR` + 1 (04:00) | all except production | Mirror the production bucket, restore the newest dump, `alembic upgrade head`. |
 
-(Alle Uhrzeiten in der konfigurierten `APP_TIMEZONE`.)
+**Downsync** refreshes every non-production stage once a day with real production data: it mirrors the whole production bucket into the stage's Garage and restores the local database from the newest production dump. It shares its code with `scripts/downsync_prod.py` (`app/services/downsync_service.py`), is refused on production at two places, and `POST /api/system/downsync/trigger` (permission `systemAdmin`) starts the same task on demand.
 
-### Downsync — Non-Production-Stages aktuell mit Prod halten
+`GET /api/system/scheduled-jobs` (permission `systemAdmin`) returns each job's next run, computed from the declarative schedule with ARQ's own `next_cron()`, and its last recorded run. The worker's log lines are tagged `[scheduled]` or `[triggered]` (`app/core/worker_logging.py`), so a log viewer such as Dozzle shows whether a run came from the cron schedule or from a request.
 
-Die Grundidee: **jede Non-Production-Stage (Dev, Test, QA) wird einmal
-täglich automatisch mit echten Produktionsdaten aufgefrischt** — niemand
-muss dafür manuell ein Skript starten.
+### Scripts
 
-`job_downsync()` läuft kurz nach dem Production-`db_backup`-Job (Standard:
-eine Stunde später, damit der Dump des Tages auf dem Prod-S3 bereits
-existiert) und macht in dieser festen Reihenfolge:
+Operational scripts (backup, restore, integrity check, downsync, archive maintenance, chronicle mail) and the developer helpers are documented in [`scripts/README.md`](scripts/README.md).
 
-1. Spiegelt den **gesamten** Production-AWS-S3-Bucket (`archive/`,
-   `standesdb/`, `public/`, `db-backups/` — alles) auf den eigenen
-   S3-kompatiblen Storage dieser Stage herunter (Garage).
-2. Stellt sofort die lokale PostgreSQL-Datenbank aus dem frisch
-   gespiegelten `db-backups/`-Präfix wieder her (der neueste Prod-Dump) und
-   führt `alembic upgrade head` aus.
+### Branching and conventions
 
-Das ist dieselbe Logik, die `scripts/downsync_prod.py` bereits für den
-manuellen/interaktiven Gebrauch ausführt (siehe [Skripte](#skripte)) — der
-gemeinsame Code zum Laden der Prod-Credentials und zum Aufbau des Storage
-liegt in `app/services/downsync_service.py`, genutzt sowohl vom CLI-Skript
-als auch vom automatisierten Job. Production registriert diesen Job nie:
-Er ist doppelt abgesichert — einmal über den `APP_ENVIRONMENT`-Check in
-`build_cron_jobs()`, und zusätzlich innerhalb von `job_downsync()` selbst
-als zusätzliches Sicherheitsnetz. `POST /api/system/downsync/trigger`
-(erfordert `systemAdmin`) stößt denselben Task auf Zuruf an
-(`arq_pool.enqueue_job("task_downsync")`), für einen sofortigen erneuten
-Lauf außerhalb des nächtlichen Zeitplans.
+- `main` is protected and takes pull requests only. Work happens on `development`.
+- Commit messages follow Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`) and are written in English; so are code comments and docstrings.
+- New logic comes with tests (pytest); the CI enforces the coverage gate.
 
-### Zeitplan einsehen
+### CI/CD
 
-`GET /api/system/scheduled-jobs` (erfordert `systemAdmin`) berechnet für
-jeden anwendbaren Job den nächsten Lauf direkt aus dem deklarativen
-Zeitplan in `app/core/job_schedule_registry.py` (über arqs eigenes
-`next_cron()`) — dafür ist keine laufende Worker-Instanz nötig, Web- und
-Worker-Container können also nie uneinig darüber sein, was wo geplant ist.
+`.github/workflows/ci-cd.yml` runs on pushes and pull requests to `main`, weekly (Monday 06:00 UTC) and on manual trigger:
 
-### Logs des Worker-Containers lesen
+1. **Lint and format:** `ruff check`, `ruff format --check`, router separation check.
+2. **Typecheck, migrations and tests:** `pyright`, `alembic upgrade head`, `pytest` with coverage and the coverage gate.
+3. **CodeQL** security scan.
+4. **Dependency audit:** `pip-audit` over both lock files.
+5. **Read-only rootfs smoke test:** the production image started with the production hardening.
+6. **Build and push the image:** only from `main` (push or manual trigger) and only after every other job passed.
 
-Der `vb-api-worker`-Container loggt jeden Job-Start/-Erfolg/-Retry/
--Fehlschlag über arqs eigenes Default-Logging — ein Cron-Lauf und ein
-per `enqueue_job()` angestoßener Ad-hoc-Lauf (z. B. eine durch einen
-Request ausgelöste Mail) sehen dort sonst fast identisch aus.
-`app/core/worker_logging.py` markiert jede dieser Zeilen mit
-`[scheduled]` bzw. `[triggered]`, sodass ein Container-Log-Viewer (z. B.
-Dozzle) die Unterscheidung auf einen Blick zeigt, ohne dass man arqs
-eigene Job-ID-Präfix-Konvention kennen muss.
-
-`downsync` ist die eine Ausnahme: Da er unter demselben Namen sowohl als
-Cron-Job als auch als manuelles Trigger-Ziel registriert ist (siehe
-oben), kann arq selbst die beiden Fälle in seiner Log-Zeile nicht mehr
-unterscheiden, sobald ein Name Cron-registriert ist — `task_downsync()`
-loggt seine `[scheduled]`/`[triggered]`-Zeile deshalb selbst, anhand des
-tatsächlich übergebenen Jobs.
-
-## Skripte
-
-Operative Skripte, bei Bedarf im Rahmen des regulären Betriebs erneut ausgeführt:
-
-| Skript | Wofür |
-|---|---|
-| `scripts/backup_db.py` | Manuelles PostgreSQL-Backup nach S3 anstoßen (`--list`, `--cleanup`) |
-| `scripts/restore_db.py` | PostgreSQL aus einem S3-Backup wiederherstellen (`--list`, `--backup-name`, `--force`) |
-| `scripts/check_s3_integrity.py` | Bidirektionaler DB↔S3-Konsistenzcheck + Waisen-Bericht (read-only) |
-| `scripts/downsync_prod.py` | Downsync von Prod-AWS-S3 (voller Spiegel) → lokaler Garage-Storage, danach lokale DB daraus wiederherstellen (`--dry-run`, `--yes`, `--skip-db`, `--skip-s3`, `--no-delete`) |
-| `scripts/trigger_chronicles.py` | Chronik-Mail-Job manuell für ein beliebiges Referenzdatum anstoßen (`--date`, `--send`, `--to`) |
-| `scripts/maintain_deleted_archive_files.py` | Weich gelöschte Archiv-Dateien auflisten, endgültig löschen oder wiederherstellen; das einzige Werkzeug, das Archivdaten dauerhaft löscht (`list`, `purge`, `purge-duplicates`, `restore`) |
-
-Vollständige Doku (Aufruf, Parameter, Env-Vars) für jedes Skript: [`scripts/README.md`](scripts/README.md).
-
-## Branching
-
-- `main` — geschützt, nur Merge per PR
-- `development` — aktiver Entwicklungs-Branch
-
-## CI/CD
-
-Die Pipeline (`.github/workflows/ci-cd.yml`) läuft bei Pushes und Pull Requests nach `main`, wöchentlich (montags 06:00 UTC) und bei manuellem Trigger:
-
-1. **Lint & Format** - `ruff check` + `ruff format --check` + Router-Schichtentrennungs-Check
-2. **Typecheck, Migrations & Test** — `pyright` + `alembic upgrade head` + `pytest --cov`
-3. **CodeQL Security Scan**
-4. **Dependency Audit** - `pip-audit` über beide Lock-Dateien
-5. **Read-Only Rootfs Smoke Test** - das Produktions-Image, gestartet mit der Produktions-Härtung
-6. **Build & Push Image** - pusht nach `ghcr.io` nur von `main` (Push oder manueller Trigger) und erst, wenn alle anderen Jobs bestanden haben
-
-Der Production-/Stage-Rollout selbst läuft außerhalb dieser Pipeline: Der
-`podman-auto-update.timer` des Zielsystems holt das neue `:latest`-Image
-automatisch, oder ein Operator löst ihn sofort per `--tags deploy-api` aus
-— siehe
-[`vb-deploy`s Phase 2 — Tag-2-Betrieb](../vb-deploy/README.md#phase-2--tag-2-betrieb).
+The rollout is not part of the pipeline: the host's `podman-auto-update.timer` picks up the new `:latest` image overnight, or an operator deploys at once with `--tags deploy-api` (see `vb-deploy` [1.7](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#17-how-a-change-reaches-production)).
