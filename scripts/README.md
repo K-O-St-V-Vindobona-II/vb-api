@@ -1,34 +1,39 @@
 # Scripts
 
-Operational scripts for the backend. All scripts are run manually (not part
-of the request/response path) and expect to be executed from the `vb-api`
-project root.
+[English](README.md) | [Deutsch](README.de.md)
 
-They read their configuration from environment variables (`DATABASE_URL`,
-`S3_*`, ...) — normally the same `.env` the backend container uses. Each
-script below lists two ways to run it:
-- **Inside the container** — a shell already opened inside the running `vb-api` backend container (e.g. via `podman exec -it vb-api bash`), where the working directory is `/app`.
-- **Via `podman exec`** — directly from the host, without opening a shell first.
+Reference for the operational scripts of `vb-api`. The big picture (what runs where, what to do in an incident, how to rebuild the system) is in the [`vb-deploy` README](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md), which this document assumes you know; chapter [4.2](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#42-operational-scripts-in-vb-api) there lists the scripts in one table.
+
+All scripts are run by hand, are not part of the request path, and expect the `vb-api` project root as working directory. They read their configuration from environment variables (`DATABASE_URL`, `S3_*`, ...), normally the same file the backend container uses. Every script has `--help`.
+
+**Two ways to run a script:**
+
+- **Inside the container**: in a shell opened in the running `vb-api` container (`podman exec -it vb-api bash`), where the working directory is `/app`.
+- **Via `podman exec`**: directly from the host, without opening a shell. Without `-it` no terminal is attached, so a script that asks a question needs either `-it` or its `--yes` option (it stops with a clear error instead of hanging).
+
+**Scripts always run in the container**, because `pg_dump`, `pg_restore` and `alembic` are installed only there, never on your own computer.
+
+| Script | Purpose | Changes data? |
+|---|---|---|
+| [`check_s3_integrity.py`](#check_s3_integritypy) | Database against S3, both directions | No |
+| [`backup_db.py`](#backup_dbpy) | PostgreSQL dump to S3 | Adds a dump |
+| [`restore_db.py`](#restore_dbpy) | Restore the database from an S3 dump | **Replaces the database** |
+| [`downsync_prod.py`](#downsync_prodpy) | Non-production only: mirror production, restore its newest dump | **Replaces data of the stage** |
+| [`maintain_deleted_archive_files.py`](#maintain_deleted_archive_filespy) | List, restore and permanently delete soft-deleted archive files | `purge*` deletes for good |
+| [`trigger_chronicles.py`](#trigger_chroniclespy) | Dry run or manual send of the chronicle mail | Sends mail with `--send` |
+| [Developer helpers](#developer-helpers) | Test run with coverage gate, structure checks | No |
 
 ---
 
 ## `check_s3_integrity.py`
 
-Read-only consistency check between the database and S3. Reports two things:
-1. **Completeness** — every `sha256_hash` referenced by a `StandesdbImage` or `ArchiveStoreItem` row must exist as an object in S3; missing ones are printed and the exit code is 1. If the check itself cannot finish (database or storage error), the error goes to stderr and the exit code is 2, so a broken run is never read as missing files.
-2. **Orphans** — S3 objects under the image/store prefixes that are referenced by no DB row at all (active or soft-deleted), listed with size/content-type/last-modified for manual review.
+Read-only consistency check between the database and S3. It reports two things:
 
-Both checks compare against a bulk `list_objects_v2` listing of each prefix
-(done once, ~1 request per 1000 objects) rather than issuing one
-`head_object()` call per DB row — with tens of thousands of rows, per-row
-HEAD requests took tens of minutes over the network; the bulk-listing
-comparison takes seconds. Only metadata is read either way — it never
-downloads file contents, so S3 cost is negligible regardless.
+1. **Completeness:** every `sha256_hash` referenced by a `StandesdbImage` or `ArchiveStoreItem` row must exist as an object in S3. Missing ones are printed and the exit code is 1. If the check itself cannot finish (database or storage error), the error goes to stderr and the exit code is 2, so a broken run is never read as "missing files".
+2. **Orphans:** S3 objects under the image and store prefixes that no database row references at all (active or soft-deleted), listed with size, content type and last-modified time for manual review.
 
-The script never deletes anything — cleanup of orphans, if desired, must be
-done manually via the S3 web console.
+Both checks compare against one bulk listing per prefix (about one request per 1000 objects) instead of one `head_object()` call per row, which takes seconds instead of many minutes. Only metadata is read, never file contents. The script never deletes anything; clean up orphans by hand in the S3 console.
 
-**Usage:**
 ```bash
 # Inside the container
 python scripts/check_s3_integrity.py
@@ -37,622 +42,176 @@ python scripts/check_s3_integrity.py
 podman exec vb-api python scripts/check_s3_integrity.py
 ```
 
-**Parameters:** none (behavior is controlled entirely via env vars).
-
-**Relevant env vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_STANDESDB_IMAGES`, `S3_PATH_ARCHIVE_STORE`, `DATABASE_URL`.
+Expected on a healthy system: `0 missing file(s).` and `No orphaned files found.` for both the archive and the member database. Parameters: none. Environment: `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_STANDESDB_IMAGES`, `S3_PATH_ARCHIVE_STORE`, `DATABASE_URL`.
 
 ---
 
 ## `backup_db.py`
 
-CLI wrapper around `backup_service.run_backup()` to manually trigger a
-PostgreSQL backup to S3 — the same operation the scheduled `db_backup` job
-(see `app/core/scheduler.py`) runs automatically once a day at `BACKUP_HOUR`
-(production only). Useful before risky operations (e.g. a cutover or a restore rehearsal)
-where you want an on-demand, up-to-date backup rather than waiting for the
-next scheduled run. Retention cleanup (deleting backups older than
-`BACKUP_RETENTION_DAYS`) is opt-in via `--cleanup`, so a manual backup never
-deletes other backups as a side effect unless explicitly requested.
+Writes a PostgreSQL dump (`pg_dump`, custom format) to S3, the same operation the scheduled job `db_backup` performs every night at `BACKUP_HOUR` (production only). Use it before risky changes, a cutover or a restore rehearsal. The file is named `<stage>-YYYY-MM-DD_HH-MM-SS-manual.dump` (Vienna time) under the prefix `db-backups/`. The data of the table `scheduled_task_runs` is deliberately left out: every stage keeps its own job history.
 
-**Usage:**
+Deleting backups older than `BACKUP_RETENTION_DAYS` (default 29) is opt-in with `--cleanup`, so a manual backup never deletes other backups as a side effect.
+
 ```bash
-# Inside the container
-python scripts/backup_db.py [--list] [--cleanup]
-
 # Via podman exec
-podman exec vb-api python scripts/backup_db.py [--list] [--cleanup]
+podman exec vb-api python scripts/backup_db.py            # create a backup
+podman exec vb-api python scripts/backup_db.py --list     # list the backups, create none
+podman exec vb-api python scripts/backup_db.py --cleanup  # create one, then delete expired ones
 ```
 
-**Parameters:**
-- `--list` — print all available backup keys in S3 and exit, without creating a backup.
-- `--cleanup` — after a successful backup, also delete backups older than `BACKUP_RETENTION_DAYS` (same cleanup the scheduled job performs).
-
-**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`. `BACKUP_RETENTION_DAYS` only matters when `--cleanup` is passed.
+Expected: `DB backup complete: production-<timestamp>-manual.dump`. Environment: `DATABASE_URL` (must be PostgreSQL) and the `S3_*` variables. `BACKUP_RETENTION_DAYS` matters only with `--cleanup`.
 
 ---
 
 ## `restore_db.py`
 
-CLI wrapper around `backup_service.run_restore()` to restore the PostgreSQL
-database from a `pg_dump` backup stored in S3. Downloads the backup object,
-writes it to a temp file, and restores it via `pg_restore`. If no specific
-backup is named, the lexicographically latest key under the backup prefix is
-used (backup filenames are timestamp-sortable). As a safety guard, restoring
-while `APP_ENVIRONMENT=production` is refused unless `--force` is passed
-explicitly, since a restore overwrites the live database.
+Restores the database from a dump in S3: downloads the dump, drops and recreates the `public` schema of the live database (terminating its other connections), loads the dump with `pg_restore`, checks that rows actually arrived and keeps this stage's own job history. Without `--backup-name` the newest dump is used (names sort by timestamp). On `APP_ENVIRONMENT=production` the restore is refused unless `--force` is given, because it replaces the live database.
 
-**Usage:**
 ```bash
-# Inside the container
-python scripts/restore_db.py [--list] [--backup-name NAME] [--force]
-
-# Via podman exec
-podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [--force]
+podman exec vb-api python scripts/restore_db.py --list
+podman exec vb-api python scripts/restore_db.py --force
+podman exec vb-api python scripts/restore_db.py --force --backup-name production-2026-10-11_03-00-00.dump
 ```
 
-**Parameters:**
-- `--list` — print all available backup keys in S3 and exit, without restoring anything.
-- `--backup-name NAME` — restore this specific backup filename instead of auto-selecting the latest.
-- `--force` — required to proceed when `APP_ENVIRONMENT=production`; has no effect in other environments.
+Parameters: `--list` (print the backups and exit), `--backup-name NAME`, `--force` (required on production, no effect elsewhere). Expected: `Restore complete. Backup: <name>`.
 
-**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), `APP_ENVIRONMENT`, plus the `S3_*` vars used by `get_storage()`.
+**After a restore** the script does not migrate. A dump older than the code needs the newer migrations; then restart the pod, which also clears the connections the restore cut:
+
+```bash
+podman exec vb-api alembic upgrade head
+systemctl --user restart vb-api-pod.service     # on the host
+podman exec vb-api-pg psql -U vb -d vb -c 'SELECT count(*) FROM members;'   # expect a number > 0
+```
+
+The full incident procedure is in the `vb-deploy` README, [2.4](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#24-the-database-is-damaged-backup-and-restore). Environment: `DATABASE_URL`, `APP_ENVIRONMENT`, the `S3_*` variables.
 
 ---
 
 ## `downsync_prod.py`
 
-Self-contained, two-step downsync onto the local non-prod stage — no
-delegation to another script. Step 1 mirrors the **entire** production
-`vindobona2-at` AWS S3 bucket into local Garage: an exact 1:1 clone, since
-source and dest already share the same key structure (no key
-remapping needed, unlike the retired `downsync_from_prod_aws.py`). Objects
-that exist locally but not in the prod source are deleted (mirror mode)
-unless `--no-delete` is passed. Step 2 restores the local PostgreSQL
-database from local Garage's now-current `db-backups/` prefix — i.e. from
-whatever step 1 just brought down from prod — reusing
-`backup_service.run_restore()` exactly like `restore_db.py` does, then runs
-`alembic upgrade head`. The DB step therefore never talks to prod directly;
-it only ever reads local storage, which is why step 1 must run before step
-2 whenever both are enabled. Refuses to run at all when
-`APP_ENVIRONMENT=production` (hard guard, no override), since this combines
-two operations that are each individually destructive against whichever
-stage they target. Asks for an interactive "yes" confirmation before doing
-anything, unless `--yes` is passed. `podman exec` without `-it` has no TTY
-attached, so the confirmation question has no stdin to read from - it now fails fast with
-a clear error telling you to add `-it` or pass `--yes`, instead of hanging.
+Refreshes a **non-production** stage with real production data in two steps. Step 1 mirrors the entire production AWS S3 bucket into the stage's own Garage (an exact 1:1 copy; objects that exist locally but not in production are deleted, unless `--no-delete`). Step 2 restores the local database from the now current `db-backups/` prefix of the local Garage and runs `alembic upgrade head`. The database step never talks to production, it reads local storage only, which is why step 1 must run first when both are enabled.
 
-Must run **inside the container** — `pg_restore` and `alembic` are only
-installed there, not on the host.
+The script refuses to run when `APP_ENVIRONMENT=production` (hard guard, no override). It asks for an interactive `yes` before doing anything unless `--yes` is passed. The same logic runs nightly as the scheduled job `downsync`.
 
-**Usage:**
 ```bash
-# Inside the container (an interactive shell already has a TTY)
+# Inside the container (an interactive shell has a terminal)
 python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
-python scripts/downsync_prod.py --yes
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
 
-# Via podman exec - no TTY attached by default, so pick one:
-podman exec -it vb-api python scripts/downsync_prod.py   # interactive confirmation
-podman exec vb-api python scripts/downsync_prod.py --yes  # non-interactive
+# Via podman exec: pick one of the two
+podman exec -it vb-api python scripts/downsync_prod.py     # interactive confirmation
+podman exec vb-api python scripts/downsync_prod.py --yes   # non-interactive
 ```
 
-**Parameters:**
-- `--dry-run` — S3 step: print what would be copied/deleted without performing the sync. DB step: only print the backup that's currently newest in local Garage (i.e. what a real run would restore), without downloading/restoring it.
-- `--yes` - skip the interactive confirmation.
-- `--skip-db` — skip the DB restore step entirely.
-- `--skip-s3` — skip the S3 mirror step entirely (prod AWS credentials are then not loaded at all, since the DB step only needs local storage).
-- `--no-delete` — S3 step only: sync new/changed files but do not delete local orphans.
+Parameters:
 
-**Relevant env vars:** `DATABASE_URL` (restore target, must be PostgreSQL), `APP_ENVIRONMENT` (must not be `production`), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (local Garage, used by both the mirror destination and the DB restore source). Prod AWS source credentials for the S3 step are `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (a read-only IAM user scoped to the prod bucket only) — this script only reads them via `get_settings()`, agnostic to how they reach the process environment; see `vb-deploy/README.md` for how each environment wires them up.
+- `--dry-run`: S3 step: print what would be copied and deleted. DB step: print the dump that would be restored, restore nothing.
+- `--yes`: skip the confirmation.
+- `--skip-db`: skip the database step.
+- `--skip-s3`: skip the S3 step (the production credentials are then not loaded at all).
+- `--no-delete`: S3 step only: copy new and changed files but do not delete local orphans.
+
+Environment: `DATABASE_URL`, `APP_ENVIRONMENT` (not `production`), `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` (the local Garage, destination and restore source). The production source credentials are `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` and `AWS_BUCKET`, a read-only IAM user for the production bucket only; how each stage receives them is in the `vb-deploy` README, [Appendix A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#appendix-a-secrets-and-required-variables).
 
 ---
 
 ## `maintain_deleted_archive_files.py`
 
-Inspects, restores, or hard-deletes soft-deleted archive files. Hard-delete
-removes data from **both** the database and S3 — the way to permanently
-remove an archive file's data, since the regular API only ever soft-deletes.
-The one exception is a member deleting their own, still unfiled upload on the
-upload page (`DELETE /archive/upload/unfiled/{file_id}`, handled by
-`archive_service.delete_unfiled_upload`; both paths share
-`archive_store_cleanup.hard_delete_file`). Everything this script does is
-deliberately CLI-only by design: none of it must ever be exposed via the API
-or frontend (see `app/services/archive_maintenance_service.py`'s module
-docstring, which enforces that as an explicit rule, not just a convention).
+Inspects, restores and permanently deletes soft-deleted archive files. The regular API only ever soft-deletes; this script is the way to remove an archive file's data from **both** the database and S3. The one exception is a member deleting their own, still unfiled upload on the upload page (`DELETE /archive/upload/unfiled/{file_id}`); both paths share `archive_store_cleanup.hard_delete_file`. Everything else here is CLI-only by design and must never be exposed through the API or the frontend (the module docstring of `app/services/archive_maintenance_service.py` makes that an explicit rule). The script runs in **every** environment, production included, because it is the actual maintenance mechanism for accumulated soft-deleted files.
 
-Called without a subcommand, prints a short usage text — nothing is read
-from the database and nothing is changed.
+Called without a subcommand it prints a short usage text and touches nothing. **All ids are UUIDs.**
 
-**`list [dir_id] [--short]`** — read-only. Groups every currently
-soft-deleted archive file by directory: one paragraph per directory — its
-path and dir_id (the same id `purge-duplicates` and `list-duplicates --dir`
-expect) — followed by that directory's files (id, content hash, S3 impact,
-file name/extension, size, description, deletion timestamp). Long file
-names/descriptions are truncated so the columns never shift. With `dir_id`,
-only that one directory's paragraph is shown. `--short` collapses each
-paragraph to a single `path (dir_id: N): <count>` line — a fast triage
-overview when hundreds of files are scattered across many directories. No
-retention/grace period — every currently soft-deleted file appears in that
-list, so the operator can judge for themselves whether anything looks too
-recent to touch.
+**S3 impact.** Several files (active or soft-deleted) can reference the same S3 object (content deduplication). Every listing classifies each file in its `IMPACT` column:
 
-`archive_store_item_id` is not unique on `ArchiveFile` — several files
-(active and/or soft-deleted) can reference the same underlying S3 object
-(content dedup inherited from the original data migration). Every listing therefore
-classifies each file's **S3 impact**:
-- **duplicate** — an active file still references the same content; purging
-  this file never touches S3.
-- **shared** — no active file, but another soft-deleted file still
-  references the same content; S3 stays untouched for now, but the last
-  remaining reference in that group will remove it.
-- **sole** (shown as `SOLE`) — no other reference at all; purging this file
-  deletes the underlying S3 object immediately.
+- **duplicate:** an active file still references the same content; purging this file never touches S3.
+- **shared:** no active file, but another soft-deleted file references the same content; S3 stays untouched for now, the last remaining reference removes it.
+- **sole** (shown as `SOLE`): no other reference; purging deletes the S3 object immediately.
 
-**`purge <id>`** — **destructive, S3-relevant.** First re-checks that the
-given id is currently soft-deleted (i.e. actually purgeable — rejected
-otherwise, before any question is asked, nothing deleted). Only after that
-check passes does it ask for interactive confirmation (with an
-impact-specific note or warning, depending on the category above, and the
-confirmation question itself states whether this purge affects "DB only" or
-"DB AND S3"); there is no flag to skip it. `podman exec` without `-it` has
-no TTY for that question - it fails fast with a clear error pointing to `-it`
-instead of hanging (same for `purge-duplicates`'s batch confirmation below,
-both share the same confirmation helper). The database row is then
-hard-deleted first (cascading its comments) and committed — only *after*
-that commit succeeds does the script attempt to delete the underlying S3
-object(s), and only if no other file anywhere still references the same
-content hash (`ArchiveStoreItem.sha256_hash`). Cached thumbnail variants are
-cleaned up via a prefix listing, not hardcoded sizes, so a future
-thumbnail-cache version bump can't leave orphans behind. This DB-first
-ordering is deliberate: a failed S3 delete after a committed DB delete
-leaves at worst a harmless, self-diagnosable orphan (the kind
-`check_s3_integrity.py` already detects) — the reverse order risks silent
-data loss for other files still sharing that content.
+**Subcommands**
 
-**`purge-duplicates <dir_id>`** — **destructive to the DB (hard-deletes
-rows, irreversibly), but S3-safe by construction.** Batch-purges only the
-`duplicate` files directly in that directory (direct children only, not
-recursive — subdirectories need their own run) after **one** confirmation
-for the whole batch — files where an active copy guarantees the S3 object
-survives; since purging deleted files never touches active ones, a file's
-`duplicate` status can't flip mid-batch — but each file is still freshly
-re-checked immediately before its own purge, so a concurrent soft-delete of
-its active sibling during the batch (a real possibility in production) is
-caught and the file is skipped and reported instead of unexpectedly
-deleting S3 data. Any remaining `shared`/`sole` files in that directory
-(which WOULD be S3-relevant) are only *reported* (a count, pointing at
-`list-duplicates`/`purge <id>`) — they are **never** processed
-automatically.
+| Subcommand | Effect |
+|---|---|
+| `list [dir_uuid] [--short]` | Read-only. One paragraph per directory (path and `dir_id`), then its files with id, content hash, S3 impact, name, size, description and deletion time. `dir_uuid` shows one directory only. `--short` prints one line per directory (`path (dir_id: <uuid>): <count>`) for a fast overview. There is no grace period: every currently soft-deleted file is listed. |
+| `purge <file_uuid>` | **Destructive, S3-relevant.** Checks that the file is currently soft-deleted (otherwise error, nothing deleted, no question asked), then asks for a typed confirmation that states whether the purge affects "DB only" or "DB AND S3". There is no flag to skip it. It hard-deletes the database row first (with its comments), commits, and only then deletes the S3 object and its cached thumbnails, and only if no other file references the same content. This order is deliberate: a failed S3 delete leaves at worst a harmless orphan that `check_s3_integrity.py` finds, the reverse order could lose data other files still share. |
+| `purge-duplicates <dir_uuid>` | **Destructive to the database, S3-safe by construction.** Batch-purges only the `duplicate` files directly in that directory (not recursive) after one confirmation. Each file is re-checked right before its own purge; if its active sibling was deleted meanwhile, the file is skipped and reported. `shared` and `sole` files are only counted and never processed. |
+| `restore <file_uuid>...` | Reversible. Clears `deleted_at` of one or more soft-deleted files, undoing the soft-delete. Only `SOLE` files qualify (no other file may reference the same content); any other id is skipped with a warning. Runs immediately without a question. |
+| `list-duplicates --file <file_uuid> --dir <dir_uuid>` | Read-only. `--file` shows the active files sharing content with a file, `--dir` does the same for every soft-deleted file directly in a directory. Both flags repeat and combine; at least one is required. A file without duplicates is a normal result. |
+| `urlpath <uuid>` | Read-only. Looks the id up as a file and as a directory and prints the archive path and the frontend path (`/archive/files/<uuid>` or `/archive/dirs/<uuid>`). Error only if neither exists. |
 
-**`restore <file_id>`** — reversible, non-destructive. Clears `deleted_at`,
-undoing a soft-delete. Runs **immediately, without a confirmation question** -
-unlike purge, restoring is safe and trivially undoable again via the GUI.
-Errors (id not found, or not currently soft-deleted) go to stderr with exit
-code 1.
-
-**`list-duplicates --file FILE_ID [--file FILE_ID ...] --dir DIR_ID [--dir
-DIR_ID ...]`** — read-only. `--file` shows the active files sharing content
-with the given file (any status — active or soft-deleted itself); `--dir`
-does the same for every currently soft-deleted file directly in that
-directory. Both flags are repeatable and combinable in one call, e.g.
-`list-duplicates --file 1 --file 2 --dir 10 --dir 11`. Each file gets a
-two-part block, both using the same ID/PATH/FILENAME table: `DELETED FILE:`
-or `ACTIVE FILE:` (whichever the file's actual current state is) for the
-file itself, then `DUPLICATES:` for its active duplicates (or `(none)`).
-Multiple blocks in one run are separated by a `=====` delimiter. A file
-with zero active duplicates is a normal result, not an error — an error is
-only reported (and only skips that one entry) for a `--file` id that
-doesn't exist at all. At least one `--file`/`--dir` is required.
-
-**`urlpath <id>`** — read-only convenience lookup. Looks the given id up as
-**both** a file id and a directory id and, for whichever match(es), prints
-its archive path and the frontend's relative URL path
-(`/archive/files/<id>` or `/archive/dirs/<id>`) — just the path, not a full
-URL, since the frontend domain differs per environment and isn't reliably
-known to this script. Error only if neither a file nor a directory with
-that id exists.
-
-Runs in **every** environment, including production — unlike
-`downsync_prod.py`, this is not dev-only tooling but the actual production
-maintenance mechanism for accumulated soft-deleted files, so there is no
-environment guard.
-
-**Usage:**
 ```bash
 # Inside the container
 python scripts/maintain_deleted_archive_files.py
-python scripts/maintain_deleted_archive_files.py list
 python scripts/maintain_deleted_archive_files.py list --short
-python scripts/maintain_deleted_archive_files.py list 7
-python scripts/maintain_deleted_archive_files.py purge 42
-python scripts/maintain_deleted_archive_files.py purge-duplicates 7
-python scripts/maintain_deleted_archive_files.py restore 42
-python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
-python scripts/maintain_deleted_archive_files.py urlpath 42
+python scripts/maintain_deleted_archive_files.py list <dir-uuid>
+python scripts/maintain_deleted_archive_files.py purge <file-uuid>
+python scripts/maintain_deleted_archive_files.py purge-duplicates <dir-uuid>
+python scripts/maintain_deleted_archive_files.py restore <file-uuid>
+python scripts/maintain_deleted_archive_files.py list-duplicates --file <file-uuid> --dir <dir-uuid>
+python scripts/maintain_deleted_archive_files.py urlpath <uuid>
 
-# Via podman exec
-podman exec vb-api python scripts/maintain_deleted_archive_files.py list
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge 42
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge-duplicates 7
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 42
+# Via podman exec (-it only where a question is asked)
+podman exec vb-api python scripts/maintain_deleted_archive_files.py list --short
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge <file-uuid>
+podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge-duplicates <dir-uuid>
+podman exec vb-api python scripts/maintain_deleted_archive_files.py restore <file-uuid>
 ```
 
-**Subcommands:**
-- *(none)* — prints a short usage text, no DB/S3 access.
-- `list [dir_id] [--short]` — read-only, see above.
-- `purge <id>` — destructive/S3-relevant, permanently deletes exactly one file from DB and S3, after verifying it appears in `list` and after an interactive `yes` confirmation. Not purgeable (not currently soft-deleted) → error message, exit code 1, nothing is touched.
-- `purge-duplicates <dir_id>` — destructive to the DB, S3-safe by construction, scoped to the `duplicate` category only, see above.
-- `restore <file_id>` — reversible/non-destructive, no confirmation, see above.
-- `list-duplicates --file ... --dir ...` — read-only, see above.
-- `urlpath <id>` — read-only, see above.
+An old integer id (`purge 42`) is refused with `invalid UUID value`. Environment: `DATABASE_URL` (PostgreSQL) and the `S3_*` variables.
 
-**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), plus the `S3_*` vars used by `get_storage()`.
+### Runbook: permanently delete archive files on production
+
+1. **Soft-delete in the web UI first.** Delete the file in the archive of `vb-intern`. This is the reversible step; only soft-deleted files can be purged.
+2. **Log in to the host:** `ssh service@intern.vindobona2.at`.
+3. **Look at what is there** (read-only):
+   ```bash
+   # [host] a short overview per directory
+   podman exec vb-api python scripts/maintain_deleted_archive_files.py list --short
+   # [host] the files of one directory (copy the dir uuid from the overview)
+   podman exec vb-api python scripts/maintain_deleted_archive_files.py list <dir-uuid>
+   ```
+   The file id also appears in the URL of the file in the browser, `/archive/files/<uuid>`; `urlpath <uuid>` turns an id back into its archive path.
+4. **Check the S3 impact** in the `IMPACT` column. `SOLE` means the S3 object disappears with the purge.
+5. **Purge one file.** Take a backup first (`podman exec vb-api python scripts/backup_db.py`), because the database row cannot be brought back otherwise. `-it` is required for the confirmation:
+   ```bash
+   # [host]
+   podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge <file-uuid>
+   ```
+   Read the question: it names whether the purge affects "DB only" or "DB AND S3". Type `yes` only if that is what you want. For several duplicates in one directory use `purge-duplicates <dir-uuid>` instead.
+6. **Check afterwards:** run `list <dir-uuid>` again; the file must be gone.
+7. **If you purged the wrong file** from the S3 side, the bucket is versioned: an earlier version of the object can be recovered in the AWS console, but the database row is gone for good.
+
+Files that are not soft-deleted cannot be purged by this script. To permanently delete a **member's own unfiled upload**, the member uses the trash button on the upload page.
 
 ---
 
 ## `trigger_chronicles.py`
 
-CLI wrapper to manually trigger a chronicle-mail run for an arbitrary
-reference date, for end-to-end validation in test/dev before trusting the
-real weekly Tuesday job. Safe by default: without `--send` only a dry-run
-summary (recipient count and entries per organization/status/field) is
-printed and no SMTP connection is made.
+Triggers the chronicle mail (the weekly anniversaries digest) by hand for any reference date, for end-to-end validation on test or development before trusting the real Tuesday job. Safe by default: without `--send` only a dry-run summary (recipient count and entries per organization, status and field) is printed and no SMTP connection is made.
 
-**Usage:**
 ```bash
-# Inside the container
-python scripts/trigger_chronicles.py [--date YYYY-MM-DD] [--send (--to ADDRESS | --all-members)]
-
 # Via podman exec
 podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31
 podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --to test@example.org
 podman exec -it vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --all-members
 ```
 
-**Parameters:**
-- `--date` - reference date (YYYY-MM-DD) the anniversary week is computed from; defaults to today in the configured timezone.
-- `--send` - actually deliver the mail via SMTP. Requires either `--to` or `--all-members`.
-- `--to ADDRESS` - send only to this single test address (recommended in shared test/dev environments).
-- `--all-members` - with `--send`: send to **every opted-in member**. **Real recipients:** this asks for a typed `yes` that names the stage and the recipient count, and needs a terminal (`podman exec -it`), otherwise it aborts.
+Parameters:
 
-**Relevant env vars:** `DATABASE_URL` (must point to PostgreSQL), `APP_ENVIRONMENT` (shown in the confirmation), and the `SMTP_*` vars used by the mailer when `--send` is passed.
+- `--date`: the reference date (`YYYY-MM-DD`) the anniversary week is computed from; default is today in the configured timezone.
+- `--send`: actually deliver by SMTP. Needs `--to` or `--all-members`.
+- `--to ADDRESS`: send to this one test address only (recommended on shared test and development stages).
+- `--all-members`: with `--send`: send to **every opted-in member**. These are real recipients: the script asks for a typed `yes` that names the stage and the recipient count and needs a terminal (`podman exec -it`), otherwise it aborts.
 
----
-
-# Scripts (Deutsch)
-
-Betriebs-Scripts für das Backend. Alle Scripts werden manuell ausgeführt
-(sind nicht Teil des Request/Response-Pfads) und gehen davon aus, dass sie
-aus dem `vb-api`-Projekt-Root heraus gestartet werden.
-
-Sie beziehen ihre Konfiguration aus Umgebungsvariablen (`DATABASE_URL`,
-`S3_*`, ...) — normalerweise dieselbe `.env`, die auch der Backend-Container
-verwendet. Für jedes Script unten sind zwei Aufrufwege beschrieben:
-- **Im Container** — eine bereits im laufenden `vb-api`-Backend-Container geöffnete Shell (z. B. via `podman exec -it vb-api bash`), Arbeitsverzeichnis ist `/app`.
-- **Via `podman exec`** — direkter Aufruf vom Host aus, ohne vorher eine Shell zu öffnen.
+Environment: `DATABASE_URL` (PostgreSQL), `APP_ENVIRONMENT` (shown in the confirmation) and the `SMTP_*` variables when `--send` is used.
 
 ---
 
-## `check_s3_integrity.py`
+## Developer helpers
 
-Read-only-Konsistenzprüfung zwischen Datenbank und S3. Meldet zwei Dinge:
-1. **Vollständigkeit** — jeder von einer `StandesdbImage`- oder `ArchiveStoreItem`-Zeile referenzierte `sha256_hash` muss als Objekt in S3 existieren; fehlende werden ausgegeben, der Exit-Code ist 1. Kann die Prüfung selbst nicht abgeschlossen werden (Datenbank- oder Speicherfehler), geht der Fehler auf stderr und der Exit-Code ist 2, damit ein abgebrochener Lauf nie als fehlende Dateien gelesen wird.
-2. **Waisen** — S3-Objekte unter den Image-/Store-Präfixen, die von keiner DB-Zeile referenziert werden (weder aktiv noch soft-deleted), aufgelistet mit Größe/Content-Type/Änderungsdatum zur manuellen Prüfung.
-
-Beide Prüfungen vergleichen gegen ein gebündeltes `list_objects_v2`-Listing
-je Präfix (einmalig, ~1 Request pro 1000 Objekte) statt für jede DB-Zeile
-einen eigenen `head_object()`-Aufruf zu machen — bei Zehntausenden Zeilen
-dauerten Einzel-Requests über das Netzwerk mehrere zehn Minuten, der
-gebündelte Vergleich braucht Sekunden. In beiden Fällen werden nur
-Metadaten gelesen, nie Dateiinhalte heruntergeladen — die S3-Kosten sind
-also so oder so vernachlässigbar.
-
-Das Script löscht niemals etwas — eine Bereinigung der Waisen muss, falls
-gewünscht, manuell über die S3-Web-Konsole erfolgen.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/check_s3_integrity.py
-
-# Via podman exec
-podman exec vb-api python scripts/check_s3_integrity.py
-```
-
-**Parameter:** keine (Verhalten wird vollständig über Env-Vars gesteuert).
-
-**Relevante Env-Vars:** `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PATH_STANDESDB_IMAGES`, `S3_PATH_ARCHIVE_STORE`, `DATABASE_URL`.
-
----
-
-## `backup_db.py`
-
-CLI-Wrapper um `backup_service.run_backup()`, um manuell ein PostgreSQL-
-Backup nach S3 anzustoßen — dieselbe Operation, die der geplante
-`db_backup`-Job (siehe `app/core/scheduler.py`) automatisch einmal täglich um
-`BACKUP_HOUR` ausführt (nur in Produktion). Nützlich vor riskanten Operationen
-(z. B. einem Cutover oder einer Restore-Generalprobe), wenn man ein
-aktuelles Backup auf Abruf braucht, statt auf den nächsten geplanten Lauf zu
-warten. Die Retention-Bereinigung (Löschen von Backups älter als
-`BACKUP_RETENTION_DAYS`) ist über `--cleanup` opt-in, damit ein manuelles
-Backup nie ungefragt andere Backups als Nebeneffekt löscht.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/backup_db.py [--list] [--cleanup]
-
-# Via podman exec
-podman exec vb-api python scripts/backup_db.py [--list] [--cleanup]
-```
-
-**Parameter:**
-- `--list` — listet alle verfügbaren Backup-Keys in S3 auf und beendet sich, ohne ein Backup zu erstellen.
-- `--cleanup` — löscht nach einem erfolgreichen Backup zusätzlich Backups, die älter als `BACKUP_RETENTION_DAYS` sind (dieselbe Bereinigung wie im geplanten Job).
-
-**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars. `BACKUP_RETENTION_DAYS` ist nur relevant, wenn `--cleanup` übergeben wird.
-
----
-
-## `restore_db.py`
-
-CLI-Wrapper um `backup_service.run_restore()`, um die PostgreSQL-Datenbank
-aus einem in S3 abgelegten `pg_dump`-Backup wiederherzustellen. Lädt das
-Backup-Objekt herunter, schreibt es in eine temporäre Datei und stellt es
-via `pg_restore` wieder her. Wird kein konkretes Backup angegeben, wird der
-alphabetisch letzte Key unter dem Backup-Präfix verwendet (Backup-Dateinamen
-sind zeitstempel-sortierbar). Als Sicherheitsmaßnahme wird eine
-Wiederherstellung bei `APP_ENVIRONMENT=production` verweigert, sofern nicht
-explizit `--force` übergeben wird — da eine Restore die Live-Datenbank
-überschreibt.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/restore_db.py [--list] [--backup-name NAME] [--force]
-
-# Via podman exec
-podman exec vb-api python scripts/restore_db.py [--list] [--backup-name NAME] [--force]
-```
-
-**Parameter:**
-- `--list` — listet alle verfügbaren Backup-Keys in S3 auf und beendet sich, ohne etwas wiederherzustellen.
-- `--backup-name NAME` — stellt dieses konkrete Backup wieder her, statt automatisch das neueste zu wählen.
-- `--force` — erforderlich, um bei `APP_ENVIRONMENT=production` fortzufahren; hat in anderen Umgebungen keine Wirkung.
-
-**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), `APP_ENVIRONMENT`, sowie die von `get_storage()` verwendeten `S3_*`-Vars.
-
----
-
-## `downsync_prod.py`
-
-Autarker, zweistufiger Downsync auf die lokale Non-Prod-Stage — keine
-Delegation an ein anderes Skript. Schritt 1 spiegelt den **kompletten**
-produktiven AWS-S3-Bucket `vindobona2-at` 1:1 in den lokalen Garage-Storage: ein
-exakter Klon, da Quelle und Ziel bereits dieselbe Key-Struktur nutzen (kein
-Key-Remapping mehr nötig, anders als beim entfernten
-`downsync_from_prod_aws.py`). Objekte, die lokal existieren, aber nicht in
-der Prod-Quelle, werden gelöscht (Mirror-Modus), außer `--no-delete` wird
-übergeben. Schritt 2 stellt die lokale PostgreSQL-Datenbank aus dem jetzt
-aktuellen `db-backups/`-Prefix des lokalen Garage-Storage wieder her — also aus dem,
-was Schritt 1 gerade erst von Prod heruntergebracht hat —, nutzt dafür
-exakt `backup_service.run_restore()` wie `restore_db.py`, führt danach
-`alembic upgrade head` aus. Der DB-Schritt spricht daher nie direkt mit
-Prod, sondern liest ausschließlich lokalen Storage — deshalb muss Schritt 1
-vor Schritt 2 laufen, sofern beide aktiv sind. Verweigert den Start
-komplett, wenn `APP_ENVIRONMENT=production` gesetzt ist (harter Guard, kein
-Override), da hier zwei Operationen kombiniert werden, die jede für sich
-bereits destruktiv gegen die jeweils angezielte Stage sind. Fragt vor jeder
-Aktion interaktiv per "yes"-Bestätigung nach, außer `--yes` wird übergeben.
-`podman exec` ohne `-it` hat kein angebundenes TTY, die Abfrage findet also
-kein stdin zum Lesen — sie bricht dann sofort mit einer klaren Fehlermeldung
-ab (statt zu hängen) und verweist auf `-it` bzw. `--yes`.
-
-Muss **im Container** laufen — `pg_restore` und `alembic` sind nur dort
-installiert, nicht auf dem Host.
-
-**Aufruf:**
-```bash
-# Im Container (eine interaktive Shell hat bereits ein TTY)
-python scripts/downsync_prod.py
-python scripts/downsync_prod.py --dry-run
-python scripts/downsync_prod.py --yes
-python scripts/downsync_prod.py --skip-db
-python scripts/downsync_prod.py --skip-s3 --no-delete
-
-# Via podman exec - standardmäßig kein TTY angebunden, also eine Variante wählen:
-podman exec -it vb-api python scripts/downsync_prod.py    # interaktive Abfrage
-podman exec vb-api python scripts/downsync_prod.py --yes  # non-interaktiv
-```
-
-**Parameter:**
-- `--dry-run` — S3-Schritt: zeigt an, was kopiert/gelöscht würde, ohne den Sync auszuführen. DB-Schritt: gibt nur das im lokalen Garage-Storage aktuell neueste Backup aus (also das, was ein echter Lauf wiederherstellen würde), ohne es herunterzuladen/wiederherzustellen.
-- `--yes` — überspringt die interaktive Bestätigungsabfrage.
-- `--skip-db` — überspringt den DB-Wiederherstellungsschritt komplett.
-- `--skip-s3` — überspringt den S3-Mirror-Schritt komplett (Prod-AWS-Credentials werden dann gar nicht erst geladen, da der DB-Schritt nur lokalen Storage braucht).
-- `--no-delete` — nur S3-Schritt: synct neue/geänderte Dateien, überspringt aber das Löschen lokaler Waisen.
-
-**Relevante Env-Vars:** `DATABASE_URL` (Restore-Ziel, muss PostgreSQL sein), `APP_ENVIRONMENT` (darf nicht `production` sein), `S3_ENDPOINT_URL`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` (lokaler Garage-Storage, sowohl Mirror-Ziel als auch DB-Restore-Quelle). Die Prod-AWS-Quell-Credentials für den S3-Schritt sind `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_BUCKET=vindobona2-at` (ein rein lesender IAM-User, nur auf den Prod-Bucket beschränkt) — dieses Skript liest sie nur über `get_settings()`, unabhängig davon, wie sie in die Prozessumgebung gelangen; siehe `vb-deploy/README.md` für die Verdrahtung je Umgebung.
-
----
-
-## `maintain_deleted_archive_files.py`
-
-Inspiziert, stellt wieder her oder löscht soft-gelöschte Archiv-Dateien hart.
-Hard-Delete entfernt Daten aus **sowohl** Datenbank als auch S3 — der
-einzige Weg, die Daten einer Archiv-Datei endgültig zu entfernen, da die
-reguläre API ausschließlich soft-deleted. Bewusst per Design nur per
-Kommandozeile: nichts davon darf jemals über die API oder das Frontend
-angeboten werden (siehe der Modul-Docstring von
-`app/services/archive_maintenance_service.py`, der das als explizite Regel
-festhält, nicht nur als Konvention).
-
-Ohne Subcommand aufgerufen, gibt es nur einen kurzen Hilfetext aus — es wird
-weder die Datenbank angefragt noch irgendetwas verändert.
-
-**`list [dir_id] [--short]`** — rein lesend. Gruppiert jede aktuell
-soft-gelöschte Archiv-Datei nach Verzeichnis: ein Absatz pro Verzeichnis —
-Pfad und Verzeichnis-ID (dieselbe ID, die `purge-duplicates` und
-`list-duplicates --dir` erwarten) — gefolgt von dessen Dateien (ID,
-Content-Hash, S3-Auswirkung, Dateiname/-endung, Größe, Beschreibung,
-Löschzeitpunkt). Lange Dateinamen/Beschreibungen werden gekürzt, damit die
-Spalten nie verrutschen. Mit `dir_id` wird nur der Absatz dieses einen
-Verzeichnisses gezeigt. `--short` reduziert jeden Absatz auf eine einzelne
-Zeile `Pfad (dir_id: N): <Anzahl>` — eine schnelle Triage-Übersicht, wenn
-hunderte Dateien über viele Verzeichnisse verstreut sind. Keine Karenzzeit —
-jede aktuell soft-gelöschte Datei erscheint in dieser Liste, damit der
-Operator selbst beurteilen kann, ob etwas zu frisch aussieht, um es
-anzufassen.
-
-`archive_store_item_id` ist auf `ArchiveFile` nicht eindeutig — mehrere
-Dateien (aktiv und/oder soft-gelöscht) können dasselbe S3-Objekt
-referenzieren (Content-Dedup, ein Erbe der ursprünglichen Datenübernahme). Jede Auflistung
-klassifiziert deshalb die **S3-Auswirkung** pro Datei:
-- **duplicate** — mindestens eine aktive Datei referenziert denselben Inhalt
-  noch; das Purgen dieser Datei berührt S3 nie.
-- **shared** — keine aktive Datei, aber mindestens eine weitere
-  soft-gelöschte Datei referenziert denselben Inhalt noch; S3 bleibt jetzt
-  unangetastet, aber die letzte verbleibende Referenz dieser Gruppe entfernt
-  es.
-- **sole** (angezeigt als `SOLE`) — keine andere Referenz mehr vorhanden;
-  das Purgen dieser Datei löscht das zugehörige S3-Objekt sofort.
-
-**`purge <id>`** — **destruktiv, S3-relevant.** Prüft zuerst erneut, ob die
-angegebene ID aktuell soft-gelöscht (also tatsächlich purgeable) ist —
-alles andere wird abgelehnt, bevor irgendeine Abfrage erscheint, und nichts
-wird gelöscht. Erst nach dieser Prüfung fragt das Script interaktiv nach
-Bestätigung (mit einem kategorieabhängigen Hinweis bzw. einer Warnung,
-siehe oben; die Bestätigungszeile selbst nennt außerdem, ob der Purge nur
-die DB oder DB UND S3 betrifft); einen Parameter zum Überspringen gibt es
-nicht. `podman exec` ohne `-it` hat kein TTY für diese Abfrage — sie bricht
-dann sofort mit einer klaren Fehlermeldung ab, die auf `-it` verweist,
-statt zu hängen (gilt genauso für die Batch-Bestätigung von
-`purge-duplicates` weiter unten, beide teilen sich denselben
-Bestätigungs-Helper). Danach wird zuerst die DB-Zeile hart gelöscht (kaskadiert auf ihre
-Kommentare) und committet — **erst danach** versucht das Script, das
-zugehörige S3-Objekt zu löschen, und auch nur dann, wenn keine andere Datei
-im System noch denselben Content-Hash (`ArchiveStoreItem.sha256_hash`)
-referenziert. Gecachte Thumbnail-Varianten werden über eine
-Prefix-Auflistung bereinigt, nicht über hartkodierte Größen — ein künftiges
-Thumbnail-Cache-Versions-Update kann so keine Leichen hinterlassen. Diese
-DB-zuerst-Reihenfolge ist bewusst: Ein fehlgeschlagenes S3-Löschen nach
-bereits committetem DB-Löschen hinterlässt bestenfalls ein harmloses,
-selbst-diagnostizierbares Waisenobjekt (genau die Art, die
-`check_s3_integrity.py` bereits erkennt) — die umgekehrte Reihenfolge
-riskiert stillen Datenverlust für andere Dateien, die denselben Inhalt noch
-teilen.
-
-**`purge-duplicates <dir_id>`** — **destruktiv für die DB (löscht Zeilen
-unwiderruflich hart), aber S3-sicher per Konstruktion.** Purged im Batch
-ausschließlich die `duplicate`-Dateien direkt in diesem Verzeichnis (nur
-direkte Kinder, nicht rekursiv — Unterverzeichnisse brauchen einen eigenen
-Aufruf) nach **einer** Bestätigung für den gesamten Batch — Dateien, bei
-denen eine aktive Kopie das Überleben des S3-Objekts garantiert; da das
-Purgen gelöschter Dateien nie aktive Dateien anfasst, kann sich der
-`duplicate`-Status einer Datei während des Batches nicht ändern — trotzdem
-wird jede Datei unmittelbar vor ihrem eigenen Purge nochmal frisch geprüft,
-damit ein gleichzeitiges Soft-Delete ihrer aktiven Zwillingsdatei während
-des Batch-Laufs (im Produktivbetrieb real möglich) abgefangen wird: die
-Datei wird übersprungen und gemeldet, statt unerwartet S3-Daten zu löschen.
-Verbleibende `shared`/`sole`-Dateien desselben Verzeichnisses (die SEHR WOHL
-S3-relevant wären) werden nur noch *gemeldet* (Anzahl, Verweis auf
-`list-duplicates`/`purge <id>`) — sie werden **nicht** mehr automatisch
-bearbeitet.
-
-**`restore <file_id>`** — reversibel, nicht-destruktiv. Setzt `deleted_at`
-zurück, macht ein Soft-Delete rückgängig. Läuft **sofort, ohne
-Bestätigungsabfrage** - anders als Purge ist Restore ungefährlich und
-jederzeit über die GUI wieder rückgängig zu machen. Fehler (ID nicht
-gefunden, oder nicht aktuell soft-gelöscht) gehen auf stderr, Exit-Code 1.
-
-**`list-duplicates --file FILE_ID [--file FILE_ID ...] --dir DIR_ID [--dir
-DIR_ID ...]`** — rein lesend. `--file` zeigt die aktiven Dateien, die
-denselben Inhalt wie die angegebene Datei teilen (beliebiger Status — aktiv
-oder selbst soft-gelöscht); `--dir` macht dasselbe für jede aktuell
-soft-gelöschte Datei direkt in diesem Verzeichnis. Beide Flags sind
-wiederholbar und in einem Aufruf kombinierbar, z. B. `list-duplicates
---file 1 --file 2 --dir 10 --dir 11`. Jede Datei bekommt einen zweiteiligen
-Block, beide mit derselben ID/PATH/FILENAME-Tabelle: `DELETED FILE:` oder
-`ACTIVE FILE:` (je nach tatsächlichem aktuellem Zustand der Datei) für die
-Datei selbst, danach `DUPLICATES:` für ihre aktiven Duplikate (oder
-`(none)`). Mehrere Blöcke in einem Lauf werden durch einen `=====`-Delimiter
-getrennt. Eine Datei mit null aktiven Duplikaten ist ein normales Ergebnis,
-kein Fehler — ein Fehler wird nur (und überspringt auch nur diesen einen
-Eintrag) für eine `--file`-ID gemeldet, die gar nicht existiert. Mindestens
-ein `--file`/`--dir` ist Pflicht.
-
-**`urlpath <id>`** — rein lesende Komfort-Abfrage. Sucht die angegebene ID
-**sowohl** als file_id als auch als dir_id und gibt für jeden Treffer den
-Archiv-Pfad sowie den relativen Frontend-URL-Pfad aus (`/archive/files/<id>`
-bzw. `/archive/dirs/<id>`) — nur den Pfad, keine vollständige URL, da die
-Frontend-Domain je nach Umgebung unterschiedlich und für dieses Skript nicht
-zuverlässig bekannt ist. Fehler nur, wenn weder eine Datei noch ein
-Verzeichnis mit dieser ID existiert.
-
-Läuft in **jeder** Umgebung, auch in Produktion — anders als
-`downsync_prod.py` ist das kein reines Dev-Tooling, sondern der tatsächliche
-Produktions-Wartungsmechanismus für angesammelte soft-gelöschte Dateien,
-daher gibt es keinen Umgebungs-Guard.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/maintain_deleted_archive_files.py
-python scripts/maintain_deleted_archive_files.py list
-python scripts/maintain_deleted_archive_files.py list --short
-python scripts/maintain_deleted_archive_files.py list 7
-python scripts/maintain_deleted_archive_files.py purge 42
-python scripts/maintain_deleted_archive_files.py purge-duplicates 7
-python scripts/maintain_deleted_archive_files.py restore 42
-python scripts/maintain_deleted_archive_files.py list-duplicates --file 42 --dir 7
-python scripts/maintain_deleted_archive_files.py urlpath 42
-
-# Via podman exec
-podman exec vb-api python scripts/maintain_deleted_archive_files.py list
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge 42
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py purge-duplicates 7
-podman exec -it vb-api python scripts/maintain_deleted_archive_files.py restore 42
-```
-
-**Subcommands:**
-- *(keins)* — gibt nur einen kurzen Hilfetext aus, kein DB-/S3-Zugriff.
-- `list [dir_id] [--short]` — rein lesend, siehe oben.
-- `purge <id>` — destruktiv/S3-relevant, löscht genau eine Datei dauerhaft aus DB und S3, nachdem geprüft wurde, dass sie in `list` erscheint, und nach interaktiver `yes`-Bestätigung. Nicht purgeable (nicht aktuell soft-gelöscht) → Fehlermeldung, Exit-Code 1, nichts wird angefasst.
-- `purge-duplicates <dir_id>` — destruktiv für die DB, S3-sicher per Konstruktion, auf die `duplicate`-Kategorie begrenzt, siehe oben.
-- `restore <file_id>` — reversibel/nicht-destruktiv, keine Bestätigung, siehe oben.
-- `list-duplicates --file ... --dir ...` — rein lesend, siehe oben.
-- `urlpath <id>` — rein lesend, siehe oben.
-
-**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), sowie die von `get_storage()` verwendeten `S3_*`-Vars.
-
----
-
-## `trigger_chronicles.py`
-
-CLI-Wrapper, um einen Chronik-Mail-Lauf manuell für ein beliebiges
-Referenzdatum anzustoßen - zur Ende-zu-Ende-Prüfung in Test/Dev, bevor man
-dem echten wöchentlichen Dienstags-Job vertraut. Standardmäßig ungefährlich:
-ohne `--send` wird nur eine Trockenlauf-Zusammenfassung (Empfängeranzahl und
-Einträge je Organisation/Status/Feld) ausgegeben, es wird keine SMTP-Verbindung
-aufgebaut.
-
-**Aufruf:**
-```bash
-# Im Container
-python scripts/trigger_chronicles.py [--date JJJJ-MM-TT] [--send (--to ADRESSE | --all-members)]
-
-# Via podman exec
-podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31
-podman exec vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --to test@example.org
-podman exec -it vb-api python scripts/trigger_chronicles.py --date 2026-03-31 --send --all-members
-```
-
-**Parameter:**
-- `--date` - Referenzdatum (JJJJ-MM-TT), aus dem die Jubiläumswoche berechnet wird; Standard ist heute in der konfigurierten Zeitzone.
-- `--send` - die Mail tatsächlich per SMTP versenden. Erfordert entweder `--to` oder `--all-members`.
-- `--to ADRESSE` - nur an diese einzelne Testadresse senden (in gemeinsam genutzten Test-/Dev-Umgebungen empfohlen).
-- `--all-members` - mit `--send`: an **jedes Mitglied mit Zustimmung** senden. **Echte Empfänger:** verlangt ein getipptes `yes`, das Stage und Empfängeranzahl nennt, und braucht ein Terminal (`podman exec -it`), sonst bricht das Skript ab.
-
-**Relevante Env-Vars:** `DATABASE_URL` (muss auf PostgreSQL zeigen), `APP_ENVIRONMENT` (wird in der Bestätigung angezeigt) sowie die `SMTP_*`-Vars des Mailers, wenn `--send` übergeben wird.
+| Script | Purpose |
+|---|---|
+| `run_pytest.sh` | Runs the test suite against the test database (derived from `DATABASE_URL`, database `vb_test`), then the coverage gate. Used by the pre-commit hook. `podman exec vb-api sh scripts/run_pytest.sh -q` |
+| `check_coverage_gate.py` | Reads `coverage.json` of the last run and holds statement, branch and function coverage to separate minimums from `pyproject.toml` (`[tool.coverage_gate]`), so a drop in one figure cannot hide behind another. Exit 1: below a minimum, exit 2: report unusable. |
+| `check_router_soc.py` | Fails when a router or dependency under `app/api/` contains business logic: direct session calls (`db.query()`, `db.add()`, `db.commit()`, ...) or imports of ORM models. Everything of that kind belongs in `app/services/`. |
