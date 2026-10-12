@@ -166,7 +166,7 @@ def list_scheduled_jobs(
     latest_runs = get_latest_run_per_job(db)
     jobs: list[ScheduledJobResponse] = []
     for j in get_scheduled_jobs():
-        last_run = latest_runs.get(j["id"] or "")
+        last_run = latest_runs.get(j["id"])
         jobs.append(
             ScheduledJobResponse.model_validate(
                 {

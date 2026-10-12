@@ -51,15 +51,23 @@ def create_access_token(
     subject: str,
     expires_delta: timedelta | None = None,
     jti_override: str | None = None,
+    auth_time: datetime | None = None,
 ) -> tuple[str, str]:
-    if expires_delta:
-        expire = datetime.now(UTC) + expires_delta
-    else:
-        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    """Signs an access token for `subject`.
+
+    `auth_time` is when the session began (OIDC claim, whole seconds). A
+    refresh passes the stored session start so the claim survives token
+    rotation; a fresh login omits it and the session starts now.
+    """
+    issued_at = datetime.now(UTC)
+    expire = issued_at + (
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
     token_id = jti_override or str(uuid.uuid4())
     to_encode = {
         "exp": expire,
-        "iat": datetime.now(UTC),
+        "iat": issued_at,
+        "auth_time": int((auth_time or issued_at).timestamp()),
         "sub": str(subject),
         "jti": token_id,
     }

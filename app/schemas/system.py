@@ -73,7 +73,7 @@ class ScheduledJobResponse(BaseModel):
     id: str
     name: str
     trigger: str
-    next_run: str | None = None
+    next_run: UtcDatetime | None = None
     description: str | None = None
     last_run: ScheduledJobRunSummary | None = None
 

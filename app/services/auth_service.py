@@ -462,7 +462,9 @@ def refresh_session(
 
     stored_session_id = session.jti
     access_token, _ = create_access_token(
-        subject=member.email, jti_override=stored_session_id
+        subject=member.email,
+        jti_override=stored_session_id,
+        auth_time=session.created_at,
     )
     db.commit()
 
