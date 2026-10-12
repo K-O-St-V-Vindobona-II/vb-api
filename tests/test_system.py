@@ -117,7 +117,7 @@ class TestScheduledJobs:
                 "id": "cleanup",
                 "name": "cleanup",
                 "trigger": "interval[1:00:00]",
-                "next_run": "01.07.2026, 08:00",
+                "next_run": datetime(2026, 7, 1, 8, 0, tzinfo=UTC),
                 "description": "Expired tokens cleanup",
             },
         ]
@@ -130,8 +130,29 @@ class TestScheduledJobs:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["id"] == "cleanup"
-        assert data[0]["next_run"] == "01.07.2026, 08:00"
+        assert data[0]["next_run"] == "2026-07-01T08:00:00Z"
         assert data[0]["last_run"] is None
+
+    def test_next_run_of_every_job_is_a_parseable_future_instant(
+        self, client, db_session
+    ):
+        """Contract guard: the frontend feeds next_run straight into
+        `new Date(...)`. A locale-formatted string such as "13.10.2026, 04:00"
+        is read month-first by JavaScript - a wrong date on days 1-12 and
+        "Invalid Date" on days 13-31 - so it must be an ISO 8601 instant."""
+        _seed(db_session)
+        headers = _login_admin(db_session)
+
+        resp = client.get("/api/system/scheduled-jobs", headers=headers)
+
+        assert resp.status_code == 200
+        jobs = resp.json()
+        assert jobs
+        now = datetime.now(UTC)
+        for job in jobs:
+            next_run = datetime.fromisoformat(job["next_run"])
+            assert next_run.tzinfo is not None
+            assert next_run > now
 
     def test_list_scheduled_jobs_includes_last_run(self, client, db_session):
         _seed(db_session)
@@ -152,7 +173,7 @@ class TestScheduledJobs:
                 "id": "cleanup",
                 "name": "cleanup",
                 "trigger": "interval[1:00:00]",
-                "next_run": "01.07.2026, 08:00",
+                "next_run": datetime(2026, 7, 1, 8, 0, tzinfo=UTC),
                 "description": "Expired tokens cleanup",
             },
         ]

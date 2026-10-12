@@ -7,7 +7,7 @@ these tests focus on the filtering/introspection logic itself, not on any
 job body's business logic (already covered by tests/test_scheduled_jobs.py).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from arq.cron import next_cron
@@ -80,7 +80,18 @@ class TestGetScheduledJobs:
         assert cleanup["name"] == "job_cleanup"
         assert cleanup["trigger"] == "cron[minute='0']"
         assert cleanup["description"]
-        assert cleanup["next_run"] is not None
+
+    def test_next_run_is_a_utc_instant_within_the_next_cycle(self):
+        before = datetime.now(UTC)
+
+        cleanup = next(j for j in get_scheduled_jobs() if j["id"] == "cleanup")
+
+        next_run = cleanup["next_run"]
+        assert isinstance(next_run, datetime)
+        assert next_run.utcoffset() == timedelta(0)
+        # cleanup runs at minute 0 of every hour.
+        assert before < next_run <= before + timedelta(hours=1, seconds=5)
+        assert next_run.minute == 0
 
     def test_weekly_job_trigger_description_includes_day_of_week(self, monkeypatch):
         # standesdb_chronicles only registers in production.

@@ -21,8 +21,8 @@ APScheduler's former "tue".
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from arq.cron import next_cron
 
@@ -51,6 +51,20 @@ class JobScheduleEntry:
     weekday: WeekdayOptionType = None
     hour: int | None = None
     minute: int = 0
+
+
+class ScheduledJobInfo(TypedDict):
+    """One row of the read-only schedule introspection.
+
+    `next_run` is a real instant, not display text: the API serialises it
+    as ISO 8601 and the browser formats it in the viewer's locale.
+    """
+
+    id: str
+    name: str
+    trigger: str
+    next_run: datetime
+    description: str
 
 
 JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
@@ -211,14 +225,14 @@ def applicable_entries(
     return result
 
 
-def get_scheduled_jobs() -> list[dict[str, str | None]]:
+def get_scheduled_jobs() -> list[ScheduledJobInfo]:
     settings = get_settings()
     now = datetime.now(get_app_timezone())
     entries = applicable_entries(
         app_environment=settings.app_environment or "",
         backup_enabled=settings.backup_enabled,
     )
-    result: list[dict[str, str | None]] = []
+    result: list[ScheduledJobInfo] = []
     for entry in entries:
         # next_cron() always returns a datetime (never None) — unlike
         # APScheduler's get_next_fire_time(), none of our entries have an
@@ -235,7 +249,7 @@ def get_scheduled_jobs() -> list[dict[str, str | None]]:
                 "id": entry.id,
                 "name": f"job_{entry.id}",
                 "trigger": _describe_trigger(entry),
-                "next_run": next_run.strftime("%d.%m.%Y, %H:%M"),
+                "next_run": next_run.astimezone(UTC),
                 "description": entry.description,
             }
         )

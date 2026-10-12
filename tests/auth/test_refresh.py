@@ -111,6 +111,29 @@ class TestRefreshSuccess:
         )
         assert me_resp.status_code == 200
 
+    def test_login_token_carries_the_session_start_as_auth_time(self, client, member):
+        claims = jwt.decode(_login(client), SECRET_KEY, algorithms=[ALGORITHM])
+
+        assert claims["auth_time"] == claims["iat"]
+
+    def test_refreshed_token_keeps_the_original_login_time(
+        self, client, member, db_session
+    ):
+        """`auth_time` is when the session began, not when this token was
+        minted: the profile menu shows it as "logged in since", and the
+        token itself is replaced every few minutes."""
+        _login(client)
+        session = db_session.query(AuthSession).filter_by(member_id=member.id).one()
+        session.created_at = datetime.now(UTC) - timedelta(hours=3)
+        db_session.commit()
+        started_at = int(session.created_at.timestamp())
+
+        refreshed = client.post("/api/auth/refresh").json()["access_token"]
+
+        claims = jwt.decode(refreshed, SECRET_KEY, algorithms=[ALGORITHM])
+        assert claims["auth_time"] == started_at
+        assert claims["iat"] - claims["auth_time"] >= 3 * 3600 - 60
+
     def test_refresh_rotates_cookie(self, client, member):
         _login(client)
         cookie_before = _get_refresh_cookie(client)
