@@ -36,7 +36,7 @@ Quadlet-Definitionen, Ports, Härtung und der genaue Pod-Aufbau stehen in `vb-de
 
 ## 4. Wo der Code dieses Repositories läuft
 
-Der Code steckt in **einem einzigen Container-Image**, gebaut aus dem Target `prod` des `Dockerfile` durch die CI und veröffentlicht als `ghcr.io/k-o-st-v-vindobona-ii/vb-api:latest` und `...:<voller Commit-SHA>`. Dieses eine Image wird zweimal gestartet: als `vb-api` (Standardbefehl: gunicorn) und als `vb-api-worker` (das Quadlet ersetzt den Befehl durch `arq app.worker.WorkerSettings`). Der Entrypoint `docker-entrypoint.sh` führt vor dem Start `alembic upgrade head` aus, außer bei `SKIP_MIGRATIONS=true`; steht die Datenbank auf einer Revision, die das Image nicht kennt (ein Rollback), schreibt er eine Warnung und startet ohne zu migrieren.
+Der Code steckt in **einem einzigen Container-Image**, gebaut aus dem Target `prod` des `Dockerfile` durch die CI und veröffentlicht als `ghcr.io/k-o-st-v-vindobona-ii/vb-api:latest` und `...:<voller Commit-SHA>` (das Image trägt den Commit zusätzlich als Label `org.opencontainers.image.revision`). Dieses eine Image wird zweimal gestartet: als `vb-api` (Standardbefehl: gunicorn) und als `vb-api-worker` (das Quadlet ersetzt den Befehl durch `arq app.worker.WorkerSettings`). Der Entrypoint `docker-entrypoint.sh` führt vor dem Start `alembic upgrade head` aus, außer bei `SKIP_MIGRATIONS=true`; steht die Datenbank auf einer Revision, die das Image nicht kennt (ein Rollback), schreibt er eine Warnung und startet ohne zu migrieren.
 
 Das Target `dev` desselben `Dockerfile` (`localhost/vb-api:dev`) betreibt die lokale Entwicklungs-Stage: Der Quellordner wird in den Container eingehängt, und `uvicorn --reload` startet bei jeder Änderung neu.
 
