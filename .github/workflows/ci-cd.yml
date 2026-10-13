@@ -180,8 +180,16 @@ jobs:
           push: false
           load: true
           tags: vb-api:smoke-test
+          # Lets an operator read the commit of a running image with podman inspect
+          # (vb-deploy README, section 2.3).
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Check the revision label
+        run: |
+          revision="$(docker image inspect vb-api:smoke-test --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          test "$revision" = "${{ github.sha }}"
 
       # Mirrors the Quadlet hardening applied in the deploy repo's
       # templates: read-only rootfs, only /tmp writable as tmpfs, no
@@ -271,5 +279,8 @@ jobs:
           tags: |
             ghcr.io/k-o-st-v-vindobona-ii/vb-api:latest
             ghcr.io/k-o-st-v-vindobona-ii/vb-api:${{ github.sha }}
+          # Lets an operator read the commit of a running image with podman inspect
+          # (vb-deploy README, section 2.3).
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
