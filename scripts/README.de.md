@@ -89,7 +89,7 @@ Das vollständige Vorgehen im Störfall steht im `vb-deploy`-README, [2.4](https
 
 ## `downsync_prod.py`
 
-Frischt eine **Nicht-Produktions**-Stage in zwei Schritten mit echten Produktionsdaten auf. Schritt 1 spiegelt den gesamten Produktions-AWS-S3-Bucket in das eigene Garage der Stage (eine exakte 1:1-Kopie; Objekte, die lokal, aber nicht in Produktion existieren, werden gelöscht, außer mit `--no-delete`). Schritt 2 stellt die lokale Datenbank aus dem nun aktuellen Präfix `db-backups/` des lokalen Garage wieder her und führt `alembic upgrade head` aus. Der Datenbank-Schritt spricht nie mit Produktion, er liest nur lokalen Speicher, deshalb muss Schritt 1 zuerst laufen, wenn beide aktiv sind.
+Frischt eine **Nicht-Produktions**-Stage in zwei Schritten mit echten Produktionsdaten auf. Schritt 1 spiegelt den gesamten Produktions-AWS-S3-Bucket in das eigene Garage der Stage (eine exakte 1:1-Kopie; Objekte, die lokal, aber nicht in Produktion existieren, werden gelöscht, außer mit `--no-delete`). Mit `--light` spiegelt er nur die Mitgliederbilder samt Vorschaubild-Cache, die öffentliche Galerie und den neuesten Datenbank-Dump, insgesamt einige Dutzend MB statt des ganzen Buckets (rund 43 GB, fast alles davon das Archiv); Archivdateien fehlen dann auf der Stage, und Objekte außerhalb dieser Präfixe, auch ältere Dumps, bleiben unberührt. Schritt 2 stellt die lokale Datenbank aus dem nun aktuellen Präfix `db-backups/` des lokalen Garage wieder her und führt `alembic upgrade head` aus. Der Datenbank-Schritt spricht nie mit Produktion, er liest nur lokalen Speicher, deshalb muss Schritt 1 zuerst laufen, wenn beide aktiv sind.
 
 Das Skript weigert sich zu laufen, wenn `APP_ENVIRONMENT=production` ist (harte Sperre, keine Übersteuerung). Es verlangt ein interaktives `yes`, bevor es etwas tut, außer mit `--yes`. Dieselbe Logik läuft nachts als geplanter Job `downsync`.
 
@@ -99,6 +99,7 @@ python scripts/downsync_prod.py
 python scripts/downsync_prod.py --dry-run
 python scripts/downsync_prod.py --skip-db
 python scripts/downsync_prod.py --skip-s3 --no-delete
+python scripts/downsync_prod.py --light --dry-run --skip-db   # listet, was der Light-Spiegel kopieren würde
 
 # Per podman exec: eine der beiden Varianten wählen
 podman exec -it vb-api python scripts/downsync_prod.py     # interaktive Bestätigung
@@ -112,6 +113,7 @@ Parameter:
 - `--skip-db`: den Datenbank-Schritt überspringen.
 - `--skip-s3`: den S3-Schritt überspringen (die Produktions-Zugangsdaten werden dann gar nicht geladen).
 - `--no-delete`: nur S3-Schritt: neue und geänderte Dateien kopieren, aber lokale Waisen nicht löschen.
+- `--light`: nur S3-Schritt: nur die Mitgliederbilder, die öffentliche Galerie und den neuesten Datenbank-Dump spiegeln, nicht das Archiv. Die Umgebungsvariable `DOWNSYNC_LIGHT=true` wirkt genauso, auch für den nächtlichen Job.
 
 Umgebung: `DATABASE_URL`, `APP_ENVIRONMENT` (nicht `production`), `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` (das lokale Garage, Ziel und Restore-Quelle). Die Produktions-Quell-Zugangsdaten sind `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` und `AWS_BUCKET`, ein nur lesender IAM-User allein für den Produktions-Bucket; wie jede Stage sie bekommt, steht im `vb-deploy`-README, [Anhang A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.de.md#anhang-a-secrets-und-pflichtvariablen).
 

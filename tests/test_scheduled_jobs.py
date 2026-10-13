@@ -492,6 +492,37 @@ class TestJobDownsync:
             ),
         )
 
+    def test_light_setting_mirrors_through_mirror_light_only(
+        self, monkeypatch, mock_record_job_run
+    ):
+        monkeypatch.setenv("DOWNSYNC_LIGHT", "true")
+        with (
+            patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),
+            patch(
+                "app.core.scheduler.mirror_light",
+                return_value=MirrorResult(synced=["a", "b"]),
+            ) as mock_light,
+            patch("app.core.scheduler.mirror_prefix") as mock_full,
+            patch(
+                "app.core.scheduler.run_restore",
+                return_value="production-2026-08-08_03-00-00.dump",
+            ),
+            patch("app.core.scheduler._run_alembic_upgrade_head"),
+        ):
+            job_downsync()
+
+        mock_light.assert_called_once()
+        mock_full.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "downsync",
+            ANY,
+            exit_code=0,
+            output=(
+                "S3-Files (light): 2 synced, 0 skipped, 0 deleted; DB: restored "
+                "from production-2026-08-08_03-00-00.dump."
+            ),
+        )
+
     def test_mirror_errors_skip_restore_and_migration(self, mock_record_job_run):
         with (
             patch("app.core.scheduler.build_prod_storage", return_value=MagicMock()),

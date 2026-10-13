@@ -53,7 +53,7 @@ from app.services.downsync_service import build_prod_storage
 from app.services.p4x_category_service import apply_all_category_filters
 from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
 from app.services.permission_service import get_emails_with_permission
-from app.services.s3_mirror_service import mirror_prefix
+from app.services.s3_mirror_service import mirror_light, mirror_prefix
 from app.services.scheduled_task_run_service import record_job_run
 from app.services.storage_integrity_service import (
     check_archive_integrity,
@@ -799,8 +799,10 @@ def job_downsync() -> None:
         )
         return
 
+    light = get_settings().downsync_light
+    mirror = mirror_light if light else mirror_prefix
     try:
-        result = mirror_prefix(prod_storage, local_storage)
+        result = mirror(prod_storage, local_storage)
     except Exception as exc:
         logger.exception("Downsync S3 mirror failed.")
         record_job_run(
@@ -846,8 +848,8 @@ def job_downsync() -> None:
         started,
         exit_code=0,
         output=(
-            f"S3-Files: {len(result.synced)} synced, {result.skipped} skipped, "
-            f"{len(result.deleted)} deleted; DB: restored from "
-            f"{restored_backup_name}."
+            f"S3-Files{' (light)' if light else ''}: {len(result.synced)} synced, "
+            f"{result.skipped} skipped, {len(result.deleted)} deleted; DB: "
+            f"restored from {restored_backup_name}."
         ),
     )
