@@ -8,7 +8,7 @@ The backend of the Vindobona II system. This README covers what is specific to t
 
 `vb-api` provides the **backend**: the JSON API, the database logic and the scheduled jobs of the club's management system (members and the member database "Standesdatenbank", fees and the bookkeeping of the alumni association "AH-Kassen"/`p4x`, the archive, the public website's content, mail notifications). The frontends `vb-intern` (members and officials, login required) and `vb-www` (public website) talk to it; nothing else is needed to use the data.
 
-**Naming convention:** the repository name is the subdomain. `vb-api` is served at **`api.vindobona2.at`** (and `vb-intern` at `intern.vindobona2.at`, `vb-www` at `www.vindobona2.at`). On other stages the domains come from the stage's inventory in `vb-deploy`.
+**Naming convention:** the repository name is the subdomain. `vb-api` is served at **`api.vindobona2.at`** (and `vb-intern` at `intern.vindobona2.at`, `vb-www` at `www.vindobona2.at`). On other stages the domains come from the stage's inventory file in the private repository `vb-access` (see `vb-deploy` [1.3](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#13-the-github-organization-and-the-repositories)).
 
 Tech stack: Python 3.14, FastAPI, SQLAlchemy (synchronous), Alembic, PostgreSQL 18, S3 compatible storage (AWS S3 on production, Garage on other stages), ARQ with Valkey for jobs. Interactive API documentation is served at `/docs` on the `development` stage only.
 
@@ -109,7 +109,7 @@ podman exec vb-api python scripts/check_router_soc.py
 
 ### Environment variables
 
-Copy `.env.example` to `.env` and fill in the required values. For real stage values and how they are managed, see `vb-deploy` ([Appendix A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#appendix-a-secrets-and-required-variables)). All settings are typed in `app/core/config.py`; the code never reads the environment directly.
+Copy `.env.example` to `.env` and fill in the required values. Real stage values live in the private repository `vb-access`; the variables and how to change them are described in `vb-deploy` ([Appendix A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.md#appendix-a-secrets-and-required-variables)). All settings are typed in `app/core/config.py`; the code never reads the environment directly.
 
 `APP_ENVIRONMENT` is **required**; the application refuses to start without it:
 

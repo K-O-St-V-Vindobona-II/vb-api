@@ -8,7 +8,7 @@ Das Backend des Vindobona-II-Systems. Dieses README behandelt, was für dieses R
 
 `vb-api` stellt das **Backend** bereit: die JSON-API, die Datenbank-Logik und die geplanten Jobs des Verwaltungssystems des Vereins (Mitglieder und die Mitgliederdatenbank "Standesdatenbank", Beiträge und die Buchhaltung der Altherrenschaft "AH-Kassen"/`p4x`, das Archiv, die Inhalte der öffentlichen Website, Mail-Benachrichtigungen). Die Frontends `vb-intern` (Mitglieder und Funktionäre, Login nötig) und `vb-www` (öffentliche Website) sprechen mit ihm; mehr braucht es nicht, um die Daten zu nutzen.
 
-**Namenskonvention:** Der Repository-Name ist die Subdomain. `vb-api` wird unter **`api.vindobona2.at`** ausgeliefert (und `vb-intern` unter `intern.vindobona2.at`, `vb-www` unter `www.vindobona2.at`). Auf anderen Stages kommen die Domains aus dem Inventory der Stage in `vb-deploy`.
+**Namenskonvention:** Der Repository-Name ist die Subdomain. `vb-api` wird unter **`api.vindobona2.at`** ausgeliefert (und `vb-intern` unter `intern.vindobona2.at`, `vb-www` unter `www.vindobona2.at`). Auf anderen Stages kommen die Domains aus der Inventory-Datei der Stage im privaten Repository `vb-access` (siehe `vb-deploy` [1.3](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.de.md#13-die-github-organisation-und-die-repositories)).
 
 Tech-Stack: Python 3.14, FastAPI, SQLAlchemy (synchron), Alembic, PostgreSQL 18, S3-kompatibler Speicher (AWS S3 in Produktion, Garage auf anderen Stages), ARQ mit Valkey für Jobs. Die interaktive API-Dokumentation gibt es unter `/docs` nur auf der Stage `development`.
 
@@ -109,7 +109,7 @@ podman exec vb-api python scripts/check_router_soc.py
 
 ### Umgebungsvariablen
 
-Kopiere `.env.example` nach `.env` und trage die nötigen Werte ein. Echte Stage-Werte und wie sie verwaltet werden: siehe `vb-deploy` ([Anhang A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.de.md#anhang-a-secrets-und-pflichtvariablen)). Alle Einstellungen sind in `app/core/config.py` typisiert; der Code liest die Umgebung nie direkt.
+Kopiere `.env.example` nach `.env` und trage die nötigen Werte ein. Echte Stage-Werte liegen im privaten Repository `vb-access`; die Variablen und wie man sie ändert, sind in `vb-deploy` beschrieben ([Anhang A](https://github.com/K-O-St-V-Vindobona-II/vb-deploy/blob/main/README.de.md#anhang-a-secrets-und-pflichtvariablen)). Alle Einstellungen sind in `app/core/config.py` typisiert; der Code liest die Umgebung nie direkt.
 
 `APP_ENVIRONMENT` ist **Pflicht**; ohne sie startet die Anwendung nicht:
 
