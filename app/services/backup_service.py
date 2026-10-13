@@ -422,11 +422,11 @@ def run_restore(
         keys = _retry_transient_s3(
             lambda: storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/")
         )
-        dated = _dated_backup_keys(keys)
-        if not dated:
+        latest = latest_backup_key(keys)
+        if latest is None:
             msg = "No backups found in S3."
             raise RuntimeError(msg)
-        backup_name = dated[-1][1].removeprefix(f"{S3_PATH_DB_BACKUPS}/")
+        backup_name = latest.removeprefix(f"{S3_PATH_DB_BACKUPS}/")
         logger.info("Auto-selected latest backup: %s", backup_name)
 
     s3_key = f"{S3_PATH_DB_BACKUPS}/{backup_name}"
@@ -531,6 +531,16 @@ def _dated_backup_keys(keys: list[str]) -> list[tuple[datetime, str]]:
         for key in keys
         if (timestamp := _parse_backup_timestamp(key.removeprefix(prefix))) is not None
     )
+
+
+def latest_backup_key(keys: list[str]) -> str | None:
+    """The key of the newest backup, or None when no key has a parseable
+    backup name.
+    """
+    dated = _dated_backup_keys(keys)
+    if not dated:
+        return None
+    return dated[-1][1]
 
 
 def cleanup_old_backups(

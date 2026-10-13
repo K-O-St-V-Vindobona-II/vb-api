@@ -118,7 +118,7 @@ class TestStepSkipping:
         mock_build_storage.assert_called_once()
         mock_db.assert_not_called()
         mock_s3.assert_called_once()
-        assert mock_s3.call_args.args[2:] == (False, False)
+        assert mock_s3.call_args.args[2:] == (False, False, False)
 
     def test_skip_s3_only_runs_db(self) -> None:
         with (
@@ -151,7 +151,38 @@ class TestStepSkipping:
         ):
             _run_main(["--yes", "--skip-db", "--no-delete"])
 
-        assert mock_s3.call_args.args[2:] == (False, True)
+        assert mock_s3.call_args.args[2:] == (False, True, False)
+
+    def test_light_flag_is_threaded_through_to_s3_step(self) -> None:
+        with (
+            patch.dict(os.environ, {"APP_ENVIRONMENT": "development"}),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
+            patch.object(
+                downsync_prod, "_run_s3_mirror", return_value=MirrorResult()
+            ) as mock_s3,
+        ):
+            _run_main(["--yes", "--skip-db", "--light"])
+
+        assert mock_s3.call_args.args[2:] == (False, False, True)
+
+    def test_light_setting_applies_without_the_flag(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"APP_ENVIRONMENT": "development", "DOWNSYNC_LIGHT": "true"},
+            ),
+            patch.object(
+                downsync_prod, "_build_prod_storage", return_value=MagicMock()
+            ),
+            patch.object(
+                downsync_prod, "_run_s3_mirror", return_value=MirrorResult()
+            ) as mock_s3,
+        ):
+            _run_main(["--yes", "--skip-db"])
+
+        assert mock_s3.call_args.args[2:] == (False, False, True)
 
     def test_s3_errors_abort_before_db_step(self) -> None:
         """The S3 mirror must run before the DB restore (the DB step reads
@@ -267,7 +298,7 @@ class TestRunS3Mirror:
             return_value=MirrorResult(synced=["a"], skipped=1),
         ) as mock_mirror:
             result = downsync_prod._run_s3_mirror(
-                prod_storage, local_storage, dry_run=True, no_delete=False
+                prod_storage, local_storage, dry_run=True, no_delete=False, light=False
             )
 
         mock_mirror.assert_called_once_with(
@@ -284,10 +315,34 @@ class TestRunS3Mirror:
             downsync_prod, "mirror_prefix", return_value=MirrorResult()
         ) as mock_mirror:
             downsync_prod._run_s3_mirror(
-                MagicMock(), MagicMock(), dry_run=False, no_delete=True
+                MagicMock(), MagicMock(), dry_run=False, no_delete=True, light=False
             )
 
         assert mock_mirror.call_args.kwargs["delete_orphans"] is False
+
+    def test_light_mirrors_through_mirror_light_only(self) -> None:
+        prod_storage = MagicMock()
+        local_storage = MagicMock()
+
+        with (
+            patch.object(
+                downsync_prod, "mirror_light", return_value=MirrorResult(synced=["a"])
+            ) as mock_light,
+            patch.object(downsync_prod, "mirror_prefix") as mock_full,
+        ):
+            result = downsync_prod._run_s3_mirror(
+                prod_storage, local_storage, dry_run=False, no_delete=True, light=True
+            )
+
+        mock_light.assert_called_once_with(
+            prod_storage,
+            local_storage,
+            dry_run=False,
+            delete_orphans=False,
+            on_progress=downsync_prod._print_mirror_progress,
+        )
+        mock_full.assert_not_called()
+        assert result.synced == ["a"]
 
 
 class TestBuildProdStorageCliWrapper:

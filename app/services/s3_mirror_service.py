@@ -1,14 +1,23 @@
 """Generic prefix mirror between two S3-compatible buckets that share the
-same key structure, used by scripts/downsync_prod.py to clone the production
-AWS bucket into local Garage. Source and destination organize objects
-identically, so no key remapping is needed: this is a plain
-list-diff-copy-delete mirror.
+same key structure, used by scripts/downsync_prod.py and the downsync job to
+clone the production AWS bucket into local Garage. Source and destination
+organize objects identically, so no key remapping is needed: this is a plain
+list-diff-copy-delete mirror. mirror_light() applies it to the few prefixes a
+test stage needs.
 """
 
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from app.core.storage import (
+    S3_PATH_DB_BACKUPS,
+    S3_PATH_PUBLIC_GALLERY,
+    S3_PATH_STANDESDB_CACHE,
+    S3_PATH_STANDESDB_IMAGES,
+)
+from app.services.backup_service import latest_backup_key
 
 if TYPE_CHECKING:
     from app.core.storage import StorageClient
@@ -108,4 +117,57 @@ def mirror_prefix(
     if delete_orphans:
         result.deleted = _delete_orphans(dest, orphans, dry_run=dry_run)
 
+    return result
+
+
+_LIGHT_PREFIXES = (
+    S3_PATH_STANDESDB_IMAGES,
+    S3_PATH_STANDESDB_CACHE,
+    S3_PATH_PUBLIC_GALLERY,
+)
+
+
+def _merge_into(total: MirrorResult, part: MirrorResult) -> None:
+    total.synced.extend(part.synced)
+    total.skipped += part.skipped
+    total.deleted.extend(part.deleted)
+    total.errors.extend(part.errors)
+
+
+def mirror_light(
+    source: StorageClient,
+    dest: StorageClient,
+    *,
+    dry_run: bool = False,
+    delete_orphans: bool = True,
+    on_progress: ProgressCallback | None = None,
+) -> MirrorResult:
+    """Mirror only what a test stage needs to show real data: the member
+    images (with their thumbnail cache), the public gallery and the newest
+    database backup. The archive, by far the largest part of the bucket, is
+    left out, so its files are missing on the destination.
+
+    Orphans are deleted only inside the mirrored prefixes; the older backups
+    and the archive objects of the destination are never touched. Progress is
+    reported per prefix.
+
+    Raises RuntimeError, before anything is copied or deleted, when the source
+    holds no database backup: a light downsync restores the database from it.
+    """
+    newest_backup = latest_backup_key(source.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/"))
+    if newest_backup is None:
+        msg = "Source has no database backup to mirror."
+        raise RuntimeError(msg)
+
+    result = MirrorResult()
+    for prefix in (*(f"{path}/" for path in _LIGHT_PREFIXES), newest_backup):
+        part = mirror_prefix(
+            source,
+            dest,
+            prefix,
+            dry_run=dry_run,
+            delete_orphans=delete_orphans,
+            on_progress=on_progress,
+        )
+        _merge_into(result, part)
     return result

@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     aws_prod_bucket: str | None = Field(default=None, validation_alias="AWS_BUCKET")
     # Tier 3: has a sensible default, unlike the three prod AWS fields above.
     aws_prod_region: str = Field(default="eu-central-1", validation_alias="AWS_REGION")
+    # Tier 3: off by default. A non-production stage that sets it mirrors only
+    # the member images, the public gallery and the newest database backup
+    # instead of the whole bucket (see mirror_light() in
+    # app/services/s3_mirror_service.py): the archive is by far the largest part.
+    downsync_light: bool = Field(default=False, validation_alias="DOWNSYNC_LIGHT")
 
     # Account and fee text of the Aktivitas shown on the payment page. Public
     # data, but specific to the deployment and changed without a release, so

@@ -7,7 +7,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from app.core.storage import StorageClient
-from app.services.s3_mirror_service import mirror_prefix
+from app.services.s3_mirror_service import mirror_light, mirror_prefix
 
 SOURCE_BUCKET = "mirror-source"
 DEST_BUCKET = "mirror-dest"
@@ -212,3 +212,129 @@ class TestMirrorSafetyNet:
 
         assert result.deleted == []
         assert dest.exists("archive/a")
+
+
+OLD_DUMP = "db-backups/production-2026-10-01_03-00-00.dump"
+NEW_DUMP = "db-backups/production-2026-10-02_03-00-00.dump"
+
+
+class TestMirrorLight:
+    def test_copies_the_light_prefixes_and_only_the_newest_backup(self, source, dest):
+        for key in (
+            "standesdb/images/a.jpg",
+            "standesdb/cache/a.jpg",
+            "public/gallery/g.jpg",
+            "archive/store/x.pdf",
+            "archive/cache/x.jpg",
+            OLD_DUMP,
+            NEW_DUMP,
+        ):
+            source.upload(key, b"content")
+
+        result = mirror_light(source, dest)
+
+        assert set(result.synced) == {
+            "standesdb/images/a.jpg",
+            "standesdb/cache/a.jpg",
+            "public/gallery/g.jpg",
+            NEW_DUMP,
+        }
+        assert set(dest.list_keys("")) == set(result.synced)
+
+    def test_the_newest_backup_is_chosen_by_time_not_by_name(self, source, dest):
+        source.upload("db-backups/test-2026-10-03_03-00-00.dump", b"newest")
+        source.upload(NEW_DUMP, b"older but sorts later as text")
+
+        result = mirror_light(source, dest)
+
+        assert result.synced == ["db-backups/test-2026-10-03_03-00-00.dump"]
+
+    def test_orphans_are_deleted_only_inside_the_mirrored_prefixes(self, source, dest):
+        source.upload(NEW_DUMP, b"dump")
+        source.upload("standesdb/images/kept.jpg", b"kept")
+        dest.upload("standesdb/images/kept.jpg", b"kept")
+        dest.upload("standesdb/images/gone.jpg", b"stale")
+        dest.upload("archive/store/local-only.pdf", b"keep")
+        dest.upload(OLD_DUMP, b"keep")
+
+        result = mirror_light(source, dest)
+
+        assert result.deleted == ["standesdb/images/gone.jpg"]
+        assert dest.exists("archive/store/local-only.pdf")
+        assert dest.exists(OLD_DUMP)
+
+    def test_keeping_orphans_deletes_nothing(self, source, dest):
+        source.upload(NEW_DUMP, b"dump")
+        dest.upload("standesdb/images/gone.jpg", b"stale")
+
+        result = mirror_light(source, dest, delete_orphans=False)
+
+        assert result.deleted == []
+        assert dest.exists("standesdb/images/gone.jpg")
+
+    def test_dry_run_reports_without_writing(self, source, dest):
+        source.upload("standesdb/images/a.jpg", b"a")
+        source.upload(NEW_DUMP, b"dump")
+
+        result = mirror_light(source, dest, dry_run=True)
+
+        assert set(result.synced) == {"standesdb/images/a.jpg", NEW_DUMP}
+        assert dest.list_keys("") == []
+
+    def test_without_a_backup_in_the_source_nothing_is_copied(self, source, dest):
+        source.upload("standesdb/images/a.jpg", b"a")
+
+        with pytest.raises(RuntimeError, match="no database backup"):
+            mirror_light(source, dest)
+
+        assert dest.list_keys("") == []
+
+    def test_names_without_a_timestamp_are_not_backups(self, source, dest):
+        source.upload("db-backups/notes.txt", b"not a dump")
+
+        with pytest.raises(RuntimeError, match="no database backup"):
+            mirror_light(source, dest)
+
+    def test_the_safety_net_of_the_prefix_mirror_still_applies(self, source, dest):
+        source.upload(NEW_DUMP, b"dump")
+        dest.upload("public/gallery/only-here.jpg", b"stale")
+
+        with pytest.raises(RuntimeError, match="refusing to delete"):
+            mirror_light(source, dest)
+
+    def test_errors_of_all_prefixes_are_collected(self, source, dest):
+        source.upload("standesdb/images/x.jpg", b"x")
+        source.upload("public/gallery/y.jpg", b"y")
+        source.upload(NEW_DUMP, b"dump")
+        original_put_object = dest._client.put_object
+
+        def failing_put_object(**kwargs):
+            if kwargs.get("Key") in {"standesdb/images/x.jpg", NEW_DUMP}:
+                raise ClientError(
+                    {"Error": {"Code": "500", "Message": "fail"}}, "PutObject"
+                )
+            return original_put_object(**kwargs)
+
+        with patch.object(dest._client, "put_object", side_effect=failing_put_object):
+            result = mirror_light(source, dest)
+
+        assert set(result.errors) == {"standesdb/images/x.jpg", NEW_DUMP}
+        assert result.synced == ["public/gallery/y.jpg"]
+
+    def test_skipped_objects_are_added_up(self, source, dest):
+        for key in ("standesdb/images/a.jpg", NEW_DUMP):
+            source.upload(key, b"same")
+            dest.upload(key, b"same")
+
+        result = mirror_light(source, dest)
+
+        assert result.synced == []
+        assert result.skipped == 2
+
+    def test_progress_is_reported(self, source, dest):
+        source.upload(NEW_DUMP, b"dump")
+        on_progress = MagicMock()
+
+        mirror_light(source, dest, on_progress=on_progress)
+
+        on_progress.assert_called_with(1, 1)

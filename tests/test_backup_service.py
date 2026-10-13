@@ -19,6 +19,7 @@ from app.services.backup_service import (
     _parse_db_url,
     _retry_transient_s3,
     cleanup_old_backups,
+    latest_backup_key,
     run_backup,
     run_restore,
 )
@@ -479,6 +480,19 @@ class TestRunRestore:
         assert restore_args[0] == FAKE_PG_RESTORE
         assert "--clean" not in restore_args
         assert "--if-exists" not in restore_args
+
+    def test_latest_backup_key_orders_by_time_not_by_name(self):
+        keys = [
+            "db-backups/production-2026-10-01_03-00-00.dump",
+            "db-backups/test-2026-10-02_03-00-00.dump",
+            "db-backups/notes.txt",
+        ]
+
+        assert latest_backup_key(keys) == "db-backups/test-2026-10-02_03-00-00.dump"
+
+    def test_latest_backup_key_is_none_without_a_dated_name(self):
+        assert latest_backup_key([]) is None
+        assert latest_backup_key(["db-backups/notes.txt"]) is None
 
     def test_run_restore_latest(self, backup_bucket):
         storage = _make_storage()

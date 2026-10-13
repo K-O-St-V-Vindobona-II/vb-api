@@ -171,6 +171,22 @@ class TestBackupEnabledParsing:
         assert get_settings().backup_enabled is True
 
 
+class TestDownsyncLight:
+    """Tier 3 - off unless a non-production stage asks for the light downsync."""
+
+    def test_defaults_to_off_when_unset(self, monkeypatch) -> None:
+        monkeypatch.delenv("DOWNSYNC_LIGHT", raising=False)
+        assert get_settings().downsync_light is False
+
+    def test_true_switches_it_on(self, monkeypatch) -> None:
+        monkeypatch.setenv("DOWNSYNC_LIGHT", "true")
+        assert get_settings().downsync_light is True
+
+    def test_false_keeps_it_off(self, monkeypatch) -> None:
+        monkeypatch.setenv("DOWNSYNC_LIGHT", "false")
+        assert get_settings().downsync_light is False
+
+
 class TestAppTimezone:
     """Tier 3 (timezone) — optional with a sane default, no boot-time
     validation (an invalid IANA zone name only surfaces where it's

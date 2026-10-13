@@ -182,6 +182,9 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
             " gespiegelte, frischeste Backup lokal (inkl."
             " 'alembic upgrade head'). Sorgt dafür, dass Non-Production"
             " einmal täglich mit aktuellen Produktivdaten versorgt wird."
+            " Mit DOWNSYNC_LIGHT=true werden nur die Mitgliederbilder, die"
+            " öffentliche Galerie und das neueste Backup gespiegelt, nicht"
+            " das Archiv."
         ),
     ),
 )

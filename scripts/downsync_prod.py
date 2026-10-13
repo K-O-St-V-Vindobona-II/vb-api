@@ -7,6 +7,8 @@ Self-contained, two-step downsync:
    local Garage instance — an exact 1:1 clone (source and dest use the same
    key structure, so no remapping is needed). Local-only objects are
    deleted unless --no-delete is passed.
+   With --light (or DOWNSYNC_LIGHT=true) only the member images, the public
+   gallery and the newest database backup are mirrored, not the archive.
 2. Restores the local PostgreSQL database from the now-current local
    Garage's `db-backups/` prefix (i.e. from whatever the mirror step just
    brought down from prod) and runs `alembic upgrade head`.
@@ -19,6 +21,7 @@ performs. Refuses to run outside a non-prod stage.
 Usage:
     python scripts/downsync_prod.py
     python scripts/downsync_prod.py --dry-run
+    python scripts/downsync_prod.py --light
     python scripts/downsync_prod.py --yes
     python scripts/downsync_prod.py --skip-db
     python scripts/downsync_prod.py --skip-s3 --no-delete
@@ -36,7 +39,7 @@ from app.core.config import get_settings
 from app.core.storage import S3_PATH_DB_BACKUPS, StorageClient, get_storage
 from app.services.backup_service import run_restore
 from app.services.downsync_service import build_prod_storage
-from app.services.s3_mirror_service import MirrorResult, mirror_prefix
+from app.services.s3_mirror_service import MirrorResult, mirror_light, mirror_prefix
 
 
 def _build_prod_storage() -> StorageClient:
@@ -76,8 +79,10 @@ def _run_s3_mirror(
     local_storage: StorageClient,
     dry_run: bool,
     no_delete: bool,
+    light: bool,
 ) -> MirrorResult:
-    result = mirror_prefix(
+    mirror = mirror_light if light else mirror_prefix
+    result = mirror(
         prod_storage,
         local_storage,
         dry_run=dry_run,
@@ -150,6 +155,14 @@ def _parse_args() -> argparse.Namespace:
         help="Skip the S3 mirror step",
     )
     parser.add_argument(
+        "--light",
+        action="store_true",
+        help=(
+            "S3 step: mirror only the member images, the public gallery and the "
+            "newest database backup, not the archive (default: DOWNSYNC_LIGHT)"
+        ),
+    )
+    parser.add_argument(
         "--no-delete",
         action="store_true",
         help="S3 step: sync new files but do not delete local orphans",
@@ -172,6 +185,8 @@ def main() -> None:
     print(f"Environment: {app_environment}")
     print(f"Skip DB:     {args.skip_db}")
     print(f"Skip S3:     {args.skip_s3}")
+    light = args.light or get_settings().downsync_light
+    print(f"Light:       {light}")
     print(f"Dry run:     {args.dry_run}")
     print()
 
@@ -184,7 +199,7 @@ def main() -> None:
             f"=== S3 mirror (prod {get_settings().aws_prod_bucket} -> local Garage) ==="
         )
         result = _run_s3_mirror(
-            prod_storage, local_storage, args.dry_run, args.no_delete
+            prod_storage, local_storage, args.dry_run, args.no_delete, light
         )
         print()
         if result.has_errors:
