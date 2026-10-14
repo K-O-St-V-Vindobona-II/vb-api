@@ -1026,8 +1026,14 @@ def get_unsorted_upload_count(db: Session) -> int:
 
     Unlike get_unfiled_uploads(), this is not scoped to a single uploader -
     used for the weekly archive health-check report to all archive admins.
+    Trashed files are not counted: they wait for nothing, so reporting them
+    would send admins looking for uploads that are not there.
     """
-    return db.query(ArchiveFile).filter(ArchiveFile.archive_dir_id.is_(None)).count()
+    return (
+        db.query(ArchiveFile)
+        .filter(ArchiveFile.archive_dir_id.is_(None), ArchiveFile.deleted_at.is_(None))
+        .count()
+    )
 
 
 def get_archive_stats(db: Session) -> dict[str, object]:
