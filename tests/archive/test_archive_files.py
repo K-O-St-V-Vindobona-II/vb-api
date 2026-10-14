@@ -292,6 +292,41 @@ class TestUpload:
         assert len(files) == 1
         assert files[0]["description"] == "File from user A"
 
+    def test_unfiled_uploads_omit_trashed_files(self, db_session):
+        """A trashed file in the root is not an upload waiting to be filed,
+        so it must not appear in the uploader's list."""
+        _seed(db_session)
+        _headers_a, user_a = _login_user(db_session, None)
+        now = _now()
+        files: dict[str, ArchiveFile] = {}
+        for name in ("kept", "trashed"):
+            item = ArchiveStoreItem(
+                name="testfile",
+                extension="jpg",
+                mime_type="image/jpeg",
+                size=5000,
+                sha256_hash=f"unfiled_{name}",
+                created_by=user_a.id,
+                created_at=now,
+                updated_at=now,
+            )
+            db_session.add(item)
+            db_session.flush()
+            files[name] = ArchiveFile(
+                archive_dir_id=None,
+                description=name,
+                archive_store_item_id=item.id,
+                created_at=now,
+                updated_at=now,
+            )
+            db_session.add(files[name])
+        files["trashed"].deleted_at = now
+        db_session.commit()
+
+        result = archive_service.get_unfiled_uploads(db_session, user_a.id)
+
+        assert [entry["description"] for entry in result] == ["kept"]
+
     def test_query_count_does_not_scale_with_upload_count(
         self, db_session, count_queries
     ):

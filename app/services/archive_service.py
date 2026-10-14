@@ -974,6 +974,7 @@ def get_unfiled_uploads(
         )
         .filter(
             ArchiveFile.archive_dir_id.is_(None),
+            ArchiveFile.deleted_at.is_(None),
             ArchiveStoreItem.created_by == user_id,
         )
         .all()
