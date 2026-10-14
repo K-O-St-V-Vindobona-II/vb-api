@@ -1574,6 +1574,23 @@ class TestGetUnsortedUploadCount:
 
         assert get_unsorted_upload_count(db_session) == 0
 
+    def test_excludes_soft_deleted_files(self, db_session):
+        """A trashed file in the root is not an upload waiting to be filed,
+        so it must not show up in the weekly report."""
+        _make_file(db_session, dir_id=None, hash_suffix="kept")
+        trashed = _make_file(db_session, dir_id=None, hash_suffix="trashed")
+        trashed.deleted_at = _now()
+        db_session.commit()
+
+        assert get_unsorted_upload_count(db_session) == 1
+
+    def test_zero_when_only_soft_deleted_files_remain(self, db_session):
+        trashed = _make_file(db_session, dir_id=None, hash_suffix="only-trashed")
+        trashed.deleted_at = _now()
+        db_session.commit()
+
+        assert get_unsorted_upload_count(db_session) == 0
+
 
 class TestGetArchiveStats:
     def test_empty_archive_returns_zeroes(self, db_session):

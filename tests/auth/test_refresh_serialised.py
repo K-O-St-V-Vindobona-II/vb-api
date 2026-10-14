@@ -43,7 +43,11 @@ def committed_session():
 
 def _wait_until_a_request_waits_for_a_lock() -> None:
     deadline = time.monotonic() + WAIT_SECONDS
-    with engine.connect() as watcher:
+    # PostgreSQL freezes pg_stat_activity for the length of a transaction. A
+    # watcher in one open transaction would keep seeing the picture of its first
+    # poll, taken before the second request has even connected, and report "no
+    # one waits" until the deadline. AUTOCOMMIT makes every poll a fresh one.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as watcher:
         while time.monotonic() < deadline:
             waiting = watcher.execute(
                 text(
