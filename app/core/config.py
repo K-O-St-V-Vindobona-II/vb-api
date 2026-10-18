@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     password_min_length: int = Field(
         default=8, ge=8, le=72, validation_alias="PASSWORD_MIN_LENGTH"
     )
+    # Cost factor (log2 of the key-derivation rounds) for new password hashes.
+    # Lower values exist for test runs only: production never hashes below 12,
+    # whatever is configured (see app.core.security.effective_bcrypt_rounds).
+    # Stored hashes keep the cost they were created with.
+    bcrypt_rounds: int = Field(
+        default=12, ge=4, le=16, validation_alias="BCRYPT_ROUNDS"
+    )
 
     # Tier 2 (feature-required — checked at first use via require_setting(),
     # not at boot: a process that never sends email, offers Google Login,

@@ -13,6 +13,15 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 os.environ["APP_ENVIRONMENT"] = "test"
+# Cheapest bcrypt cost, set before the app is imported: every account a test
+# creates and every login it performs hashes or verifies with it.
+os.environ["BCRYPT_ROUNDS"] = "4"
+# A development container points these at a real object store. The mocked S3
+# only intercepts the default AWS endpoints and lets requests to any other
+# host through to the network, so tests would call the real store and wait for
+# its connect timeouts. Tests that need an endpoint set their own.
+os.environ.pop("S3_ENDPOINT_URL", None)
+os.environ.pop("S3_PUBLIC_ENDPOINT_URL", None)
 os.environ["CORS_ORIGINS"] = "http://localhost:20001,http://127.0.0.1:20001"
 
 _ALLOWED_TEST_DBS = {"vb_test", "test"}
@@ -176,8 +185,10 @@ _original_gensalt = bcrypt.gensalt
 
 @pytest.fixture(scope="session", autouse=True)
 def _fast_bcrypt():
-    bcrypt.gensalt = lambda rounds=4, prefix=b"2b": _original_gensalt(  # noqa: ARG005
-        rounds=4, prefix=prefix
+    # Tests that call bcrypt.gensalt() without a cost get the cheapest one; an
+    # explicit cost (the app passes BCRYPT_ROUNDS) is honoured.
+    bcrypt.gensalt = lambda rounds=4, prefix=b"2b": _original_gensalt(
+        rounds=rounds, prefix=prefix
     )
     yield
     bcrypt.gensalt = _original_gensalt

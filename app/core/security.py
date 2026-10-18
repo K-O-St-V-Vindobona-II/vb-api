@@ -1,3 +1,4 @@
+import functools
 import hashlib
 import hmac
 import logging
@@ -28,6 +29,9 @@ REFRESH_COOKIE_PATH = "/api/auth"
 # bcrypt only ever uses the first 72 bytes of its input (release 5 raises for
 # longer values, earlier releases truncated silently).
 BCRYPT_MAX_PASSWORD_BYTES = 72
+
+# Production never hashes below this cost, whatever BCRYPT_ROUNDS says.
+BCRYPT_PRODUCTION_MIN_ROUNDS = 12
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -75,10 +79,31 @@ def create_access_token(
     return encoded_jwt, token_id
 
 
+def effective_bcrypt_rounds(configured: int, environment: str | None) -> int:
+    """Cost factor for new hashes: the configured one, but never below
+    BCRYPT_PRODUCTION_MIN_ROUNDS in production."""
+    if environment != "production":
+        return configured
+    return max(configured, BCRYPT_PRODUCTION_MIN_ROUNDS)
+
+
 def get_password_hash(password: str) -> str:
     password_bytes = password.encode("utf-8")
-    salt = bcrypt.gensalt(rounds=12)
+    rounds = effective_bcrypt_rounds(_settings.bcrypt_rounds, _settings.app_environment)
+    salt = bcrypt.gensalt(rounds=rounds)
     return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
+
+
+@functools.cache
+def dummy_password_hash() -> str:
+    """Hash of a random value that is discarded right away.
+
+    Verified against when a login names an unknown account, so the attempt
+    costs the same bcrypt time as one for a known account. It is created with
+    the same cost as real hashes and only on first use, so importing the
+    module stays cheap.
+    """
+    return get_password_hash(secrets.token_urlsafe(32))
 
 
 def generate_refresh_secret() -> str:
