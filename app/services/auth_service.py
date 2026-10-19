@@ -24,6 +24,7 @@ from app.core.security import (
     SECRET_KEY,
     SESSION_IDLE_TIMEOUT_MINUTES,
     create_access_token,
+    dummy_password_hash,
     generate_refresh_secret,
     get_password_hash,
     hash_refresh_secret,
@@ -64,11 +65,6 @@ _CREDENTIALS_INVALID_MESSAGE = "Anmeldedaten ungültig."
 _SESSION_IDLE_MESSAGE = "Session expired due to inactivity."
 # A session is stamped as used at most once per interval, not on every request.
 _SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
-
-# Cost-12 hash of a random value that was discarded right after hashing.
-# Verified against when the e-mail address is unknown, so a login attempt costs
-# the same bcrypt time whether or not the account exists.
-_DUMMY_PASSWORD_HASH = "$2b$12$Sw3Wj/zUDN7QqY3Rqv.8AOty1Lf.suclJNg0HrIP5wSvtd7XmGfDm"  # noqa: S105 - hash of a discarded random value
 
 
 class _TimeoutHTTPAdapter(HTTPAdapter):
@@ -206,7 +202,7 @@ def authenticate_user(
     member = (
         db.query(Member).filter(func.lower(Member.email) == func.lower(email)).first()
     )
-    stored_hash = (member.auth_password if member else None) or _DUMMY_PASSWORD_HASH
+    stored_hash = (member.auth_password if member else None) or dummy_password_hash()
     password_ok = verify_password(password, stored_hash)
 
     if not member:

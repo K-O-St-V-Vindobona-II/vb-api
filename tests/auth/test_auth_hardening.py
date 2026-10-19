@@ -77,7 +77,7 @@ class TestLoginDoesNotLeakAccountState:
         ) as mock_verify:
             auth_service.authenticate_user(db_session, "nobody@x.at", "pw")
 
-        assert mock_verify.call_args.args[1] == auth_service._DUMMY_PASSWORD_HASH
+        assert mock_verify.call_args.args[1] == security.dummy_password_hash()
 
     def test_account_without_a_password_is_checked_against_the_dummy_hash(
         self, db_session
@@ -97,12 +97,12 @@ class TestLoginDoesNotLeakAccountState:
             )
 
         assert (member, reason) == (None, "wrong_password")
-        assert mock_verify.call_args.args[1] == auth_service._DUMMY_PASSWORD_HASH
+        assert mock_verify.call_args.args[1] == security.dummy_password_hash()
 
-    def test_dummy_hash_has_the_production_cost_factor(self):
-        assert auth_service._DUMMY_PASSWORD_HASH.startswith("$2b$12$")
+    def test_dummy_hash_has_the_configured_cost_factor(self):
+        assert security.dummy_password_hash().startswith("$2b$04$")
         assert (
-            bcrypt.checkpw(b"anything", auth_service._DUMMY_PASSWORD_HASH.encode())
+            bcrypt.checkpw(b"anything", security.dummy_password_hash().encode())
             is False
         )
 
