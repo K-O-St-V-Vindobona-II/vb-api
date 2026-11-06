@@ -129,8 +129,9 @@ class TestSummaryXlsx:
             date(2026, 3, 1),
             date(2026, 3, 31),
         )
-        assert len(xlsx_bytes) > 0
-        assert isinstance(attachments, list)
+        workbook = load_workbook(io.BytesIO(xlsx_bytes))
+        assert "Zusammenfassung" in workbook.sheetnames
+        assert attachments == []
 
     def test_xlsx_has_correct_sheets(self, db_session):
         _seed(db_session)
@@ -196,7 +197,17 @@ class TestSummaryXlsx:
             date(2020, 1, 1),
             date(2020, 1, 31),
         )
-        assert len(xlsx_bytes) > 0
+        workbook = load_workbook(io.BytesIO(xlsx_bytes))
+        cells = {
+            str(cell)
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows(values_only=True)
+            for cell in row
+            if cell is not None
+        }
+        # The account did not exist yet: only the header row of the summary.
+        assert workbook["Zusammenfassung"].max_row == 1
+        assert not {"MB Kopernikus", "Telekom"} & cells
 
     def test_attachment_extraction(self, db_session):
         account = _seed(db_session)
@@ -391,4 +402,12 @@ class TestSummaryXlsxEdgeCases:
         xlsx_bytes, _ = generate_summary_xlsx(
             db_session, date(2026, 12, 1), date(2026, 12, 31)
         )
-        assert len(xlsx_bytes) > 0
+        workbook = load_workbook(io.BytesIO(xlsx_bytes))
+        cells = {
+            str(cell)
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows(values_only=True)
+            for cell in row
+            if cell is not None
+        }
+        assert "Dezember Buchung" in cells

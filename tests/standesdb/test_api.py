@@ -261,6 +261,8 @@ def test_create_member_success(client, db_session):
     )
     assert resp.status_code == 201
     assert resp.json()["status"] == "ok"
+    stored = db_session.query(Member).filter_by(nachname="Mitglied").one()
+    assert (stored.vorname, stored.org_id, stored.state_id) == ("Neu", "vbw", "fu")
 
 
 def test_create_member_wrong_org(client, db_session):
@@ -280,6 +282,7 @@ def test_create_member_wrong_org(client, db_session):
         },
     )
     assert resp.status_code == 403
+    assert db_session.query(Member).filter_by(vorname="Falsch").count() == 0
 
 
 def test_create_member_duplicate_name(client, db_session):
@@ -309,6 +312,7 @@ def test_create_member_duplicate_name(client, db_session):
         },
     )
     assert resp.status_code == 409
+    assert db_session.query(Member).filter_by(nachname="Gemoppelt").count() == 1
 
 
 # --- Member Update ---
@@ -402,6 +406,7 @@ def test_create_contact_requires_permission(client, db_session):
         },
     )
     assert resp.status_code == 403
+    assert db_session.query(Contact).filter_by(name="Neuer Kontakt").count() == 0
 
 
 def test_create_contact_success(client, db_session):
@@ -568,6 +573,8 @@ def test_delete_contact_requires_permission(client, db_session):
         headers=headers,
     )
     assert resp.status_code == 403
+    db_session.refresh(contact)
+    assert contact.deleted_at is None
 
 
 def test_delete_contact_404_for_missing(client, db_session):
@@ -601,6 +608,8 @@ def test_delete_contact_idempotent(client, db_session):
         headers=headers,
     )
     assert resp1.status_code == 204
+    db_session.refresh(contact)
+    assert contact.deleted_at is not None
 
     resp2 = client.delete(
         f"/api/standesdb/contacts/{contact.id}",
@@ -709,6 +718,7 @@ def test_invalid_phone_rejected(client, db_session):
         },
     )
     assert resp.status_code == 422
+    assert db_session.query(Member).filter_by(vorname="Phone").count() == 0
 
 
 # --- Change Logs ---

@@ -11,11 +11,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
+import jwt
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.orm import Query
 
-from app.core.security import create_access_token
+from app.core.security import ALGORITHM, SECRET_KEY, create_access_token
 from app.models.client_user_agent import ClientUserAgent
 from app.models.member import Member
 from app.models.org import Org
@@ -204,6 +205,53 @@ class TestRecordRequest:
 
         entry = db_session.query(RequestLog).one()
         assert entry.member_id is None
+
+    @pytest.mark.parametrize(
+        "token",
+        [
+            "garbage",
+            jwt.encode(
+                {"sub": "x@vbw.at"},
+                "another-secret-key-of-32-bytes-or-more",
+                algorithm="HS256",
+            ),
+        ],
+    )
+    def test_ignores_a_token_that_cannot_be_decoded(self, db_session, token) -> None:
+        record_request(
+            db_session,
+            client_ip="1.2.3.4",
+            client_ips=["1.2.3.4"],
+            auth_header=f"Bearer {token}",
+            user_agent_string=None,
+            request_method="GET",
+            request_path="/api/x",
+            request_input=None,
+            response_status=401,
+            response_content=None,
+            memory_usage=0,
+        )
+
+        assert db_session.query(RequestLog).one().member_id is None
+
+    def test_ignores_a_token_without_a_subject(self, db_session) -> None:
+        token = jwt.encode({"scope": "none"}, SECRET_KEY, algorithm=ALGORITHM)
+
+        record_request(
+            db_session,
+            client_ip="1.2.3.4",
+            client_ips=["1.2.3.4"],
+            auth_header=f"Bearer {token}",
+            user_agent_string=None,
+            request_method="GET",
+            request_path="/api/x",
+            request_input=None,
+            response_status=401,
+            response_content=None,
+            memory_usage=0,
+        )
+
+        assert db_session.query(RequestLog).one().member_id is None
 
     def test_reuses_existing_client_user_agent(self, db_session) -> None:
         record_request(
@@ -426,6 +474,31 @@ class TestGetEntry:
 
         assert detail.member_name == "Vorname Nachname"
         assert detail.client_user_agent == "Mozilla/5.0 TestAgent"
+
+    def test_returns_detail_of_an_entry_without_member_or_user_agent(
+        self, db_session
+    ) -> None:
+        log = RequestLog(
+            client_ip="127.0.0.1",
+            client_ips=["127.0.0.1"],
+            member_id=None,
+            client_user_agent_id=None,
+            request_method="GET",
+            request_path="/api/test",
+            request_input=None,
+            response_status=401,
+            response_content=None,
+            memory_usage=0,
+            created_at=datetime.now(UTC),
+        )
+        db_session.add(log)
+        db_session.commit()
+
+        detail = get_entry(db_session, log.id)
+
+        assert detail.member_id is None
+        assert detail.member_name is None
+        assert detail.client_user_agent is None
 
     def test_raises_404_for_unknown_entry(self, db_session) -> None:
         with pytest.raises(HTTPException) as exc_info:

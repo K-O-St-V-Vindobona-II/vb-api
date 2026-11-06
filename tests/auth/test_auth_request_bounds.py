@@ -1,5 +1,7 @@
 """Free-text fields of the unauthenticated auth requests have an upper bound."""
 
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -39,6 +41,8 @@ class TestRequestBounds:
             )
 
     def test_oversized_credential_never_reaches_google(self, client):
-        response = client.post("/api/auth/google", json={"credential": "c" * 5000})
+        with patch("app.services.auth_service.id_token.verify_oauth2_token") as verify:
+            response = client.post("/api/auth/google", json={"credential": "c" * 5000})
 
         assert response.status_code == 422
+        verify.assert_not_called()

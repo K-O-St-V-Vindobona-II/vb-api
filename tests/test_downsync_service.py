@@ -51,5 +51,6 @@ class TestBuildProdStorage:
                 monkeypatch.setenv(key, value)
         monkeypatch.delenv("AWS_REGION", raising=False)
 
-        # Should not raise despite the missing key (falls back to the default).
-        build_prod_storage()
+        storage = build_prod_storage()
+
+        assert storage._region == "eu-central-1"

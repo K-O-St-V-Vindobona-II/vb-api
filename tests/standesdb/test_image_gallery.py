@@ -164,6 +164,11 @@ class TestUpload:
             files={"file": ("test.png", _make_png(), "image/png")},
         )
         assert resp.status_code == 201
+        stored = (
+            db_session.query(StandesdbImage).filter_by(owner_member_id=target.id).one()
+        )
+        assert (stored.type, stored.extension) == ("image/png", "png")
+        assert (stored.width, stored.height) == (50, 50)
 
     def test_upload_gif_rejected(self, client, db_session):
         _seed(db_session)
@@ -195,6 +200,7 @@ class TestUpload:
             files={"file": ("big.jpg", large_buf, "image/jpeg")},
         )
         assert resp.status_code == 422
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_first_image_becomes_default(self, client, db_session):
         _seed(db_session)
@@ -371,6 +377,7 @@ class TestPermissions:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 403
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_nonadmin_cannot_delete(self, client, db_session):
         _seed(db_session)
@@ -719,6 +726,7 @@ class TestSelfService:
             files={"file": ("test.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 401
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_me_route_registration_order_does_not_422(self, client, db_session):
         """Regression guard for the routing-order gotcha: /members/me/images
@@ -929,6 +937,7 @@ class TestContactImages:
         )
 
         assert resp.status_code == 404
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_update_sets_the_description_and_moves_the_default(
         self, client, db_session

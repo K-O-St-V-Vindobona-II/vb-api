@@ -217,7 +217,8 @@ class TestParentCycles:
         middle.parent_id = None
         db_session.commit()
 
-        assert middle.parent_id is None
+        db_session.expire_all()
+        assert db_session.get(Member, middle.id).parent_id is None
 
     def test_a_new_member_can_start_below_an_existing_one(
         self, db_session: Session, org_and_state: None

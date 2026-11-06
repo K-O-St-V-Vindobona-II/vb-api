@@ -1,10 +1,13 @@
 """Tests for the request body limit middleware (413 before the app reads a body)."""
 
+import asyncio
+from typing import ClassVar
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from app.core.body_limit import MaxBodySizeMiddleware
+from app.core.body_limit import BodyTooLargeError, MaxBodySizeMiddleware
 
 UPLOAD_LIMIT = 1000
 JSON_LIMIT = 100
@@ -73,7 +76,9 @@ class TestDeclaredLength:
     def test_requests_without_a_body_are_not_touched(
         self, limited_client: TestClient
     ) -> None:
-        assert limited_client.get("/ping").status_code == 200
+        response = limited_client.get("/ping")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
 
 
 class TestStreamedBody:
@@ -98,6 +103,58 @@ class TestStreamedBody:
         response = limited_client.post("/echo", content=chunks())
         assert response.status_code == 200
         assert response.json() == {"size": 90}
+
+
+class TestRawAsgiMessages:
+    """Behaviour a TestClient cannot provoke: the middleware is driven with
+    hand-made ASGI messages."""
+
+    SCOPE: ClassVar[dict[str, object]] = {
+        "type": "http",
+        "method": "POST",
+        "headers": [],
+    }
+
+    def test_a_disconnect_message_is_passed_on_and_not_counted(self) -> None:
+        received: list[dict[str, object]] = []
+
+        async def app(_scope, receive, _send) -> None:
+            received.append(await receive())
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.disconnect"}
+
+        async def send(message) -> None:
+            raise AssertionError(message)
+
+        middleware = MaxBodySizeMiddleware(app, max_json_bytes=1)
+
+        asyncio.run(middleware(self.SCOPE, receive, send))
+
+        assert received == [{"type": "http.disconnect"}]
+
+    def test_a_body_growing_past_the_limit_mid_answer_is_not_answered_twice(
+        self,
+    ) -> None:
+        sent: list[str] = []
+
+        async def app(_scope, receive, send) -> None:
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await receive()
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"xx", "more_body": False}
+
+        async def send(message) -> None:
+            sent.append(message["type"])
+
+        middleware = MaxBodySizeMiddleware(app, max_json_bytes=1)
+
+        with pytest.raises(BodyTooLargeError):
+            asyncio.run(middleware(self.SCOPE, receive, send))
+
+        # A 413 on top of the started response would corrupt the stream.
+        assert sent == ["http.response.start"]
 
 
 class TestRegisteredInTheApplication:

@@ -47,8 +47,7 @@ class TestUtcDatetimeField:
     def test_naive_input_becomes_tz_aware(self) -> None:
         naive = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
         result = _Model(at=naive)
-        assert result.at is not None
-        assert result.at.tzinfo is not None
+        assert result.at == datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
     def test_aware_input_round_trips(self) -> None:
         aware = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
@@ -63,8 +62,7 @@ class TestUtcDatetimeField:
         # shorthand rather than "+00:00" - both are valid ISO8601.
         aware = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
         dumped = _Model(at=aware).model_dump(mode="json")
-        assert dumped["at"] is not None
-        assert dumped["at"].endswith(("Z", "+00:00"))
+        assert dumped["at"] in {"2024-01-15T12:00:00Z", "2024-01-15T12:00:00+00:00"}
 
 
 # ---------------------------------------------------------------------------

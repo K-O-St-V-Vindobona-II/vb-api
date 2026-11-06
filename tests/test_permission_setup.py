@@ -205,6 +205,7 @@ class TestPermissionRulesEndpoint:
             headers=headers,
         )
         assert resp.status_code == 200
+        assert len(resp.json()["rules"]) == len(PERMISSION_RULES)
 
     def test_requires_authentication(self, client):
         resp = client.get("/api/system/permission-rules")

@@ -195,6 +195,7 @@ class TestDirEndpoints:
             headers=headers,
         )
         assert resp.status_code == 403
+        assert db_session.query(ArchiveDir).filter_by(name="NewDir").count() == 0
 
     def test_create_dir(
         self,
@@ -213,7 +214,9 @@ class TestDirEndpoints:
             headers=headers,
         )
         assert resp.status_code == 201
-        assert uuid.UUID(resp.json()["id"])
+        created = db_session.get(ArchiveDir, uuid.UUID(resp.json()["id"]))
+        assert (created.name, created.recursive_permissions) == ("NewDir", True)
+        assert created.archive_dir_id is None
 
     def test_delete_empty_dir_force(
         self,
@@ -423,6 +426,8 @@ class TestDirEndpoints:
             headers=headers,
         )
         assert resp.status_code == 422
+        db_session.refresh(parent)
+        assert parent.archive_dir_id is None
 
 
 class TestFileEndpoints:
@@ -520,6 +525,7 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFileComment).count() == 0
 
     def test_create_comment_requires_insight_on_parent_dir(
         self,
@@ -539,6 +545,7 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 403
+        assert db_session.query(ArchiveFileComment).count() == 0
 
     def test_non_admin_cannot_comment_on_unsorted_upload(
         self,
@@ -556,6 +563,7 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 403
+        assert db_session.query(ArchiveFileComment).count() == 0
 
     def test_admin_can_comment_on_unsorted_upload(
         self,
@@ -571,6 +579,10 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 201
+        comment = (
+            db_session.query(ArchiveFileComment).filter_by(archive_file_id=f.id).one()
+        )
+        assert comment.content == "Admin-Kommentar"
 
     def test_author_can_delete_own_comment(
         self,
@@ -622,6 +634,8 @@ class TestComments:
             headers=other_headers,
         )
         assert resp.status_code == 403
+        db_session.refresh(c)
+        assert c.deleted_at is None
 
     def test_admin_can_delete_comment(
         self,

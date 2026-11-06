@@ -1,7 +1,7 @@
 """Every grant, revocation and period change of a member's role leaves one
 append-only history entry with the member who made it."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import bcrypt
 import pytest
@@ -424,5 +424,6 @@ class TestAppendOnly:
     def test_timestamps_are_filled_by_the_database(self, db_session, editor):
         event = self._event(db_session, editor)
 
-        assert event.created_at is not None
-        assert event.updated_at is not None
+        now = datetime.now(UTC)
+        assert abs(now - event.created_at) < timedelta(minutes=1)
+        assert abs(now - event.updated_at) < timedelta(minutes=1)

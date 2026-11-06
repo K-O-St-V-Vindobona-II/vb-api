@@ -69,10 +69,11 @@ class TestContactForm:
         assert resp.status_code == 422
         mock_arq_pool.enqueue_job.assert_not_called()
 
-    def test_no_auth_required(self, client, db_session):
+    def test_no_auth_required(self, client, db_session, mock_arq_pool):
         resp = client.post(URL, json=VALID)
 
         assert resp.status_code == 202
+        mock_arq_pool.enqueue_job.assert_called_once()
 
     def test_route_stays_rate_limited(self, client, db_session, mock_arq_pool):
         limiter._storage.reset()

@@ -65,6 +65,7 @@ class TestFeeConfigCRUD:
         _, error = create_fee(db_session, 2020, 1, 10.0)
         assert error is not None
         assert "Zukunft" in error
+        assert db_session.query(P4xFee).filter_by(start=date(2020, 1, 1)).count() == 0
 
     def test_create_fee_duplicate_month_rejected(self, db_session):
         fee, _ = create_fee(db_session, 2027, 6, 20.0)

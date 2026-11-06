@@ -214,6 +214,9 @@ class TestDatabaseRules:
         db_session.add(StandesdbImage(owner_member_id=member.id, sha256_hash="a" * 64))
         db_session.commit()
 
+        live = db_session.query(StandesdbImage).filter_by(deleted_at=None).count()
+        assert (db_session.query(StandesdbImage).count(), live) == (2, 1)
+
     def test_two_default_images_for_one_member_are_refused(self, db_session, member):
         db_session.add(
             StandesdbImage(
@@ -263,6 +266,13 @@ class TestDatabaseRules:
         )
         db_session.commit()
 
+        live_defaults = (
+            db_session.query(StandesdbImage)
+            .filter_by(deleted_at=None, is_default=True)
+            .all()
+        )
+        assert [image.sha256_hash for image in live_defaults] == ["b" * 64]
+
     def test_every_owner_may_have_one_default(self, db_session, member, contact):
         db_session.add_all(
             [
@@ -276,3 +286,6 @@ class TestDatabaseRules:
         )
 
         db_session.commit()
+
+        defaults = db_session.query(StandesdbImage).filter_by(is_default=True).count()
+        assert defaults == 2

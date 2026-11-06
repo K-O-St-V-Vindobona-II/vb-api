@@ -1,9 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
+import jwt
 import pytest
 
-from app.core.security import create_access_token, hash_reset_token, verify_password
+from app.core.security import (
+    ALGORITHM,
+    SECRET_KEY,
+    create_access_token,
+    hash_reset_token,
+    verify_password,
+)
+from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.models.password_reset import PasswordResetToken
 from app.services.auth_service import create_user_session, logout_user
@@ -71,17 +79,22 @@ def test_verify_password_edge_cases():
 
 def test_create_access_token_with_delta():
     """Tests token generation with a custom expiration delta."""
-    token, _jti = create_access_token("test", expires_delta=timedelta(minutes=5))
-    assert token is not None
+    token, jti = create_access_token("test", expires_delta=timedelta(minutes=5))
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    assert payload["sub"] == "test"
+    assert payload["jti"] == jti
+    assert 290 <= payload["exp"] - datetime.now(UTC).timestamp() <= 300
 
 
-def test_forgot_password_unknown_email(client, db_session):  # noqa: ARG001
+def test_forgot_password_unknown_email(client, db_session, mock_arq_pool):
     """Ensure unknown emails are silently ignored to prevent enumeration."""
     resp = client.post(
         "/api/auth/forgot-password",
         json={"email": "nobody@nowhere.com"},
     )
     assert resp.status_code == 200
+    assert db_session.query(PasswordResetToken).count() == 0
+    mock_arq_pool.enqueue_job.assert_not_awaited()
 
 
 def test_reset_password_invalid_token(client, db_session):  # noqa: ARG001
@@ -122,6 +135,8 @@ def test_reset_password_expired_token(client, db_session):
     )
     assert resp.status_code == 400
     assert "abgelaufen" in resp.json()["detail"].lower()
+    db_session.refresh(member)
+    assert member.auth_password is None
 
 
 def test_reset_password_user_deleted(client, db_session):
@@ -182,9 +197,15 @@ def test_reset_password_min_length_is_configurable(client, db_session, monkeypat
     assert "mindestens 12 zeichen" in str(resp.json()).lower()
 
 
-def test_logout_with_garbage_token(db_session):
+def test_logout_with_garbage_token(db_session, test_user):
     """Ensure invalid tokens in logout attempt don't crash the server."""
+    user, _password = test_user
+    create_user_session(db_session, user)
+
     logout_user(db_session, "garbage_token_string")
+
+    assert db_session.query(AuthSession).count() == 1
+    assert user.auth_lastlogout is None
 
 
 class TestAuthTimestamps:

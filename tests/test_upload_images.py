@@ -65,6 +65,27 @@ class TestInspectUploadImage:
         with pytest.raises(OSError, match="cannot identify image file"):
             inspect_upload_image(_gif())
 
+    def test_a_format_outside_the_allow_list_is_refused_even_if_decoded(
+        self, monkeypatch
+    ):
+        """Second line of defence: should Pillow ever hand back an image of
+        another format despite the restriction, it is still refused."""
+
+        class _DecodedGif:
+            format = "GIF"
+            size = (1, 1)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return None
+
+        monkeypatch.setattr(PILImage, "open", lambda *_args, **_kwargs: _DecodedGif())
+
+        with pytest.raises(ValueError, match="Unsupported image format"):
+            inspect_upload_image(b"irrelevant")
+
     def test_a_file_beyond_the_pixel_limit_is_rejected_as_a_value_error(self):
         with pytest.raises(ValueError, match="too many pixels"):
             inspect_upload_image(_too_many_pixels())

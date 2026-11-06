@@ -5,6 +5,8 @@ Derives the permission set from a member's active roles.
 
 from datetime import date, timedelta
 
+import pytest
+
 from app.core.datetime_utils import local_today
 from app.models.member import Member
 from app.models.member_role import MemberRole
@@ -56,7 +58,46 @@ def _assign(db, member_id, role_id, start=None, end=None):
     db.commit()
 
 
+# Exact permission set of a member who holds only this role, per organisation.
+EXPECTED_PERMISSIONS = [
+    (
+        "standesfuehrer",
+        "vbw",
+        ["keylist", "standesdbContactAdmin", "standesdbExport", "standesdbVbwAdmin"],
+    ),
+    (
+        "standesfuehrer",
+        "vbn",
+        ["keylist", "standesdbContactAdmin", "standesdbExport", "standesdbVbnAdmin"],
+    ),
+    (
+        "internetreferent",
+        "vbw",
+        ["archiveAdmin", "publicContentEditor", "standesdbVbwAdmin", "systemAdmin"],
+    ),
+    ("internetreferent", "vbn", []),
+    ("archivar2", "vbw", ["archiveAdmin"]),
+    ("archivar2", "vbn", []),
+    ("senior", "vbw", ["keylist", "standesdbExport"]),
+    ("senior", "vbn", ["keylist", "standesdbExport"]),
+    ("phil-senior", "vbw", ["keylist", "p4xView", "standesdbExport"]),
+    ("phil-senior", "vbn", ["keylist", "standesdbExport"]),
+    ("phil-xxxx", "vbw", ["keylist", "p4xAdmin", "p4xView", "standesdbExport"]),
+    ("phil-xxxx", "vbn", ["keylist", "standesdbExport"]),
+]
+
+
 class TestCalculatePermissions:
+    @pytest.mark.parametrize(("role", "org", "expected"), EXPECTED_PERMISSIONS)
+    def test_a_role_confers_exactly_these_permissions(
+        self, db_session, role, org, expected
+    ):
+        _seed(db_session)
+        m = _member(db_session, org)
+        _assign(db_session, m.id, role)
+
+        assert sorted(calculate_permissions(m)) == expected
+
     def test_standesfuehrer_vbw(self, db_session):
         _seed(db_session)
         m = _member(db_session, "vbw")

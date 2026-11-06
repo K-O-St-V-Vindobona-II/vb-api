@@ -238,6 +238,8 @@ class TestAboutTabsAdmin:
             json={"title": "x" * 101, "body": "Text."},
         )
         assert resp.status_code == 422
+        tab = db_session.query(PublicSiteAboutTab).filter_by(slot="anfang").one()
+        assert len(tab.title) <= 100
 
     def test_update_invalid_slot_rejected(self, client, db_session):
         _seed(db_session)
@@ -261,6 +263,8 @@ class TestAboutTabsAdmin:
             },
         )
         assert resp.status_code == 422
+        tab = db_session.query(PublicSiteAboutTab).filter_by(slot="heute").one()
+        assert "javascript:" not in tab.body
 
     def test_update_body_with_http_link_accepted(self, client, db_session):
         _seed(db_session)
@@ -274,6 +278,7 @@ class TestAboutTabsAdmin:
             },
         )
         assert resp.status_code == 200
+        assert resp.json()["body"] == "Mehr [hier](https://vindobona2.at) lesen."
 
 
 class TestAboutTabsServiceEdgeCases:
@@ -326,6 +331,11 @@ class TestSiteSettingsAdmin:
             },
         )
         assert resp.status_code == 422
+        db_session.expire_all()
+        stored = db_session.get(PublicSiteSettings, SETTINGS_ROW_ID)
+        assert stored.gallery_heading != ""
+        assert stored.about_video_youtube_id != "not-youtube"
+        assert "not-a-calendar-id" not in stored.programm_calendar_id
 
     def test_get_requires_permission(self, client, db_session):
         _seed(db_session)
@@ -361,6 +371,19 @@ class TestSiteSettingsAdmin:
         assert resp.status_code == 200
         assert resp.json()["about_video_youtube_id"] == expected_id
 
+    def test_missing_settings_row_is_a_server_error(self, client, db_session):
+        """The row is seeded by the migration; if it is gone the endpoint
+        must say so instead of answering with an empty settings object."""
+        _seed(db_session)
+        headers = _headers(db_session, _admin(db_session))
+        db_session.query(PublicSiteSettings).delete()
+        db_session.commit()
+
+        resp = client.get(f"{ADMIN_PREFIX}/settings", headers=headers)
+
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Site-Settings fehlen."
+
     def test_update_invalid_youtube_url_rejected(self, client, db_session):
         _seed(db_session)
         headers = _headers(db_session, _admin(db_session))
@@ -375,6 +398,11 @@ class TestSiteSettingsAdmin:
             },
         )
         assert resp.status_code == 422
+        db_session.expire_all()
+        stored = db_session.get(PublicSiteSettings, SETTINGS_ROW_ID)
+        assert stored.gallery_heading != ""
+        assert stored.about_video_youtube_id != "not-youtube"
+        assert "not-a-calendar-id" not in stored.programm_calendar_id
 
     def test_update_extracts_calendar_id_from_embed_url(self, client, db_session):
         _seed(db_session)
@@ -409,6 +437,11 @@ class TestSiteSettingsAdmin:
             },
         )
         assert resp.status_code == 422
+        db_session.expire_all()
+        stored = db_session.get(PublicSiteSettings, SETTINGS_ROW_ID)
+        assert stored.gallery_heading != ""
+        assert stored.about_video_youtube_id != "not-youtube"
+        assert "not-a-calendar-id" not in stored.programm_calendar_id
 
 
 class TestProgrammHintsAdmin:
@@ -426,6 +459,7 @@ class TestProgrammHintsAdmin:
             f"{ADMIN_PREFIX}/programm-hints", headers=headers, json={"text": "Neu"}
         )
         assert resp.status_code == 403
+        assert db_session.query(PublicSiteProgrammHint).count() == 5
 
     def test_create_appends_after_seeded_rows(self, client, db_session):
         _seed(db_session)
@@ -452,6 +486,7 @@ class TestProgrammHintsAdmin:
             json={"text": "x" * 301},
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicSiteProgrammHint).count() == 5
 
     def test_update_changes_text(self, client, db_session):
         _seed(db_session)
@@ -521,6 +556,7 @@ class TestProgrammHintsAdmin:
             f"{ADMIN_PREFIX}/programm-hints/{uuid.uuid4()}", headers=headers
         )
         assert resp.status_code == 403
+        assert db_session.query(PublicSiteProgrammHint).count() == 5
 
 
 class TestQuotesAdmin:
@@ -555,6 +591,7 @@ class TestQuotesAdmin:
             json={"quote": "Ein Zitat ohne Autor."},
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicSiteQuote).count() == 2
 
     def test_update_changes_quote_and_author(self, client, db_session):
         _seed(db_session)
@@ -604,6 +641,17 @@ class TestQuotesAdmin:
         assert resp.status_code == 204
         assert db_session.get(PublicSiteQuote, fuchs_id) is None
 
+    def test_update_not_found(self, client, db_session):
+        _seed(db_session)
+        headers = _headers(db_session, _admin(db_session))
+        resp = client.put(
+            f"{ADMIN_PREFIX}/quotes/{uuid.uuid4()}",
+            headers=headers,
+            json={"quote": "Kein Zitat.", "author": "Niemand"},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Zitat nicht gefunden."
+
 
 class TestSocialLinksAdmin:
     def test_list_returns_both_seeded_links(self, client, db_session):
@@ -651,6 +699,7 @@ class TestSocialLinksAdmin:
             },
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicSiteSocialLink).count() == 2
 
     def test_create_non_http_url_rejected(self, client, db_session):
         _seed(db_session)
@@ -666,6 +715,7 @@ class TestSocialLinksAdmin:
             },
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicSiteSocialLink).count() == 2
 
     def test_update_toggles_enabled_and_changes_public_visibility(
         self, client, db_session
@@ -708,6 +758,8 @@ class TestSocialLinksAdmin:
             },
         )
         assert resp.status_code == 422
+        platforms = {link.platform for link in db_session.query(PublicSiteSocialLink)}
+        assert platforms == {"facebook", "instagram"}
 
     def test_move_swaps_sort_order(self, client, db_session):
         _seed(db_session)
@@ -749,6 +801,38 @@ class TestSocialLinksAdmin:
             .first()
             is None
         )
+
+    def test_update_not_found(self, client, db_session):
+        _seed(db_session)
+        headers = _headers(db_session, _admin(db_session))
+        resp = client.put(
+            f"{ADMIN_PREFIX}/social-links/{uuid.uuid4()}",
+            headers=headers,
+            json={
+                "label": "Instagram",
+                "url": "https://www.instagram.com/vindobona2",
+                "is_enabled": True,
+            },
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Social-Media-Link nicht gefunden."
+
+    def test_move_up_at_top_is_noop(self, client, db_session):
+        _seed(db_session)
+        headers = _headers(db_session, _admin(db_session))
+        facebook_id = _link_id(db_session, "facebook")
+        resp = client.post(
+            f"{ADMIN_PREFIX}/social-links/{facebook_id}/move",
+            headers=headers,
+            json={"direction": "up"},
+        )
+        assert resp.status_code == 200
+        db_session.expire_all()
+        orders = {
+            link.platform: link.sort_order
+            for link in db_session.query(PublicSiteSocialLink).all()
+        }
+        assert orders["facebook"] < orders["instagram"]
 
 
 class TestSocialLinkUuidDefault:

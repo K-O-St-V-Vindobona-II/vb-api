@@ -13,6 +13,7 @@ from app.models.member_role import MemberRole
 from app.models.members_log import MembersLog
 from app.models.org import Org
 from app.models.role import Role
+from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 from app.services.auth_service import create_user_session
 
@@ -168,6 +169,7 @@ class TestMemberNotFound:
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 404
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_update_image_404(self, client, db_session):
         _seed(db_session)
@@ -272,6 +274,7 @@ class TestContactImages:
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 404
+        assert db_session.query(StandesdbImage).count() == 0
 
 
 class TestChangelog:
@@ -630,9 +633,9 @@ class TestMemberAuthActivity:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["auth_lastlogin"] is not None
-        assert data["auth_lastsignal"] is not None
-        assert data["auth_lastlogout"] is not None
+        assert datetime.fromisoformat(data["auth_lastlogin"]) == target.auth_lastlogin
+        assert datetime.fromisoformat(data["auth_lastsignal"]) == target.auth_lastsignal
+        assert datetime.fromisoformat(data["auth_lastlogout"]) == target.auth_lastlogout
 
     def test_auth_activity_rejects_system_admin_without_standesdb_role(
         self, client, db_session, monkeypatch

@@ -71,11 +71,11 @@ class TestGetFeeMembers:
 class TestSearchFeeMembers:
     def test_search_returns_matches_by_vorname(self, db_session):
         _seed_base(db_session)
-        _create_member(db_session, vorname="Wolfgang", email="w@t.at")
+        member = _create_member(db_session, vorname="Wolfgang", email="w@t.at")
 
         results = search_fee_members(db_session, "Wolf")
         assert len(results) == 1
-        assert results[0]["id"] is not None
+        assert results[0]["id"] == member.id
 
     def test_search_returns_matches_by_nachname(self, db_session):
         _seed_base(db_session)

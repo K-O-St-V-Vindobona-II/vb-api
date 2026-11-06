@@ -131,6 +131,8 @@ class TestAccountIban:
 
         db_session.commit()
 
+        assert db_session.query(P4xAccount).count() == 3
+
 
 class TestFilterCriterion:
     def _filter(self, db_session, **criteria):
@@ -186,6 +188,8 @@ class TestFilterCriterion:
 
         db_session.commit()
 
+        assert db_session.query(P4xCategoryFilter).count() == 1
+
 
 class TestFeeStart:
     @pytest.mark.parametrize(
@@ -204,3 +208,5 @@ class TestFeeStart:
         db_session.add(P4xFee(start=start, fee=Decimal(20), protected=False))
 
         db_session.commit()
+
+        assert db_session.query(P4xFee).filter_by(start=start).one().fee == 20

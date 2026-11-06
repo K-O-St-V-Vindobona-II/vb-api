@@ -277,8 +277,10 @@ class TestTriggerBackup:
     def test_requires_systemAdmin(self, client, db_session):
         _seed(db_session)
         headers = _login_unprivileged(db_session)
-        resp = client.post("/api/system/backups/trigger", headers=headers)
+        with patch("app.api.router_includes.system.run_backup") as run_backup:
+            resp = client.post("/api/system/backups/trigger", headers=headers)
         assert resp.status_code == 403
+        run_backup.assert_not_called()
 
     def test_trigger_backup_success(self, client, db_session, mock_s3):
         _seed(db_session)
@@ -307,11 +309,12 @@ class TestTriggerBackup:
 
 
 class TestTriggerDownsync:
-    def test_requires_systemAdmin(self, client, db_session):
+    def test_requires_systemAdmin(self, client, db_session, mock_arq_pool):
         _seed(db_session)
         headers = _login_unprivileged(db_session)
         resp = client.post("/api/system/downsync/trigger", headers=headers)
         assert resp.status_code == 403
+        mock_arq_pool.enqueue_job.assert_not_called()
 
     def test_enqueues_task_on_non_production(self, client, db_session, mock_arq_pool):
         # The test suite's own app_environment is "test" (see

@@ -1,6 +1,10 @@
 """Connection settings of the shared database engine."""
 
-from app.db.database import engine
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.db.database import engine, get_db
 
 
 class TestEngineLimits:
@@ -29,3 +33,28 @@ class TestEngineLimits:
         finally:
             for connection in connections:
                 connection.close()
+
+
+class TestGetDb:
+    def test_the_session_is_closed_once_the_request_is_done(self):
+        session = MagicMock()
+
+        with patch("app.db.database.SessionLocal", return_value=session):
+            dependency = get_db()
+            assert next(dependency) is session
+            session.close.assert_not_called()
+            with pytest.raises(StopIteration):
+                next(dependency)
+
+        session.close.assert_called_once_with()
+
+    def test_the_session_is_closed_when_the_request_fails(self):
+        session = MagicMock()
+
+        with patch("app.db.database.SessionLocal", return_value=session):
+            dependency = get_db()
+            next(dependency)
+            with pytest.raises(RuntimeError, match="boom"):
+                dependency.throw(RuntimeError("boom"))
+
+        session.close.assert_called_once_with()

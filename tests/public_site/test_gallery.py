@@ -161,6 +161,7 @@ class TestAdminUpload:
             files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 403
+        assert db_session.query(PublicGalleryImage).count() == 0
 
     def test_upload_requires_authentication(self, client, db_session):
         resp = client.post(
@@ -168,6 +169,7 @@ class TestAdminUpload:
             files={"file": ("a.jpg", _make_jpeg(), "image/jpeg")},
         )
         assert resp.status_code == 401
+        assert db_session.query(PublicGalleryImage).count() == 0
 
     def test_upload_success(self, client, db_session):
         _seed(db_session)
@@ -206,6 +208,7 @@ class TestAdminUpload:
             files={"file": ("a.gif", buf, "image/gif")},
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicGalleryImage).count() == 0
 
     def test_upload_too_large_rejected(self, client, db_session):
         _seed(db_session)
@@ -219,6 +222,7 @@ class TestAdminUpload:
             files={"file": ("big.jpg", large_buf, "image/jpeg")},
         )
         assert resp.status_code == 422
+        assert db_session.query(PublicGalleryImage).count() == 0
 
     def test_second_upload_gets_next_sort_order(self, client, db_session):
         _seed(db_session)
@@ -393,6 +397,8 @@ class TestAdminDelete:
             files={"file": ("b.jpg", io.BytesIO(same_content), "image/jpeg")},
         )
         assert r2.status_code == 201
+        assert r2.json()["id"] != img_id
+        assert db_session.query(PublicGalleryImage).count() == 1
 
 
 class TestAdminDuplicateUpload:
@@ -417,6 +423,7 @@ class TestAdminDuplicateUpload:
             files={"file": ("b.jpg", io.BytesIO(same_content), "image/jpeg")},
         )
         assert r2.status_code == 422
+        assert db_session.query(PublicGalleryImage).count() == 1
 
 
 class TestPublicGalleryImageIdDefault:

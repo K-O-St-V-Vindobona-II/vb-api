@@ -34,6 +34,12 @@ def test_human_size_formatting() -> None:
     assert check_s3_integrity._human_size(5 * 1024 * 1024) == "5.0MB"
 
 
+def test_human_size_goes_up_to_terabytes() -> None:
+    assert check_s3_integrity._human_size(3 * 1024**3) == "3.0GB"
+    assert check_s3_integrity._human_size(2 * 1024**4) == "2.0TB"
+    assert check_s3_integrity._human_size(2048 * 1024**4) == "2048.0TB"
+
+
 def test_print_report_no_issues(capsys, mock_s3) -> None:
     report = IntegrityReport(missing=[], orphans=[])
     check_s3_integrity.print_report("Archive", mock_s3, report)

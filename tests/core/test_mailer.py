@@ -432,12 +432,17 @@ class TestSendMessage:
 
 class TestLogSentEmailDbError:
     @patch("app.core.mailer.SessionLocal")
-    def test_db_error_is_swallowed(self, mock_session_local, db_session, monkeypatch):
+    def test_db_error_is_swallowed(
+        self, mock_session_local, db_session, monkeypatch, caplog
+    ):
         monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
         mock_session_local.return_value = db_session
 
         with patch.object(db_session, "commit", side_effect=SQLAlchemyError("boom")):
             _log_sent_email("a@b.at", "Subject", "<p>hi</p>", "generic")
+
+        assert "Failed to log sent email" in caplog.text
+        assert db_session.query(SentEmail).count() == 0
 
 
 class TestSendResetEmailReal:
