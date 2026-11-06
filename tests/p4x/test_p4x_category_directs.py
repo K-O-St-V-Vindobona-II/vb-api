@@ -130,6 +130,7 @@ class TestSetCategoryDirect:
         )
         assert error is not None
         assert "Summe" in error
+        assert db_session.query(P4xCategoryDirect).count() == 0
 
     def test_replaces_existing_directs(self, db_session):
         _, cat, tx = _seed(db_session)

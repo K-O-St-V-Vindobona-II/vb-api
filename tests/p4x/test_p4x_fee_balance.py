@@ -1008,8 +1008,9 @@ class TestFeeBalanceEdgeCases:
             "not-a-date",
         )
         assert balance is not None
-        # Falls back to previous month from today
-        assert balance["end_date"] is not None
+        # Falls back to the last day of the previous month
+        previous_month_end = local_today().replace(day=1) - timedelta(days=1)
+        assert str(balance["end_date"])[:10] == previous_month_end.isoformat()
 
     def test_start_date_before_init_date_clamped(self, db_session):
         _seed_base(db_session)

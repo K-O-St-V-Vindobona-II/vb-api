@@ -236,6 +236,7 @@ class TestNotFoundErrors:
             headers=headers,
         )
         assert resp.status_code == 404
+        assert db_session.query(ArchiveDir).filter_by(name="Orphan").count() == 0
 
     def test_update_dir_not_found(
         self,
@@ -393,6 +394,8 @@ class TestNotFoundErrors:
             headers=headers,
         )
         assert resp.status_code == 404
+        db_session.refresh(c)
+        assert c.deleted_at is None
 
 
 # ------------------------------------------------------------------ #
@@ -446,6 +449,8 @@ class TestUpdateDir:
             headers=headers,
         )
         assert resp.status_code == 403
+        db_session.refresh(d)
+        assert d.name == "Locked"
 
 
 # ------------------------------------------------------------------ #
@@ -594,6 +599,8 @@ class TestMoveReceiveEdgeCases:
             headers=headers,
         )
         assert resp.status_code == 404
+        db_session.refresh(f)
+        assert f.archive_dir_id is None
 
     def test_move_dir_into_itself(
         self,
@@ -614,6 +621,8 @@ class TestMoveReceiveEdgeCases:
             headers=headers,
         )
         assert resp.status_code == 422
+        db_session.refresh(d)
+        assert d.archive_dir_id is None
 
     def test_move_nonexistent_dir_is_skipped(
         self,
@@ -624,8 +633,12 @@ class TestMoveReceiveEdgeCases:
         _seed(db_session)
         _, admin = _login_admin(db_session, client)
         target = _make_dir(db_session, "Target")
-        # Should not raise
-        receive_items(db_session, target.id, "dir", [uuid.uuid4()], admin)
+        moved = _make_dir(db_session, "Moved")
+
+        receive_items(db_session, target.id, "dir", [uuid.uuid4(), moved.id], admin)
+
+        db_session.refresh(moved)
+        assert moved.archive_dir_id == target.id
 
     def test_move_nonexistent_file_ids_skipped(
         self,
@@ -635,8 +648,13 @@ class TestMoveReceiveEdgeCases:
         """receive_items silently skips non-existent file IDs."""
         _seed(db_session)
         _, admin = _login_admin(db_session, client)
-        # Should not raise
-        receive_items(db_session, None, "file", [uuid.uuid4(), uuid.uuid4()], admin)
+        source = _make_dir(db_session, "Source")
+        f = _make_file(db_session, dir_id=source.id, hash_suffix="skip-unknown")
+
+        receive_items(db_session, None, "file", [uuid.uuid4(), f.id], admin)
+
+        db_session.refresh(f)
+        assert f.archive_dir_id is None
 
     def test_is_descendant_missing_candidate(
         self,
@@ -813,6 +831,7 @@ class TestUploadNoExtension:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
     def test_upload_file_with_empty_filename(
         self,
@@ -832,6 +851,7 @@ class TestUploadNoExtension:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
 
 # ------------------------------------------------------------------ #
@@ -874,7 +894,7 @@ class TestSearch:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         d = _make_dir(db_session, "Docs")
-        _make_file(
+        found = _make_file(
             db_session,
             dir_id=d.id,
             desc="testfile description",
@@ -887,7 +907,7 @@ class TestSearch:
         assert resp.status_code == 200
         results = resp.json()
         file_results = [r for r in results if r["type"] == "file"]
-        assert len(file_results) >= 1
+        assert [r["id"] for r in file_results] == [str(found.id)]
 
     def test_search_respects_permissions_for_normal_user(
         self,
@@ -971,7 +991,7 @@ class TestSearch:
         _seed(db_session)
         headers, _ = _login_admin(db_session, client)
         d = _make_dir(db_session, "ExtDir")
-        _make_file(
+        found = _make_file(
             db_session,
             dir_id=d.id,
             desc="unrelated description",
@@ -984,7 +1004,7 @@ class TestSearch:
         )
         assert resp.status_code == 200
         file_results = [r for r in resp.json() if r["type"] == "file"]
-        assert len(file_results) >= 1
+        assert [r["id"] for r in file_results] == [str(found.id)]
 
     def test_search_finds_file_by_comment_content(
         self,

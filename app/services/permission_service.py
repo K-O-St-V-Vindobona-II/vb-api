@@ -80,9 +80,10 @@ PERMISSION_RULES: list[PermissionRule] = [
     ),
     PermissionRule(
         permission="standesdbVbwAdmin",
-        description=("Rolle 'Standesführer' + Organisation VBW"),
+        description="Rolle 'Standesführer' oder 'Internetreferent' + Organisation VBW",
         condition=lambda rids, _rgrps, org, _email: (
-            "standesfuehrer" in rids and org == "vbw"
+            org == "vbw"
+            and bool({"standesfuehrer", "internetreferent"}.intersection(rids))
         ),
     ),
     PermissionRule(

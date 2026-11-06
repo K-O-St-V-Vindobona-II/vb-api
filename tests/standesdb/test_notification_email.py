@@ -31,9 +31,36 @@ def _setup(db):
             State(id="fu", label="Fux", sort_order=1),
             Role(id="standesfuehrer", group="chc", label="Standesführer", sort_order=1),
             Role(id="senior", group="chc", label="Senior", sort_order=2),
+            Role(
+                id="internetreferent",
+                group="funktion",
+                label="Internetreferent",
+                sort_order=3,
+            ),
         ]
     )
     db.commit()
+
+
+def _internet_officer(db, org_id, email):
+    member = Member(
+        email=email,
+        vorname="Internet",
+        nachname="Officer",
+        org_id=org_id,
+    )
+    db.add(member)
+    db.commit()
+    db.add(
+        MemberRole(
+            member_id=member.id,
+            role_id="internetreferent",
+            startdate=date(2000, 1, 1),
+            enddate=None,
+        )
+    )
+    db.commit()
+    return member
 
 
 def _admin(db, org_id="vbw", email="admin@vbw.at"):
@@ -140,6 +167,18 @@ class TestGetEmailsWithPermission:
         _admin(db_session, org_id="vbn", email="sf@vbn.at")
         result = get_emails_with_permission(db_session, "standesdbVbwAdmin")
         assert "sf@vbn.at" not in result
+
+    def test_vbw_internet_officer_is_a_recipient(self, db_session):
+        _setup(db_session)
+        _internet_officer(db_session, "vbw", "ir@vbw.at")
+        result = get_emails_with_permission(db_session, "standesdbVbwAdmin")
+        assert "ir@vbw.at" in result
+
+    def test_vbn_internet_officer_is_not_a_recipient(self, db_session):
+        _setup(db_session)
+        _internet_officer(db_session, "vbn", "ir@vbn.at")
+        result = get_emails_with_permission(db_session, "standesdbVbwAdmin")
+        assert "ir@vbn.at" not in result
 
 
 # ─── Member Create → Email ─────────────────────────────

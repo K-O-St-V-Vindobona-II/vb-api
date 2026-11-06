@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -459,3 +459,79 @@ class TestKeyIdUuidDefault:
 
         assert isinstance(key.id, uuid.UUID)
         assert key.id.version == 7
+
+
+class TestContactDisplayName:
+    """Derived values of a contact; no row is needed, so none is stored."""
+
+    def test_name_and_couleurname_are_joined(self):
+        contact = Contact(name="Muster", couleurname="Fuchs")
+
+        assert contact.cn == "Muster v/o Fuchs"
+
+    def test_couleurname_alone_is_used_when_there_is_no_name(self):
+        contact = Contact(name=None, couleurname="Fuchs")
+
+        assert contact.cn == "Fuchs"
+
+    def test_surplus_whitespace_is_collapsed(self):
+        contact = Contact(name="  Muster   Verlag ", couleurname=None)
+
+        assert contact.cn == "Muster Verlag"
+
+
+class TestContactDefaultImage:
+    @staticmethod
+    def _contact_with(*images: StandesdbImage) -> Contact:
+        contact = Contact(name="Muster")
+        contact.images.extend(images)
+        return contact
+
+    @staticmethod
+    def _image(*, is_default: bool, deleted: bool = False) -> StandesdbImage:
+        return StandesdbImage(
+            id=uuid.uuid4(),
+            is_default=is_default,
+            deleted_at=datetime.now(UTC) if deleted else None,
+        )
+
+    def test_a_contact_without_images_has_no_default_image(self):
+        assert Contact(name="Muster").default_image is None
+
+    def test_the_marked_default_wins_over_an_earlier_image(self):
+        other = self._image(is_default=False)
+        marked = self._image(is_default=True)
+
+        assert self._contact_with(other, marked).default_image == marked.id
+
+    def test_without_a_marked_default_the_first_live_image_is_used(self):
+        removed = self._image(is_default=False, deleted=True)
+        first_live = self._image(is_default=False)
+        second_live = self._image(is_default=False)
+
+        contact = self._contact_with(removed, first_live, second_live)
+
+        assert contact.default_image == first_live.id
+
+    def test_a_removed_default_image_is_not_used(self):
+        removed_default = self._image(is_default=True, deleted=True)
+
+        assert self._contact_with(removed_default).default_image is None
+
+
+class TestStandesdbImageOwner:
+    def test_the_owner_is_the_member_or_the_contact_that_is_set(self):
+        member_id, contact_id = uuid.uuid4(), uuid.uuid4()
+
+        member_image = StandesdbImage(owner_member_id=member_id)
+        contact_image = StandesdbImage(owner_contact_id=contact_id)
+
+        assert (member_image.owner_type, member_image.owner_id) == ("member", member_id)
+        assert (contact_image.owner_type, contact_image.owner_id) == (
+            "contact",
+            contact_id,
+        )
+
+    def test_an_image_without_any_owner_is_refused_as_inconsistent(self):
+        with pytest.raises(ValueError, match="exclusive-arc CHECK"):
+            _ = StandesdbImage().owner_id

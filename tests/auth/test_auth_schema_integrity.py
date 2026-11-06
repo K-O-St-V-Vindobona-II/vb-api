@@ -83,8 +83,9 @@ class TestOauthBindingConstraints:
         db_session.add(binding)
         db_session.commit()
 
-        assert binding.bound_at is not None
-        assert binding.lastuse_at is not None
+        now = datetime.now(UTC)
+        assert abs(now - binding.bound_at) < timedelta(minutes=1)
+        assert abs(now - binding.lastuse_at) < timedelta(minutes=1)
 
     def test_link_race_loser_gets_the_already_linked_answer(self, db_session):
         winner = _member(db_session, "winner@vindobona.at")
@@ -137,9 +138,9 @@ class TestSessionTimestamps:
         db_session.add(session)
         db_session.commit()
 
-        assert session.created_at is not None
-        assert session.last_used_at is not None
-        assert session.updated_at is not None
+        now = datetime.now(UTC)
+        for stamp in (session.created_at, session.last_used_at, session.updated_at):
+            assert abs(now - stamp) < timedelta(minutes=1)
 
 
 class TestPasswordResetTokenConstraints:

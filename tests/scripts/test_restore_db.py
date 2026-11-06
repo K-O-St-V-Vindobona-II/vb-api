@@ -5,6 +5,7 @@ these tests only exercise the CLI wrapper's own logic (argument parsing,
 control flow, exit codes).
 """
 
+import runpy
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -117,3 +118,20 @@ def test_run_restore_runtime_error_exits_one(capsys) -> None:
         "ERROR: Restore in production requires explicit force=True."
         in capsys.readouterr().err
     )
+
+
+def test_running_the_file_as_a_program_starts_the_command(capsys) -> None:
+    """The file is executed the way an operator runs it
+    (`python scripts/restore_db.py`), not imported."""
+    mock_storage = MagicMock()
+    mock_storage.list_keys.return_value = ["db-backups/a.dump"]
+
+    with (
+        patch("app.core.storage.get_storage", return_value=mock_storage),
+        patch("sys.argv", ["restore_db.py", "--list"]),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        runpy.run_path(restore_db.__file__, run_name="__main__")
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.splitlines() == ["db-backups/a.dump"]

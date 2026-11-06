@@ -90,10 +90,12 @@ class TestParseBackupTimestamp:
         assert dt == datetime(2025, 1, 15, 22, 30, 45, tzinfo=ZoneInfo("Europe/Vienna"))
 
     def test_valid_qa(self):
-        assert _parse_backup_timestamp("qa-2024-12-01_00-00-00.dump") is not None
+        dt = _parse_backup_timestamp("qa-2024-12-01_00-00-00.dump")
+        assert dt == datetime(2024, 12, 1, 0, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
 
     def test_valid_test(self):
-        assert _parse_backup_timestamp("test-2024-11-01_12-00-00.dump") is not None
+        dt = _parse_backup_timestamp("test-2024-11-01_12-00-00.dump")
+        assert dt == datetime(2024, 11, 1, 12, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
 
     def test_invalid_no_extension(self):
         assert _parse_backup_timestamp("development-2026-06-30_03-00-00") is None
@@ -226,6 +228,7 @@ class TestRunBackup:
             pytest.raises(RuntimeError, match="password authentication failed"),
         ):
             run_backup(storage)
+        assert storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/") == []
 
     def test_run_backup_pg_dump_not_installed(self):
         storage = MagicMock(spec=StorageClient)
@@ -260,6 +263,10 @@ class TestRunBackup:
             name = run_backup(storage)
 
         assert "-manual" not in name
+        assert _parse_backup_timestamp(name) is not None
+        assert storage.list_keys(prefix=f"{S3_PATH_DB_BACKUPS}/") == [
+            f"{S3_PATH_DB_BACKUPS}/{name}"
+        ]
 
     def test_run_backup_uses_app_timezone_not_utc(self, backup_bucket):
         """Regression guard for the 2026-08-25 production incident: the

@@ -113,6 +113,7 @@ class TestUpload:
             headers=headers,
         )
         assert resp2.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 1
 
     def test_upload_invalid_extension(
         self,
@@ -136,6 +137,7 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
     def test_upload_too_small(
         self,
@@ -156,6 +158,7 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
     def test_upload_too_large(
         self,
@@ -175,6 +178,7 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
     def test_a_ten_megabyte_file_is_accepted(
         self,
@@ -196,6 +200,9 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 201
+        stored = db_session.query(ArchiveFile).one()
+        assert stored.description == "Ten megabyte upload"
+        assert stored.store_item.size == len(content)
 
     def test_announced_limit_is_ten_megabytes(
         self,
@@ -249,6 +256,7 @@ class TestUpload:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFile).count() == 0
 
     def test_unfiled_uploads_shows_own(
         self,
@@ -447,6 +455,7 @@ class TestFileDetail:
             headers=headers,
         )
         assert resp.status_code == 200
+        assert resp.json()["id"] == str(f.id)
 
 
 class TestComments:
@@ -486,6 +495,7 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(ArchiveFileComment).count() == 0
 
     def test_author_can_delete_own_comment(
         self,
@@ -511,6 +521,8 @@ class TestComments:
             headers=headers,
         )
         assert resp.status_code == 204
+        db_session.refresh(c)
+        assert c.deleted_at is not None
 
     def test_comment_delete_requires_admin(
         self,
@@ -536,6 +548,8 @@ class TestComments:
             headers=other_headers,
         )
         assert resp.status_code == 403
+        db_session.refresh(c)
+        assert c.deleted_at is None
 
 
 class TestPresignedUrl:
@@ -570,7 +584,7 @@ class TestPresignedUrl:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert "url" in resp.json()
+        assert resp.json()["url"]
 
     def test_file_url_invalid_thumb_size_falls_through(
         self,
@@ -588,7 +602,7 @@ class TestPresignedUrl:
         # Falls through to the original file's URL
         # (xxl is not in THUMB_SIZES)
         assert resp.status_code == 200
-        assert "url" in resp.json()
+        assert resp.json()["url"]
 
     def test_file_url_not_found(
         self,
@@ -730,6 +744,8 @@ class TestMoveAndRestore:
             headers=headers,
         )
         assert resp.status_code == 403
+        db_session.refresh(f)
+        assert f.archive_dir_id == d.id
 
 
 class TestArchiveDirIdDefault:

@@ -246,7 +246,8 @@ class TestMemberCRUD:
             headers=headers,
         )
         assert resp.status_code == 201
-        assert "id" in resp.json()
+        stored = db_session.query(Member).filter_by(nachname="Mitglied").one()
+        assert (str(stored.id), stored.vorname) == (resp.json()["id"], "Neu")
 
     def test_create_member_without_parent_stores_null_not_zero(
         self, client, db_session
@@ -280,6 +281,11 @@ class TestMemberCRUD:
             "/api/standesdb/members", json=_member_payload(), headers=headers
         )
         assert resp2.status_code == 409
+        payload = _member_payload()
+        stored = db_session.query(Member).filter_by(
+            vorname=payload["vorname"], nachname=payload["nachname"]
+        )
+        assert stored.count() == 1
 
     def test_update_member(self, client, db_session):
         _seed(db_session)
@@ -299,6 +305,8 @@ class TestMemberCRUD:
             headers=headers,
         )
         assert resp.status_code == 200
+        db_session.refresh(target)
+        assert (target.vorname, target.nachname) == ("Neu", "Name")
 
     def test_update_member_not_found(self, client, db_session):
         _seed(db_session)
@@ -363,6 +371,9 @@ class TestContactCRUD:
             headers=headers,
         )
         assert resp.status_code == 201
+        stored = db_session.query(Contact).filter_by(name="Neuer Kontakt").one()
+        assert str(stored.id) == resp.json()["id"]
+        assert stored.kontakttyp == "person"
 
     def test_create_contact_duplicate_rejected(self, client, db_session):
         _seed(db_session)
@@ -379,6 +390,7 @@ class TestContactCRUD:
             headers=headers,
         )
         assert resp2.status_code == 409
+        assert db_session.query(Contact).filter_by(name="Duplikat").count() == 1
 
     def test_update_contact(self, client, db_session):
         _seed(db_session)
@@ -393,6 +405,8 @@ class TestContactCRUD:
             headers=headers,
         )
         assert resp.status_code == 200
+        db_session.refresh(c)
+        assert c.name == "Neuer Name"
 
     def test_get_contact_not_found(self, client, db_session):
         _seed(db_session)
@@ -423,7 +437,7 @@ class TestSearchParent:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert len(resp.json()["data"]) >= 1
+        assert [item["id"] for item in resp.json()["data"]] == [str(parent.id)]
 
     def test_search_parent_combines_vorname_and_nachname(self, client, db_session):
         """Regression: mirrors the same multi-field fix as the main search

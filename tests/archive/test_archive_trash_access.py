@@ -62,6 +62,7 @@ class TestTrashedFile:
         resp = client.get(f"/api/archive/files/{trashed.id}", headers=admin_headers)
 
         assert resp.status_code == 200
+        assert resp.json()["id"] == str(trashed.id)
 
 
 class TestTrashedDirectory:
@@ -139,3 +140,4 @@ class TestUnfiledUpload:
         resp = client.get(f"/api/archive/files/{unfiled.id}/url", headers=headers)
 
         assert resp.status_code == 200
+        assert resp.json()["url"]

@@ -343,6 +343,38 @@ class TestAktivitasPaymentSettings:
             get_settings()
 
 
+class TestRequiredSettingsInProcess:
+    """The same fail-fast checks as the subprocess tests above, run in this
+    process so that they are measured by the coverage run."""
+
+    @pytest.mark.parametrize(
+        ("name", "value", "message"),
+        [
+            ("APP_ENVIRONMENT", None, "APP_ENVIRONMENT is not set"),
+            ("APP_ENVIRONMENT", "staging", "APP_ENVIRONMENT='staging' is invalid"),
+            ("CORS_ORIGINS", None, "CORS_ORIGINS is not set"),
+            ("CORS_ORIGINS", " , ", "CORS_ORIGINS is set but contains no valid"),
+            ("SECRET_KEY", None, "SECRET_KEY is not set"),
+            ("SECRET_KEY", "too-short", "SECRET_KEY must be at least 32 characters"),
+            ("DATABASE_URL", None, "DATABASE_URL is not set"),
+            ("VALKEY_URL", None, "VALKEY_URL is not set"),
+        ],
+    )
+    def test_a_missing_or_unusable_value_aborts(
+        self, monkeypatch, capsys, name, value, message
+    ) -> None:
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+
+        with pytest.raises(SystemExit) as info:
+            get_settings()
+
+        assert info.value.code == 1
+        assert message in capsys.readouterr().err
+
+
 class TestPlaceholderSecretKey:
     @pytest.mark.parametrize(
         "key",
@@ -402,7 +434,8 @@ class TestCorsOriginShape:
     def test_scheme_host_and_port_are_accepted(self, monkeypatch, origins) -> None:
         monkeypatch.setenv("CORS_ORIGINS", origins)
 
-        assert get_settings().cors_origins_list
+        expected = [origin.strip() for origin in origins.split(",")]
+        assert get_settings().cors_origins_list == expected
 
 
 class TestNumericBounds:

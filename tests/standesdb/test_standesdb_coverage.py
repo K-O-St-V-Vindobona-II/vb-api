@@ -13,6 +13,7 @@ from app.models.member_role import MemberRole
 from app.models.members_log import MembersLog
 from app.models.org import Org
 from app.models.role import Role
+from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 from app.services.auth_service import create_user_session
 
@@ -74,17 +75,39 @@ def _admin(db, org="vbw"):
     return m
 
 
-def _system_admin_only(db, org="vbw"):
-    """A member with systemAdmin but deliberately WITHOUT any standesdb
-    admin role - used to prove the changelog endpoints no longer accept
-    systemAdmin as a substitute for standesdb-specific admin permissions."""
+def _system_admin_only(db, monkeypatch, org="vbw"):
+    """A member with systemAdmin (through a configured break-glass address
+    with a verified mailbox) but deliberately WITHOUT any role - used to prove
+    the standesdb endpoints do not accept systemAdmin as a substitute for the
+    standesdb-specific admin permissions."""
+    address = f"systemadmin@{org}.at"
+    monkeypatch.setenv("SYSTEM_ADMIN_EMAILS", address)
     hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
     m = Member(
-        email=f"systemadmin@{org}.at",
+        email=address,
+        email_verified_at=datetime.now(UTC),
         auth_password=hashed,
         auth_locked=False,
         vorname="System",
         nachname="Admin",
+        org_id=org,
+        state_id="bi",
+    )
+    db.add(m)
+    db.commit()
+    return m
+
+
+def _internet_officer_only(db, org="vbw"):
+    """A member whose only role is 'internetreferent' - in VBW this grants
+    standesdbVbwAdmin, but none of the other standesdb permissions."""
+    hashed = bcrypt.hashpw(b"pw", bcrypt.gensalt()).decode()
+    m = Member(
+        email=f"internetofficer@{org}.at",
+        auth_password=hashed,
+        auth_locked=False,
+        vorname="Internet",
+        nachname="Officer",
         org_id=org,
         state_id="bi",
     )
@@ -146,6 +169,7 @@ class TestMemberNotFound:
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 404
+        assert db_session.query(StandesdbImage).count() == 0
 
     def test_update_image_404(self, client, db_session):
         _seed(db_session)
@@ -250,6 +274,7 @@ class TestContactImages:
             files={"file": ("test.jpg", buf, "image/jpeg")},
         )
         assert resp.status_code == 404
+        assert db_session.query(StandesdbImage).count() == 0
 
 
 class TestChangelog:
@@ -383,12 +408,12 @@ class TestChangelog:
         assert resp.status_code == 404
 
     def test_member_changelog_rejects_system_admin_without_standesdb_role(
-        self, client, db_session
+        self, client, db_session, monkeypatch
     ):
         """systemAdmin alone must no longer grant changelog access - only
         the org-matching standesdb admin permission does."""
         _seed(db_session)
-        system_admin = _system_admin_only(db_session)
+        system_admin = _system_admin_only(db_session, monkeypatch)
         h = _headers(db_session, system_admin)
         target = Member(
             email="target2@vbw.at",
@@ -402,6 +427,50 @@ class TestChangelog:
 
         resp = client.get(
             f"/api/standesdb/members/{target.id}/changelog",
+            headers=h,
+        )
+        assert resp.status_code == 403
+
+    def test_member_changelog_allows_internet_officer_of_same_org(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        officer = _internet_officer_only(db_session)
+        h = _headers(db_session, officer)
+        target = Member(
+            email="target3@vbw.at",
+            vorname="Target",
+            nachname="Three",
+            org_id="vbw",
+            state_id="fu",
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{target.id}/changelog",
+            headers=h,
+        )
+        assert resp.status_code == 200
+
+    def test_member_changelog_rejects_internet_officer_for_other_org(
+        self, client, db_session
+    ):
+        _seed(db_session)
+        officer = _internet_officer_only(db_session)
+        h = _headers(db_session, officer)
+        vbn_member = Member(
+            email="vbnmember2@vbn.at",
+            vorname="Vbn",
+            nachname="Member",
+            org_id="vbn",
+            state_id="fu",
+        )
+        db_session.add(vbn_member)
+        db_session.commit()
+
+        resp = client.get(
+            f"/api/standesdb/members/{vbn_member.id}/changelog",
             headers=h,
         )
         assert resp.status_code == 403
@@ -428,11 +497,11 @@ class TestChangelog:
         assert resp.status_code == 403
 
     def test_contact_changelog_rejects_system_admin_without_standesdb_role(
-        self, client, db_session
+        self, client, db_session, monkeypatch
     ):
         """systemAdmin alone must no longer grant contact-changelog access."""
         _seed(db_session)
-        system_admin = _system_admin_only(db_session)
+        system_admin = _system_admin_only(db_session, monkeypatch)
         h = _headers(db_session, system_admin)
         contact = _make_contact(db_session, name="Guarded Contact")
 
@@ -564,18 +633,18 @@ class TestMemberAuthActivity:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["auth_lastlogin"] is not None
-        assert data["auth_lastsignal"] is not None
-        assert data["auth_lastlogout"] is not None
+        assert datetime.fromisoformat(data["auth_lastlogin"]) == target.auth_lastlogin
+        assert datetime.fromisoformat(data["auth_lastsignal"]) == target.auth_lastsignal
+        assert datetime.fromisoformat(data["auth_lastlogout"]) == target.auth_lastlogout
 
     def test_auth_activity_rejects_system_admin_without_standesdb_role(
-        self, client, db_session
+        self, client, db_session, monkeypatch
     ):
         """systemAdmin alone must no longer grant access - only the
         org-matching standesdb admin permission does (same rule as the
         changelog endpoints)."""
         _seed(db_session)
-        system_admin = _system_admin_only(db_session)
+        system_admin = _system_admin_only(db_session, monkeypatch)
         h = _headers(db_session, system_admin)
         target = Member(
             email="authtarget2@vbw.at",

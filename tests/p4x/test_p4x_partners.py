@@ -164,17 +164,17 @@ class TestFindPartnerEntity:
     def test_find_contact(self, db_session):
         _, _, contact, _ = _seed(db_session)
         entity = find_partner_entity(db_session, "contact", contact.id)
-        assert entity is not None
+        assert entity is contact
 
     def test_find_special(self, db_session):
         _, _, _, special = _seed(db_session)
         entity = find_partner_entity(db_session, "special", special.id)
-        assert entity is not None
+        assert entity is special
 
     def test_find_account(self, db_session):
         account, _, _, _ = _seed(db_session)
         entity = find_partner_entity(db_session, "account", account.id)
-        assert entity is not None
+        assert entity is account
 
     def test_find_unknown_type(self, db_session):
         assert find_partner_entity(db_session, "unknown", uuid.uuid4()) is None

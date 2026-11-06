@@ -201,32 +201,34 @@ class TestDispatch:
         assert entry.member_id == member_id
 
     def test_testclient_host_is_never_logged(self, db_session) -> None:
-        # No SessionLocal patch at all - if this reached _persist_log, it
-        # would try to open a real (non-test) DB session and fail/hang.
+        # A request that is never logged must not even open a session.
         request = _make_asgi_request("POST", "/api/standesdb/members", "testclient")
 
         async def call_next(_req):
             return _streaming(status_code=200)
 
-        response = asyncio.run(
-            ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
-        )
+        with patch("app.core.activity_logger.SessionLocal") as session_local:
+            response = asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
 
         assert response.status_code == 200
+        session_local.assert_not_called()
 
     def test_root_health_check_is_never_logged(self, db_session) -> None:
-        # No SessionLocal patch at all - if this reached _persist_log, it
-        # would try to open a real (non-test) DB session and fail/hang.
+        # A request that is never logged must not even open a session.
         request = _make_asgi_request("GET", "/", "203.0.113.7")
 
         async def call_next(_req):
             return _streaming(status_code=200)
 
-        response = asyncio.run(
-            ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
-        )
+        with patch("app.core.activity_logger.SessionLocal") as session_local:
+            response = asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
 
         assert response.status_code == 200
+        session_local.assert_not_called()
 
     def test_opt_out_header_skips_logging(self, db_session) -> None:
         request = _make_asgi_request("GET", "/api/x", "203.0.113.7")
@@ -243,7 +245,7 @@ class TestDispatch:
 
     @patch("app.core.activity_logger.SessionLocal")
     def test_logging_failure_does_not_break_the_response(
-        self, mock_session_local, db_session
+        self, mock_session_local, db_session, caplog
     ) -> None:
         mock_session_local.return_value = db_session
         request = _make_asgi_request("POST", "/api/standesdb/members", "203.0.113.7")
@@ -257,6 +259,8 @@ class TestDispatch:
             )
 
         assert response.status_code == 200
+        mock_session_local.assert_called_once()
+        assert "Activity logging failed" in caplog.text
 
     @patch("app.core.activity_logger.SessionLocal")
     def test_response_body_is_passed_through_unchanged(
@@ -301,7 +305,7 @@ class TestDispatch:
     @pytest.mark.parametrize("error", [ValueError("bad"), TypeError("bad")])
     @patch("app.core.activity_logger.SessionLocal")
     def test_a_payload_the_json_column_rejects_does_not_break_the_response(
-        self, mock_session_local, db_session, error
+        self, mock_session_local, db_session, error, caplog
     ) -> None:
         mock_session_local.return_value = db_session
         request = _make_asgi_request("POST", "/api/standesdb/members", "203.0.113.7")
@@ -315,6 +319,8 @@ class TestDispatch:
             )
 
         assert response.status_code == 200
+        mock_session_local.assert_called_once()
+        assert "Activity logging failed" in caplog.text
 
     @patch("app.core.activity_logger.SessionLocal")
     def test_a_programming_error_is_not_swallowed(
@@ -385,17 +391,19 @@ class TestDispatch:
     def test_a_request_without_a_client_address_is_not_a_test_request(
         self, db_session
     ) -> None:
-        request = _make_asgi_request("GET", "/", "203.0.113.7")
+        request = _make_asgi_request("POST", "/api/standesdb/members", "203.0.113.7")
         request.scope["client"] = None
 
         async def call_next(_req):
             return _streaming(status_code=200)
 
-        response = asyncio.run(
-            ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
-        )
+        with patch("app.core.activity_logger.SessionLocal") as session_local:
+            response = asyncio.run(
+                ActivityLoggingMiddleware(app=None).dispatch(request, call_next)
+            )
 
         assert response.status_code == 200
+        session_local.assert_called_once()
 
     @patch("app.core.activity_logger.SessionLocal")
     def test_a_body_at_the_capture_limit_is_still_collected(

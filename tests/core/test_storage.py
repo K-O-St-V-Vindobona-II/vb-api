@@ -2,6 +2,7 @@
 
 import io
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from botocore.exceptions import ClientError
@@ -9,8 +10,14 @@ from PIL import Image as PILImage
 
 from app.core import storage as storage_module
 from app.core.storage import (
+    MAX_PRESIGNED_EXPIRY,
+    MIN_PRESIGNED_EXPIRY,
     generate_thumbnail,
 )
+
+
+def _expiry_of(url: str) -> int:
+    return int(parse_qs(urlparse(url).query)["X-Amz-Expires"][0])
 
 
 def _make_jpeg(width: int = 200, height: int = 100) -> bytes:
@@ -157,7 +164,7 @@ class TestStorageClient:
             "test/exp",
             expires_in=1,
         )
-        assert isinstance(url, str)
+        assert _expiry_of(url) == MIN_PRESIGNED_EXPIRY
 
     def test_presigned_expiry_clamped_max(self, mock_s3):
         mock_s3.upload("test/exp2", b"data")
@@ -165,7 +172,7 @@ class TestStorageClient:
             "test/exp2",
             expires_in=999999,
         )
-        assert isinstance(url, str)
+        assert _expiry_of(url) == MAX_PRESIGNED_EXPIRY
 
     def test_upload_error_raises_runtime(self, mock_s3):
         with (

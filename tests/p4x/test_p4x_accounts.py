@@ -190,6 +190,7 @@ class TestAccountCRUD:
             },
         )
         assert resp.status_code == 401
+        assert db_session.query(P4xAccount).count() == 0
 
 
 class TestAccountBalance:

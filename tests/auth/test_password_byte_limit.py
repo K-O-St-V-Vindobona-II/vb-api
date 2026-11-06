@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.core.rate_limit import limiter
 from app.core.security import BCRYPT_MAX_PASSWORD_BYTES, verify_password
+from app.models.auth_session import AuthSession
 from app.models.member import Member
 from app.schemas.auth import ResetPasswordRequest
 
@@ -133,6 +134,7 @@ class TestSignInWithALongPassword:
         )
 
         assert response.status_code == 401
+        assert db_session.query(AuthSession).count() == 0
 
 
 class TestResetPasswordSchema:

@@ -240,6 +240,10 @@ class TestRefreshFailures:
         _set_refresh_cookie(client, cookie)
         resp = client.post("/api/auth/refresh")
         assert resp.status_code == 401
+        db_session.expire_all()
+        assert (
+            db_session.query(AuthSession).filter_by(jti="expired-session").count() == 0
+        )
 
     def test_idle_timeout_returns_401(self, client, member, db_session):
         secret = generate_refresh_secret()
@@ -257,6 +261,8 @@ class TestRefreshFailures:
         _set_refresh_cookie(client, cookie)
         resp = client.post("/api/auth/refresh")
         assert resp.status_code == 401
+        db_session.expire_all()
+        assert db_session.query(AuthSession).filter_by(jti="idle-session").count() == 0
 
     def test_locked_user_returns_401(self, client, member, db_session):
         _login(client)
@@ -344,8 +350,14 @@ class TestLogoutEdgeCases:
         assert self._session_count(db_session) == before
         assert member.auth_lastlogout is None
 
-    def test_a_token_that_is_not_a_token_is_ignored(self, db_session):
+    def test_a_token_that_is_not_a_token_is_ignored(self, client, member, db_session):
+        _login(client)
+        before = self._session_count(db_session)
+
         logout_user(db_session, "garbage")
+
+        assert self._session_count(db_session) == before
+        assert member.auth_lastlogout is None
 
     def test_a_valid_logout_removes_the_session_and_records_the_time(
         self, client, member, db_session

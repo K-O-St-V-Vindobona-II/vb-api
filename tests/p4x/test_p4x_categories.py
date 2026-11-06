@@ -119,6 +119,9 @@ class TestCategoryCRUD:
             headers=headers,
         )
         assert resp.status_code == 409
+        assert (
+            db_session.query(P4xCategory).filter_by(name="eingang.spende").count() == 1
+        )
 
     def test_update_category(self, db_session, client):
         _seed(db_session)
@@ -170,6 +173,8 @@ class TestCategoryCRUD:
             headers=headers,
         )
         assert resp.status_code == 409
+        db_session.expire_all()
+        assert db_session.get(P4xCategory, cat.id) is not None
 
     def test_delete_in_use_category_rejected(self, db_session, client):
         _seed(db_session)
@@ -206,6 +211,8 @@ class TestCategoryCRUD:
             headers=headers,
         )
         assert resp.status_code == 409
+        db_session.expire_all()
+        assert db_session.get(P4xCategory, cat.id) is not None
 
     def test_invalid_hex_color_rejected(self, db_session, client):
         _seed(db_session)
@@ -222,6 +229,7 @@ class TestCategoryCRUD:
             headers=headers,
         )
         assert resp.status_code == 422
+        assert db_session.query(P4xCategory).filter_by(name="bad.color").count() == 0
 
 
 class TestCategoryUsage:

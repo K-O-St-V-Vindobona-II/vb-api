@@ -84,6 +84,20 @@ class TestTaskOriginLogFilter:
 
         assert record.msg == "recording health: %s"
 
+    def test_leaves_a_record_without_positional_arguments_untouched(self) -> None:
+        record = _make_record("%6.2fs → %s(%s)%s", ())
+        record.args = None
+
+        assert TaskOriginLogFilter().filter(record) is True
+        assert record.msg == "%6.2fs → %s(%s)%s"
+
+    def test_leaves_a_record_whose_job_reference_is_not_text_untouched(self) -> None:
+        record = _make_record("%6.2fs → %s(%s)%s", (1.0, 42, "", ""))
+
+        TaskOriginLogFilter().filter(record)
+
+        assert record.msg == "%6.2fs → %s(%s)%s"
+
     def test_filter_always_returns_true(self) -> None:
         # A Filter returning False would drop the record entirely --
         # this filter only ever tags, never suppresses.

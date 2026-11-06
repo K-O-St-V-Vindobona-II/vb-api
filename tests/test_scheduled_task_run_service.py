@@ -195,16 +195,16 @@ class TestRecordJobRun:
             db.close()
         assert len(row.output) == 4000
 
-    def test_never_raises_even_if_persistence_fails(self):
+    def test_never_raises_even_if_persistence_fails(self, caplog):
         started = datetime.now(UTC)
 
         with patch(
             "app.services.scheduled_task_run_service.SessionLocal",
             side_effect=RuntimeError("db unavailable"),
         ):
-            record_job_run(
-                JobId.CLEANUP, started, exit_code=0, output="ok"
-            )  # must not raise
+            record_job_run(JobId.CLEANUP, started, exit_code=0, output="ok")
+
+        assert "Failed to record run history" in caplog.text
 
 
 def _make_run(

@@ -12,7 +12,9 @@ import json
 import logging
 import sys
 
-from app.core.logging_config import JsonFormatter
+import pytest
+
+from app.core.logging_config import JsonFormatter, setup_logging
 
 
 def _make_record(message: str = "hello") -> logging.LogRecord:
@@ -60,3 +62,40 @@ class TestJsonFormatter:
             )
         payload = json.loads(JsonFormatter().format(record))
         assert "ValueError: boom" in payload["exception"]
+
+
+@pytest.fixture
+def root_logger():
+    """The root logger, put back exactly as it was after the test: pytest's
+    own capture handlers live on it."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield root
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+    for handler in handlers:
+        root.addHandler(handler)
+    root.setLevel(level)
+
+
+class TestSetupLogging:
+    def test_existing_handlers_are_replaced_by_one_json_handler(
+        self, root_logger: logging.Logger
+    ) -> None:
+        stale = logging.NullHandler()
+        root_logger.addHandler(stale)
+
+        setup_logging()
+
+        assert stale not in root_logger.handlers
+        (handler,) = root_logger.handlers
+        assert isinstance(handler.formatter, JsonFormatter)
+        assert root_logger.level == logging.INFO
+
+    def test_calling_it_twice_does_not_duplicate_the_output(
+        self, root_logger: logging.Logger
+    ) -> None:
+        setup_logging()
+        setup_logging()
+
+        assert len(root_logger.handlers) == 1
