@@ -82,6 +82,18 @@ class TestCalculatePermissions:
         perms = calculate_permissions(m)
         assert "archiveAdmin" in perms
         assert "systemAdmin" in perms
+        assert "standesdbVbwAdmin" in perms
+
+    def test_internetreferent_vbw_gets_no_other_standesdb_permissions(self, db_session):
+        """The internet officer administers the VBW member database only; the
+        contact, export and VBN permissions stay with the registrar role."""
+        _seed(db_session)
+        m = _member(db_session, "vbw")
+        _assign(db_session, m.id, "internetreferent")
+        perms = calculate_permissions(m)
+        assert "standesdbVbnAdmin" not in perms
+        assert "standesdbContactAdmin" not in perms
+        assert "standesdbExport" not in perms
 
     def test_internetreferent_vbn_no_archive(self, db_session):
         _seed(db_session)
@@ -89,6 +101,15 @@ class TestCalculatePermissions:
         _assign(db_session, m.id, "internetreferent")
         perms = calculate_permissions(m)
         assert "archiveAdmin" not in perms
+        assert "standesdbVbwAdmin" not in perms
+
+    def test_expired_internetreferent_vbw_loses_standesdb_admin(self, db_session):
+        _seed(db_session)
+        m = _member(db_session, "vbw")
+        yesterday = local_today() - timedelta(days=1)
+        _assign(db_session, m.id, "internetreferent", date(2020, 1, 1), yesterday)
+        perms = calculate_permissions(m)
+        assert "standesdbVbwAdmin" not in perms
 
     def test_archivar2_vbw(self, db_session):
         _seed(db_session)

@@ -279,6 +279,7 @@ class TestRoleHistoryEndpoint:
         assert newest["permissions"] == [
             "archiveAdmin",
             "publicContentEditor",
+            "standesdbVbwAdmin",
             "systemAdmin",
         ]
 
