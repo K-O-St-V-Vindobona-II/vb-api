@@ -176,7 +176,7 @@ Erstellt von<br/>
         {% if m[key] %}<tr><td class="left">{{ label }}</td><td class="right">{{ m[key] }}</td></tr>{% endif %}
         {% endfor %}
     {% endif %}
-    {% for key, label in [('arbeitgeber', 'Arbeitgeber'), ('taetigkeit', 'T&auml;tigkeit')] %}
+    {% for key, label in [('arbeitgeber', 'Arbeitgeber'), ('taetigkeit', 'Tätigkeit')] %}
     {% if m[key] %}<tr><td class="left">{{ label }}</td><td class="right">{{ m[key] }}</td></tr>{% endif %}
     {% endfor %}
     {% for key, label in [('mitgliedschaften', 'Mitgliedschaften'), ('verbandchargen', 'Verbandchargen'), ('anmerkungen', 'Anmerkungen')] %}

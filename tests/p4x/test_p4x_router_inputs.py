@@ -3,7 +3,9 @@ producing a wrong page or a server error, and download names that hold any
 character of a member's name."""
 
 import base64
+import io
 import uuid
+import zipfile
 from typing import get_args
 
 import pytest
@@ -13,6 +15,8 @@ from app.services.p4x_partner_service import _PARTNER_MODELS
 from tests.p4x.test_p4x_router_http_coverage import (
     _create_account,
     _create_admin,
+    _create_category,
+    _create_filter,
     _create_transaction,
     _login,
     _seed,
@@ -188,10 +192,25 @@ class TestDownloadFilenames:
         )
 
         disposition = response.headers["content-disposition"]
-        name = "Abrechnung_2026-01-01_bis_2026-01-31.zip"
+        name = "Abrechnung_2026-01_bis_2026-01.zip"
         assert response.status_code == 200
         assert f"filename*=UTF-8''{name}" in disposition
         assert f'filename="{name}"' in disposition
+
+    def test_the_summary_names_cover_months_not_days(self, client, admin_headers):
+        response = client.post(
+            "/api/p4x/admin/summary",
+            json={"start": "2025-07-01", "end": "2026-02-01"},
+            headers=admin_headers,
+        )
+
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        assert response.status_code == 200
+        assert (
+            'filename="Abrechnung_2025-07_bis_2026-02.zip"'
+            in response.headers["content-disposition"]
+        )
+        assert archive.namelist() == ["Abrechnung_2025-07_2026-02.xlsx"]
 
     def test_the_attachment_download_has_a_percent_encoded_name(
         self, client, db_session, account, admin_headers
@@ -210,3 +229,85 @@ class TestDownloadFilenames:
             f"filename*=UTF-8''Beilage_{tx.id}.pdf"
             in (response.headers["content-disposition"])
         )
+
+
+class TestCategoryFilterAmountRange:
+    """A filter whose upper bound lies below its lower bound can never match.
+    The route must refuse it with a message; reaching the database's CHECK
+    rule would end in a server error."""
+
+    URL = "/api/p4x/admin/category-filters"
+    MESSAGE = "Der Maximalbetrag darf nicht kleiner als der Minimalbetrag sein."
+
+    @staticmethod
+    def _payload(account, category, **amounts):
+        return {
+            "name": "Betragsfilter",
+            "p4x_account_id": str(account.id),
+            "subject_mode": "contains",
+            "p4x_category_id": str(category.id),
+            **amounts,
+        }
+
+    @pytest.mark.parametrize(
+        ("minimum", "maximum"),
+        [("100.00", "10.00"), ("0.01", "0.00"), ("-5.00", "-77.00")],
+    )
+    def test_creating_with_max_below_min_is_refused(
+        self, client, db_session, account, admin_headers, minimum, maximum
+    ):
+        category = _create_category(db_session)
+
+        response = client.post(
+            self.URL,
+            json=self._payload(
+                account, category, min_amount=minimum, max_amount=maximum
+            ),
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422
+        assert [item["msg"] for item in response.json()["detail"]] == [
+            f"Value error, {self.MESSAGE}"
+        ]
+
+    def test_updating_with_max_below_min_is_refused(
+        self, client, db_session, account, admin_headers
+    ):
+        category = _create_category(db_session)
+        existing = _create_filter(db_session, account, category)
+
+        response = client.put(
+            f"{self.URL}/{existing.id}",
+            json=self._payload(
+                account, category, min_amount="100.00", max_amount="10.00"
+            ),
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422
+        db_session.refresh(existing)
+        assert existing.min_amount is None
+        assert existing.max_amount is None
+
+    @pytest.mark.parametrize(
+        "amounts",
+        [
+            {"min_amount": "10.00", "max_amount": "10.00"},
+            {"min_amount": "-77.00", "max_amount": "100.00"},
+            {"min_amount": "10.00"},
+            {"max_amount": "10.00"},
+        ],
+    )
+    def test_equal_ordered_and_one_sided_bounds_are_accepted(
+        self, client, db_session, account, admin_headers, amounts
+    ):
+        category = _create_category(db_session)
+
+        response = client.post(
+            self.URL,
+            json=self._payload(account, category, **amounts),
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 201

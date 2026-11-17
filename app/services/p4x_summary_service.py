@@ -168,6 +168,17 @@ def get_sumup_balance(db: Session) -> SumUpBalanceResponse:
 # ---------------------------------------------------------------------------
 
 
+def summary_file_names(start: date, end: date) -> tuple[str, str]:
+    """Return the (workbook, archive) file names of a summary. They name the
+    covered months, so the day of the month is left out."""
+    period_start = start.strftime("%Y-%m")
+    period_end = end.strftime("%Y-%m")
+    return (
+        f"Abrechnung_{period_start}_{period_end}.xlsx",
+        f"Abrechnung_{period_start}_bis_{period_end}.zip",
+    )
+
+
 def generate_summary_xlsx(  # noqa: C901, PLR0912, PLR0915
     db: Session,
     start: date,

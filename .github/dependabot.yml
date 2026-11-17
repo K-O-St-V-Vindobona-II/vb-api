@@ -5,6 +5,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # The init and analyze steps must run the same release, so they are bumped together.
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
   # The base image tag of the Dockerfile.
   - package-ecosystem: docker
     directory: /
