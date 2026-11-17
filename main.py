@@ -147,8 +147,24 @@ async def _validation_error_handler(_request: Request, exc: Exception) -> JSONRe
     )
 
 
+def _cors_headers(request: Request) -> dict[str, str]:
+    """The headers CORSMiddleware adds to a response for an allowed origin.
+
+    Empty for a request without an Origin header or from an origin that is not
+    whitelisted, so a foreign page is never granted access.
+    """
+    origin = request.headers.get("origin")
+    if origin is None or origin not in settings.cors_origins_list:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
+
 async def _unhandled_exception_handler(
-    _request: Request, exc: Exception
+    request: Request, exc: Exception
 ) -> JSONResponse:
     """Safety net for anything not caught more specifically: logs the full
     traceback server-side, but never leaks it (or Starlette's default
@@ -157,13 +173,15 @@ async def _unhandled_exception_handler(
     on (see vb-intern/src/utils/formatters.ts).
 
     Starlette runs this handler outside every registered middleware, so the
-    security headers are attached here explicitly.
+    security and CORS headers are attached here explicitly. Without the CORS
+    headers the browser withholds the response from the frontend, which then
+    sees a network error instead of this message.
     """
     logger.exception("Unhandled exception: %s", exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Ein unerwarteter Fehler ist aufgetreten."},
-        headers=_SECURITY_HEADERS,
+        headers={**_SECURITY_HEADERS, **_cors_headers(request)},
     )
 
 

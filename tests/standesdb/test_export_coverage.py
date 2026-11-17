@@ -806,6 +806,32 @@ class TestGenerateBookletRuntimeError:
                 generate_booklet(db_session, [], [], admin, storage)
 
 
+class TestBookletLabels:
+    def test_the_job_label_is_written_with_a_real_umlaut(
+        self, db_session: object
+    ) -> None:
+        """The label is a template literal that goes through autoescape, so an
+        HTML entity in it would be printed verbatim into the PDF."""
+        _seed(db_session)
+        admin = _admin(db_session)
+        member = _member(
+            db_session,
+            vorname="Max",
+            nachname="Muster",
+            taetigkeit="Ingenieur",
+            arbeitgeber="Muster GmbH",
+        )
+        storage = MagicMock()
+        storage.exists.return_value = False
+
+        with patch("app.services.export_service._render_pdf") as render:
+            generate_booklet(db_session, [member], [], admin, storage)
+
+        html = render.call_args.args[0]
+        assert '<td class="left">Tätigkeit</td>' in html
+        assert "&amp;" not in html
+
+
 # ---------------------------------------------------------------------------
 # filter_contacts — only_without_email (L162) via endpoint
 # ---------------------------------------------------------------------------

@@ -2,9 +2,15 @@ import re
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field, PlainSerializer, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
 from app.core.datetime_utils import local_today
 from app.models.enums import SubjectMode
@@ -308,6 +314,15 @@ class CategoryFilterSaveRequest(StrictInputModel):
             msg = "Ungültiges IBAN-Format."
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def validate_amount_range(self) -> Self:
+        if self.min_amount is None or self.max_amount is None:
+            return self
+        if self.max_amount < self.min_amount:
+            msg = "Der Maximalbetrag darf nicht kleiner als der Minimalbetrag sein."
+            raise ValueError(msg)
+        return self
 
 
 class FilterHitResponse(BaseModel):

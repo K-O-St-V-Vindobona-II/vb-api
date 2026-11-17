@@ -981,20 +981,17 @@ def download_summary(
         data.end,
     )
 
+    xlsx_name, zip_name = p4x_summary_service.summary_file_names(data.start, data.end)
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            f"Abrechnung_{data.start}_{data.end}.xlsx",
-            xlsx_bytes,
-        )
+        zf.writestr(xlsx_name, xlsx_bytes)
         for name, pdf_bytes in pdf_attachments:
             zf.writestr(name, pdf_bytes)
 
-    filename = f"Abrechnung_{data.start}_bis_{data.end}.zip"
     return Response(
         content=zip_buffer.getvalue(),
         media_type="application/zip",
         headers={
-            "Content-Disposition": attachment_disposition(filename),
+            "Content-Disposition": attachment_disposition(zip_name),
         },
     )

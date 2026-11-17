@@ -99,6 +99,47 @@ class TestUnhandledExceptionHandler:
         assert resp.headers["content-type"] == "application/json"
 
 
+class TestServerErrorIsReadableByTheBrowser:
+    """The catch-all handler answers outside the CORS middleware. Without the
+    CORS headers the browser withholds the 500 from the frontend, which then
+    reports a network error instead of the API's message."""
+
+    def _fail(self, origin: str | None):
+        headers = {"Origin": origin} if origin else {}
+        client = TestClient(_build_test_app(), raise_server_exceptions=False)
+        return client.get("/raise-generic-error", headers=headers)
+
+    def test_an_allowed_origin_gets_the_same_cors_headers_as_a_normal_response(
+        self,
+    ) -> None:
+        origin = get_settings().cors_origins_list[0]
+        normal = TestClient(real_app).get("/", headers={"Origin": origin})
+
+        failing = self._fail(origin)
+
+        assert failing.status_code == 500
+        for name in (
+            "access-control-allow-origin",
+            "access-control-allow-credentials",
+        ):
+            assert failing.headers[name] == normal.headers[name]
+        assert failing.headers["access-control-allow-origin"] == origin
+        assert "Origin" in failing.headers["vary"]
+
+    def test_a_foreign_origin_gets_no_cors_headers(self) -> None:
+        failing = self._fail("https://evil.example")
+
+        assert failing.status_code == 500
+        assert "access-control-allow-origin" not in failing.headers
+        assert "access-control-allow-credentials" not in failing.headers
+
+    def test_a_request_without_origin_gets_no_cors_headers(self) -> None:
+        failing = self._fail(None)
+
+        assert failing.status_code == 500
+        assert "access-control-allow-origin" not in failing.headers
+
+
 class TestValidationErrorIsNotEchoed:
     def test_the_offending_input_is_left_out(self) -> None:
         client = TestClient(_build_test_app(), raise_server_exceptions=False)
