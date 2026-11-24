@@ -39,6 +39,14 @@ class TestProductionStage:
     def test_the_process_runs_as_the_application_user(self):
         assert re.search(r"^USER app$", _prod_stage(), flags=re.MULTILINE)
 
+    def test_the_memory_arenas_are_limited_for_every_process_of_the_image(self):
+        # Set in the shared base stage, so the API, the job worker and the
+        # development image all get it.
+        base_stage = DOCKERFILE.split("AS builder", 1)[0]
+
+        assert re.search(r"^ENV MALLOC_ARENA_MAX=2$", base_stage, flags=re.MULTILINE)
+        assert re.search(r"^FROM base AS prod$", DOCKERFILE, flags=re.MULTILINE)
+
 
 class TestBuildContext:
     @pytest.mark.parametrize(

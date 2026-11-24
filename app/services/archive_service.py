@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
@@ -902,7 +903,7 @@ def get_presigned_url(
     db.close()
 
     if size and size in THUMB_SIZES and is_image:
-        _get_or_create_thumbnail(sha256_hash, size, storage)
+        _ensure_thumbnail(sha256_hash, size, storage)
         return storage.generate_presigned_url(
             _thumbnail_cache_key(sha256_hash, size),
             content_type="image/jpeg",
@@ -923,30 +924,28 @@ def _thumbnail_cache_key(sha256_hash: str, size: str) -> str:
     )
 
 
-def _get_or_create_thumbnail(
+def _ensure_thumbnail(
     sha256_hash: str,
     size: str,
     storage: StorageClient,
-) -> bytes | None:
+) -> None:
+    """Render and cache the thumbnail unless the cache holds it already. A
+    missing or undecodable source leaves the cache empty."""
     cache_key = _thumbnail_cache_key(sha256_hash, size)
     if storage.exists(cache_key):
-        return storage.download(cache_key)
+        return
 
     source_key = f"{S3_PATH_ARCHIVE_STORE}/{sha256_hash}"
     if not storage.exists(source_key):
-        return None
+        return
 
-    try:
+    with suppress(OSError, ValueError):
         data = storage.download(source_key)
         thumb_bytes, content_type = generate_thumbnail(
             data,
             THUMB_SIZES[size],
         )
         storage.upload(cache_key, thumb_bytes, content_type)
-    except OSError, ValueError:
-        return None
-    else:
-        return thumb_bytes
 
 
 # --- Upload ---
