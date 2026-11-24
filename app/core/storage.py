@@ -1,3 +1,4 @@
+import threading
 from io import BytesIO
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import quote
@@ -18,6 +19,14 @@ if TYPE_CHECKING:
 # Pillow warns above this many pixels and raises above twice as many: this is
 # a hard cap of 100 million pixels.
 PILImage.MAX_IMAGE_PIXELS = 50_000_000
+
+# Decoding is the memory-heavy step of a thumbnail: formats without reduced
+# decoding (PNG, GIF) need the full image in memory, up to several hundred
+# megabytes near the pixel cap. Requests run in a thread pool and a browser
+# loads several thumbnails at once, so without this limit those peaks add up
+# beyond the container's memory limit. One render at a time per process; a
+# request for an already cached thumbnail never waits here.
+_THUMBNAIL_RENDER_SLOT = threading.BoundedSemaphore(1)
 
 MAX_PRESIGNED_EXPIRY = 86400
 MIN_PRESIGNED_EXPIRY = 60
@@ -251,7 +260,28 @@ def generate_thumbnail(
     source_mime: str | None = None,
 ) -> tuple[bytes, str]:
     """Resize image to fit bounding box, return (bytes, content_type)."""
+    with _THUMBNAIL_RENDER_SLOT:
+        return _render_thumbnail(
+            data,
+            max_dimension,
+            preserve_png=preserve_png,
+            source_mime=source_mime,
+        )
+
+
+def _render_thumbnail(
+    data: bytes,
+    max_dimension: int,
+    *,
+    preserve_png: bool,
+    source_mime: str | None,
+) -> tuple[bytes, str]:
     img = PILImage.open(BytesIO(data))
+    # A JPEG can be decoded directly at 1/2, 1/4 or 1/8 of its size. Pillow
+    # picks the smallest of these that still covers the requested box on both
+    # sides, so the resize below loses no detail, while a 12 MP photo needs a
+    # few megabytes instead of about a hundred. Other formats ignore the call.
+    img.draft(None, (max_dimension, max_dimension))
     img = ImageOps.exif_transpose(img)
     if img.width > img.height:
         ratio = max_dimension / img.width

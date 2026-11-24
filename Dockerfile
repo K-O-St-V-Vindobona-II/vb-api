@@ -17,6 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
+# glibc gives every thread its own memory arena (up to eight per CPU core),
+# and an arena keeps the memory it once held. Synchronous endpoints run in a
+# pool of up to 40 threads, so after a burst of image work (thumbnails decode
+# whole pictures) each worker kept hundreds of megabytes it no longer used,
+# until the container's memory limit killed it. Measured with 150 thumbnails
+# from 40 threads: about 1.8 GB kept without the limit, about 0.3 GB with it.
+ENV MALLOC_ARENA_MAX=2
+
 
 FROM python:3.14-slim AS builder
 

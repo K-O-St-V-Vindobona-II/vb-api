@@ -1,6 +1,9 @@
 """Tests for S3 storage client and thumbnail generation."""
 
 import io
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
@@ -118,6 +121,57 @@ class TestGenerateThumbnail:
         img = PILImage.open(io.BytesIO(thumb))
         assert img.width == 200
         assert img.height == 100
+
+    def test_a_large_jpeg_is_decoded_reduced_but_still_covering_the_box(self):
+        # A full-size decode of a 12 MP photo needs about 100 MB; 1/8 is the
+        # smallest JPEG decoding step that still covers 200 x 200 here.
+        data = _make_jpeg(4000, 3000)
+        real_resize = PILImage.Image.resize
+
+        with patch.object(
+            PILImage.Image, "resize", autospec=True, side_effect=real_resize
+        ) as resize:
+            thumb, _ct = generate_thumbnail(data, 200)
+
+        decoded = resize.call_args.args[0]
+        assert decoded.size == (500, 375)
+        assert PILImage.open(io.BytesIO(thumb)).size == (200, 150)
+
+    def test_a_reduced_decode_keeps_the_exif_orientation(self):
+        # Decoded at 1/4 (400 x 300), then turned upright to 300 x 400.
+        data = _make_jpeg_with_orientation(1600, 1200, 6)
+
+        thumb, _ct = generate_thumbnail(data, 200)
+
+        assert PILImage.open(io.BytesIO(thumb)).size == (150, 200)
+
+    def test_only_one_thumbnail_is_rendered_at_a_time(self):
+        lock = threading.Lock()
+        running = 0
+        most_at_once = 0
+        real_render = storage_module._render_thumbnail
+
+        def tracked_render(*args, **kwargs):
+            nonlocal running, most_at_once
+            with lock:
+                running += 1
+                most_at_once = max(most_at_once, running)
+            try:
+                time.sleep(0.03)
+                return real_render(*args, **kwargs)
+            finally:
+                with lock:
+                    running -= 1
+
+        data = _make_jpeg(64, 64)
+        with (
+            patch.object(storage_module, "_render_thumbnail", tracked_render),
+            ThreadPoolExecutor(4) as pool,
+        ):
+            results = list(pool.map(lambda _: generate_thumbnail(data, 16), range(6)))
+
+        assert most_at_once == 1
+        assert [content_type for _thumb, content_type in results] == ["image/jpeg"] * 6
 
 
 class TestStorageClient:

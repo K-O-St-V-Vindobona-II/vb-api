@@ -9,6 +9,7 @@ Targets uncovered lines: 160-162, 256-258, 270-275, 296, 330-331, 344,
 import os
 import uuid
 from io import BytesIO
+from unittest.mock import patch
 
 import pytest
 from PIL import Image as PILImage
@@ -26,7 +27,7 @@ from app.schemas.archive import (
     FileUpdateRequest,
 )
 from app.services.archive_service import (
-    _get_or_create_thumbnail,
+    _ensure_thumbnail,
     _is_descendant,
     get_archive_stats,
     get_unsorted_upload_count,
@@ -673,21 +674,25 @@ class TestMoveReceiveEdgeCases:
 
 
 # ------------------------------------------------------------------ #
-# Thumbnail caching (_get_or_create_thumbnail) - tested directly rather
-# than through an HTTP endpoint, since this logic is shared by whichever
+# Thumbnail caching (_ensure_thumbnail) - tested directly rather than
+# through an HTTP endpoint, since this logic is shared by whichever
 # delivery endpoint requests it (currently only /url/{size})
 # ------------------------------------------------------------------ #
 
 
+def _cache_key(sha256_hash: str, size: str = "sm") -> str:
+    return f"archive/cache/{sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_{size}"
+
+
 class TestThumbnailCaching:
-    def test_uses_cached_version_without_regenerating(
+    def test_a_cached_thumbnail_is_neither_downloaded_nor_regenerated(
         self,
         db_session,
         mock_s3,
     ):
-        """A pre-existing, correctly-versioned cache entry is returned as-is,
-        with no source image needed (proves the cache-hit path never touches
-        the source key)."""
+        """A cache hit only checks that the entry exists: the presigned URL is
+        all the caller hands out, so neither the thumbnail nor the source is
+        fetched (there is no source here at all)."""
         _seed(db_session)
         f = _make_file(
             db_session,
@@ -696,14 +701,18 @@ class TestThumbnailCaching:
             hash_suffix="cache",
         )
         item = f.store_item
-        cache_key = (
-            f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
-        )
         cached_jpeg = _make_jpeg_bytes(50, 50)
-        mock_s3.upload(cache_key, cached_jpeg, "image/jpeg")
+        mock_s3.upload(_cache_key(item.sha256_hash), cached_jpeg, "image/jpeg")
 
-        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
-        assert result == cached_jpeg
+        with (
+            patch.object(mock_s3, "download", wraps=mock_s3.download) as download,
+            patch.object(mock_s3, "upload", wraps=mock_s3.upload) as upload,
+        ):
+            _ensure_thumbnail(item.sha256_hash, "sm", mock_s3)
+
+        download.assert_not_called()
+        upload.assert_not_called()
+        assert mock_s3.download(_cache_key(item.sha256_hash)) == cached_jpeg
 
     def test_stale_unversioned_cache_entry_is_ignored(
         self,
@@ -728,19 +737,16 @@ class TestThumbnailCaching:
         source_key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(source_key, _make_jpeg_bytes(200, 200), "image/jpeg")
 
-        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
-        assert result is not None
-        versioned_key = (
-            f"archive/cache/{item.sha256_hash}.{THUMBNAIL_CACHE_VERSION}.thumb_sm"
-        )
-        assert mock_s3.exists(versioned_key)
+        _ensure_thumbnail(item.sha256_hash, "sm", mock_s3)
 
-    def test_thumbnail_returns_none_when_source_missing(
+        cached = mock_s3.download(_cache_key(item.sha256_hash))
+        assert PILImage.open(BytesIO(cached)).size == (128, 128)
+
+    def test_a_missing_source_leaves_the_cache_empty(
         self,
         db_session,
         mock_s3,
     ):
-        """_get_or_create_thumbnail returns None when source not in S3."""
         _seed(db_session)
         f = _make_file(
             db_session,
@@ -749,15 +755,16 @@ class TestThumbnailCaching:
             hash_suffix="nosource",
         )
         item = f.store_item
-        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
-        assert result is None
 
-    def test_thumbnail_returns_none_on_corrupt_image(
+        _ensure_thumbnail(item.sha256_hash, "sm", mock_s3)
+
+        assert not mock_s3.exists(_cache_key(item.sha256_hash))
+
+    def test_an_undecodable_source_leaves_the_cache_empty(
         self,
         db_session,
         mock_s3,
     ):
-        """_get_or_create_thumbnail returns None for corrupt image data."""
         _seed(db_session)
         f = _make_file(
             db_session,
@@ -770,8 +777,9 @@ class TestThumbnailCaching:
         key = f"archive/store/{item.sha256_hash}"
         mock_s3.upload(key, b"not-an-image-at-all", "image/jpeg")
 
-        result = _get_or_create_thumbnail(item.sha256_hash, "sm", mock_s3)
-        assert result is None
+        _ensure_thumbnail(item.sha256_hash, "sm", mock_s3)
+
+        assert not mock_s3.exists(_cache_key(item.sha256_hash))
 
     def test_presigned_url_falls_through_when_not_an_image(
         self,
