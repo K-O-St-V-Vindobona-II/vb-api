@@ -571,11 +571,12 @@ async def delete_own_member_image(
 def list_member_images(
     member_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
 ) -> ImageListResponse:
-    """List all profile images for a member, plus which one (if any) is the default. No
-    special permission - any authenticated member."""
-    member = standesdb_service.get_visible_member_or_404(db, member_id)
+    """List all profile images for a member, plus which one (if any) is the default.
+    Any authenticated member; the images of a dismissed member only for the admins
+    of the member's organisation."""
+    member = standesdb_service.get_visible_member_or_404(db, member_id, current_user)
     return image_service.build_image_list_response(db, "member", member)
 
 
@@ -584,12 +585,13 @@ def download_member_image(
     member_id: uuid.UUID,
     image_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     storage: Annotated[StorageClient, Depends(get_storage)],
 ) -> Response:
-    """Download a member's profile image file (original or thumbnail). No special
-    permission - any authenticated member."""
-    standesdb_service.get_visible_member_or_404(db, member_id)
+    """Download a member's profile image file (original or thumbnail). Any
+    authenticated member; the images of a dismissed member only for the admins of
+    the member's organisation."""
+    standesdb_service.get_visible_member_or_404(db, member_id, current_user)
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     return image_service.serve_download(img, storage)
 
@@ -598,14 +600,16 @@ def download_member_image(
 def member_image_url(
     member_id: uuid.UUID,
     image_id: uuid.UUID,
+    *,
     db: Annotated[Session, Depends(get_db)],
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     storage: Annotated[StorageClient, Depends(get_storage)],
-    thumb: Annotated[bool, Query()] = False,  # noqa: FBT002
+    thumb: Annotated[bool, Query()] = False,
 ) -> PresignedUrlResponse:
     """Generate a time-limited presigned S3 URL for a member's profile image (original
-    or thumbnail via thumb=true). No special permission - any authenticated member."""
-    standesdb_service.get_visible_member_or_404(db, member_id)
+    or thumbnail via thumb=true). Any authenticated member; the images of a
+    dismissed member only for the admins of the member's organisation."""
+    standesdb_service.get_visible_member_or_404(db, member_id, current_user)
     img = image_service.get_image_for_serving(db, "member", member_id, image_id)
     url = image_service.get_presigned_url(
         img,

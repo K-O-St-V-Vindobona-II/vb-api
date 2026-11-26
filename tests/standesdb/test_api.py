@@ -198,12 +198,7 @@ def test_get_member_active(client, db_session):
     assert "tree" in data
 
 
-def test_get_member_dismissed_gdpr(client, db_session):
-    """Dismissed member returns GDPR-minimal data."""
-    _setup_reference_data(db_session)
-    admin = _create_admin(db_session)
-    headers = _auth_headers(client, db_session, admin)
-
+def _dismissed_member(db) -> Member:
     member = Member(
         email="gdpr@test.at",
         vorname="Geheim",
@@ -212,8 +207,18 @@ def test_get_member_dismissed_gdpr(client, db_session):
         org_id="vbw",
         entlassen=True,
     )
-    db_session.add(member)
-    db_session.commit()
+    db.add(member)
+    db.commit()
+    return member
+
+
+def test_get_member_dismissed_gdpr(client, db_session):
+    """A dismissed member is a GDPR-minimal stub for everyone but the admins
+    of their organisation, here an admin of the other organisation."""
+    _setup_reference_data(db_session)
+    viewer = _create_admin(db_session, org_id="vbn")
+    headers = _auth_headers(client, db_session, viewer)
+    member = _dismissed_member(db_session)
 
     resp = client.get(
         f"/api/standesdb/members/{member.id}",
@@ -224,6 +229,24 @@ def test_get_member_dismissed_gdpr(client, db_session):
     assert data["dataprotection"] == "dismissed"
     assert "vorname" not in data
     assert "email" not in data
+
+
+def test_get_member_dismissed_full_for_the_org_admin(client, db_session):
+    """The admins of the member's organisation still see the whole entry, so
+    they can correct or edit it."""
+    _setup_reference_data(db_session)
+    admin = _create_admin(db_session)
+    headers = _auth_headers(client, db_session, admin)
+    member = _dismissed_member(db_session)
+
+    resp = client.get(f"/api/standesdb/members/{member.id}", headers=headers)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dataprotection" not in data
+    assert data["entlassen"] is True
+    assert data["vorname"] == "Geheim"
+    assert data["email"] == "gdpr@test.at"
 
 
 def test_get_member_not_found(client, db_session):
