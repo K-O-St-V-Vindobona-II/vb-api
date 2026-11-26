@@ -4,7 +4,9 @@ import smtplib
 import socket
 import ssl
 import time
+from dataclasses import replace
 from datetime import date, datetime
+from email import message_from_string, policy
 from email.mime.multipart import MIMEMultipart
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
@@ -14,12 +16,15 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.mailer import (
     _as_date,
-    _build_from_header,
+    _build_message,
+    _default_sender,
     _format_diff_value,
     _log_sent_email,
+    _Mail,
     _prepare_diff_for_display,
     _resolve_date_accuracy,
     _send_message,
+    _Sender,
     render_template,
     send_entry_changed_email,
     send_member_change_request_resolved_email,
@@ -259,7 +264,20 @@ class TestSendToRecipients:
             from_addr="noreply@test.at",
         )
         msg = mock_send_message.call_args[0][0]
-        assert msg["From"].startswith('"Philister-ChC Vindobona II"')
+        assert msg["From"].addresses[0].display_name == "Philister-ChC Vindobona II"
+        assert msg["From"].addresses[0].addr_spec == "noreply@test.at"
+
+    @patch("app.core.mailer._log_sent_email")
+    @patch("app.core.mailer._send_message")
+    def test_text_part_is_derived_from_the_html(self, mock_send_message, mock_log):
+        send_to_recipients(
+            to_emails=["a@b.at"],
+            subject="S",
+            html_content="<p>Grüße an <strong>alle</strong></p>",
+            from_addr="noreply@test.at",
+        )
+        msg = mock_send_message.call_args[0][0]
+        assert msg.get_body(("plain",)).get_content().strip() == "Grüße an alle"
 
     @patch("app.core.mailer.SessionLocal")
     @patch("app.core.mailer._send_message")
@@ -291,24 +309,95 @@ class TestSendToRecipients:
         assert msg["Reply-To"] == "reply@test.at"
 
 
-class TestBuildFromHeader:
+class TestDefaultSender:
     def test_default_from_name(self, monkeypatch):
         monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
         monkeypatch.delenv("SMTP_FROM_NAME", raising=False)
 
-        from_email, from_header = _build_from_header()
+        sender = _default_sender()
 
-        assert from_email == "noreply@test.at"
-        assert from_header == '"Vindobona" <noreply@test.at>'
+        assert sender == _Sender(email="noreply@test.at", name="Vindobona")
+        assert sender.log_header == '"Vindobona" <noreply@test.at>'
 
     def test_custom_from_name(self, monkeypatch):
         monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@test.at")
         monkeypatch.setenv("SMTP_FROM_NAME", "Philister-ChC Vindobona II")
 
-        from_email, from_header = _build_from_header()
+        sender = _default_sender()
 
-        assert from_email == "noreply@test.at"
-        assert from_header == '"Philister-ChC Vindobona II" <noreply@test.at>'
+        assert sender.log_header == '"Philister-ChC Vindobona II" <noreply@test.at>'
+
+
+class TestBuildMessage:
+    """The raw message as a receiving server sees it, read back by a parser."""
+
+    BASE = _Mail(
+        subject="Betreff",
+        sender=_Sender(email="kassier@vindobona2.at", name="Karl Kassier"),
+        to_emails=["a@b.at"],
+        html="<p>Hallo</p>",
+        text="Hallo",
+    )
+
+    def _received(self, **changes: object):
+        raw = _build_message(replace(self.BASE, **changes)).as_string()
+        return raw, message_from_string(raw, policy=policy.default)
+
+    def test_a_sender_name_with_umlaut_and_quotes_keeps_a_readable_address(self):
+        _, msg = self._received(
+            sender=_Sender(email="kassier@vindobona2.at", name='Stephan "Dr." Müller')
+        )
+
+        sender = msg["From"].addresses[0]
+        assert sender.display_name == 'Stephan "Dr." Müller'
+        assert sender.addr_spec == "kassier@vindobona2.at"
+
+    def test_date_message_id_and_auto_submitted_are_set(self):
+        _, msg = self._received()
+
+        assert msg["Date"].datetime is not None
+        assert msg["Message-ID"].endswith("@vindobona2.at>")
+        assert msg["Auto-Submitted"] == "auto-generated"
+
+    def test_text_and_html_alternatives_in_quoted_printable(self):
+        raw, msg = self._received(html="<p>Grüße</p>", text="Grüße")
+
+        assert msg.get_content_type() == "multipart/alternative"
+        parts = [
+            (p.get_content_type(), p["Content-Transfer-Encoding"])
+            for p in msg.iter_parts()
+        ]
+        assert parts == [
+            ("text/plain", "quoted-printable"),
+            ("text/html", "quoted-printable"),
+        ]
+        assert msg.get_body(("plain",)).get_content().strip() == "Grüße"
+        assert msg.get_body(("html",)).get_content().strip() == "<p>Grüße</p>"
+        assert "\r\n" in raw
+
+    @pytest.mark.parametrize("separator", ["\n", "\r", "\t", "   "])
+    def test_any_whitespace_run_in_the_subject_becomes_one_space(self, separator):
+        _, msg = self._received(subject=f"Kontakt von{separator}Max")
+
+        assert msg["Subject"] == "Kontakt von Max"
+
+    def test_a_line_break_in_the_subject_cannot_end_the_header(self):
+        _, msg = self._received(subject="Neue Kontaktaufnahme von Max\r\nBcc: x@y.at")
+
+        assert msg["Subject"] == "Neue Kontaktaufnahme von Max Bcc: x@y.at"
+        assert "Bcc" not in msg
+
+    def test_without_visible_recipients_the_to_header_is_the_empty_group(self):
+        _, msg = self._received(to_emails=[])
+
+        assert msg["To"] == "Undisclosed-Recipients:;"
+
+    def test_reply_to_only_when_given(self):
+        _, without = self._received()
+        _, with_reply = self._received(reply_to="antwort@b.at")
+
+        assert "Reply-To" not in without
+        assert with_reply["Reply-To"] == "antwort@b.at"
 
 
 def _assert_verifying(context: ssl.SSLContext) -> None:

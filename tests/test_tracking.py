@@ -112,7 +112,7 @@ class TestEmailTemplates:
         resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 11
+        assert len(data) == 12
         keys = {t["template_key"] for t in data}
         assert keys == {
             "password-reset",
@@ -122,6 +122,7 @@ class TestEmailTemplates:
             "own-image-changed",
             "birthday",
             "debtor_reminder",
+            "debtor_reminder_import_missing",
             "chronicles",
             "archive_health_check",
             "standesdb_health_check",
@@ -163,7 +164,7 @@ class TestEmailTemplates:
         _insert_sent_email(db_session, "unregistered-junk")
         resp = client.get("/api/tracking/sent-emails/templates", headers=headers)
         data = resp.json()
-        assert len(data) == 11
+        assert len(data) == 12
         keys = {t["template_key"] for t in data}
         assert "unregistered-junk" not in keys
 

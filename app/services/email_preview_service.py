@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from app.core.mailer import render_template
 from app.schemas.tracking import EmailTemplatePreview
 from app.services import tracking_service
+from app.services.anniversary_service import ANNIVERSARY_FIELDS
 
 
 def _format_preview_value(
@@ -61,29 +62,73 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
         "fee": "15,00",
         "debt": "90,00",
         "target": "30. Juni 2026",
+        "payments_until": "17. Juli 2026",
         "sender_name": "Franz Beispiel v/o Musterknabe",
     },
+    "debtor_reminder_import_missing": {
+        "name": "Franz Beispiel v/o Musterknabe",
+        "target": "30. Juni 2026",
+        "latest_booking": "28. Juni 2026",
+        "deadline": "31. Juli 2026",
+        "last_chance": True,
+    },
     "chronicles": {
-        "start": "30. Juni 2026",
-        "end": "6. Juli 2026",
+        "fields": ANNIVERSARY_FIELDS,
+        "period": "22. Februar bis 28. Februar 2027",
         "anniversaries": {
             "vbw": {
-                "lebend": {
-                    "geburtsdatum": [
-                        {
-                            "cn": "Max Mustermann v/o Testikus",
-                            "date": "1. Juli",
-                            "years": 50,
-                        },
-                    ],
-                    "aufnahmedatum": [
-                        {
-                            "cn": "Franz Beispiel v/o Musterknabe",
-                            "date": "3. Juli",
-                            "years": 10,
-                        },
-                    ],
-                },
+                "geburtsdatum": [
+                    {
+                        "cn": "Max Mustermann v/o Testikus",
+                        "deceased": False,
+                        "weekday": "Mo",
+                        "day": "22.2.",
+                        "years": 50,
+                        "leap_day_note": None,
+                    },
+                    {
+                        "cn": "Leopold Alt wl. Cicero",
+                        "deceased": True,
+                        "weekday": "Sa",
+                        "day": "27.2.",
+                        "years": 87,
+                        "leap_day_note": None,
+                    },
+                ],
+                "philistrierungsdatum": [
+                    {
+                        "cn": "Franz Beispiel v/o Musterknabe",
+                        "deceased": False,
+                        "weekday": "So",
+                        "day": "28.2.",
+                        "years": 40,
+                        "leap_day_note": (
+                            "Jahrestag fällt eigentlich auf den 29. Februar"
+                        ),
+                    },
+                ],
+                "sterbedatum": [
+                    {
+                        "cn": "Karl Früh wl. Sokrates",
+                        "deceased": True,
+                        "weekday": "Fr",
+                        "day": "26.2.",
+                        "years": 25,
+                        "leap_day_note": None,
+                    },
+                ],
+            },
+            "vbn": {
+                "burschungsdatum": [
+                    {
+                        "cn": "Eva Muster v/o Iris",
+                        "deceased": False,
+                        "weekday": "Sa",
+                        "day": "27.2.",
+                        "years": 12,
+                        "leap_day_note": None,
+                    },
+                ],
             },
         },
     },

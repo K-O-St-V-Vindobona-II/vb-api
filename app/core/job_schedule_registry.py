@@ -42,15 +42,28 @@ DOWNSYNC_HOUR: int = (BACKUP_HOUR + 1) % 24
 JobScope = Literal["always", "production_only", "non_production_only"]
 
 
+CronField = int | frozenset[int] | None
+
+
 @dataclass(frozen=True)
 class JobScheduleEntry:
     id: JobId
     description: str
     scope: JobScope
-    day: int | None = None
+    month: CronField = None
+    day: CronField = None
     weekday: WeekdayOptionType = None
     hour: int | None = None
     minute: int = 0
+
+
+def cron_option(value: CronField) -> int | set[int] | None:
+    """A cron field in the form arq accepts: arq only treats a set, list or
+    tuple as "one of these values", a frozenset (kept here so the entries
+    stay immutable) would match nothing."""
+    if isinstance(value, frozenset):
+        return set(value)
+    return value
 
 
 class ScheduledJobInfo(TypedDict):
@@ -103,16 +116,27 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
     ),
     JobScheduleEntry(
         id=JobId.DEBTOR_REMINDER,
-        day=25,
+        # Quarterly, so the cut-off date is always the end of a quarter.
+        # Every evening from the 15th on, the job either sends the
+        # reminders once or, while the bank import of the month is still
+        # missing, tells the treasurer and tries again the next evening.
+        month=frozenset({1, 4, 7, 10}),
+        day=frozenset(range(15, 32)),
         hour=18,
-        minute=32,
+        minute=30,
         scope="production_only",
         description=(
-            "Sendet vierteljährlich Erinnerungen"
+            "Sendet quartalsweise (Jänner, April,"
+            " Juli, Oktober) ab dem 15. Erinnerungen"
             " an Mitglieder mit einem"
-            " Beitragsrückstand von über 300 Euro."
-            " Enthält IBAN, BIC und aktuelle"
-            " Beitragshöhe."
+            " Beitragsrückstand von über 300 Euro"
+            " zum Quartalsende; Zahlungen bis zum"
+            " letzten Kontoimport werden"
+            " berücksichtigt. Fehlt der Kontoimport"
+            " des laufenden Monats, erhält der"
+            " Philisterkassier einen Hinweis, und"
+            " der Versand wird täglich bis"
+            " Monatsende nachgeholt."
         ),
     ),
     JobScheduleEntry(
@@ -124,9 +148,11 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
             "Versendet die wöchentliche"
             " Jubiläums-Chronik (Geburtstage,"
             " Aufnahmen, Burschungen,"
-            " Philistrierungen) an alle"
-            " Mitglieder, die den Versand"
-            " aktiviert haben."
+            " Philistrierungen, Todestage) der"
+            " Folgewoche an alle Mitglieder, die"
+            " den Versand aktiviert haben. Auch in"
+            " einer Woche ohne Jahrestage geht eine"
+            " kurze Mail hinaus."
         ),
     ),
     JobScheduleEntry(
@@ -190,6 +216,17 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
 )
 
 
+def _describe_values(value: int | frozenset[int]) -> str:
+    """One value as is, an unbroken run as "first-last", otherwise the
+    sorted values separated by commas."""
+    if isinstance(value, int):
+        return str(value)
+    values = sorted(value)
+    if values == list(range(values[0], values[-1] + 1)) and len(values) > 2:
+        return f"{values[0]}-{values[-1]}"
+    return ",".join(str(v) for v in values)
+
+
 def _describe_trigger(entry: JobScheduleEntry) -> str:
     """Cosmetic only — matches APScheduler's canonical cron field order
     (month/day/weekday/hour/minute) and its `day_of_week` naming, purely
@@ -197,8 +234,10 @@ def _describe_trigger(entry: JobScheduleEntry) -> str:
     this migration. Nothing parses this format; the frontend just
     displays it as opaque text."""
     parts: list[str] = []
+    if entry.month is not None:
+        parts.append(f"month='{_describe_values(entry.month)}'")
     if entry.day is not None:
-        parts.append(f"day='{entry.day}'")
+        parts.append(f"day='{_describe_values(entry.day)}'")
     if entry.weekday is not None:
         parts.append(f"day_of_week='{entry.weekday}'")
     if entry.hour is not None:
@@ -242,7 +281,8 @@ def get_scheduled_jobs() -> list[ScheduledJobInfo]:
         # expiring end date/year, so it always converges.
         next_run = next_cron(
             now,
-            day=entry.day,
+            month=cron_option(entry.month),
+            day=cron_option(entry.day),
             weekday=entry.weekday,
             hour=entry.hour,
             minute=entry.minute,

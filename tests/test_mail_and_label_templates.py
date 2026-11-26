@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from weasyprint import HTML
 
-from app.core.mailer import render_template, send_reset_email
+from app.core.mailer import _Sender, render_template, send_reset_email
 from app.services.export_service import _jinja_env
 
 MM_PER_INCH = 25.4
@@ -64,8 +64,8 @@ class TestResetMail:
         with (
             patch("app.core.mailer.get_settings", return_value=settings),
             patch(
-                "app.core.mailer._build_from_header",
-                return_value=("a@b.at", "a@b.at"),
+                "app.core.mailer._default_sender",
+                return_value=_Sender(email="a@b.at", name="Vindobona"),
             ),
             patch("app.core.mailer._send_message") as send,
             patch("app.core.mailer._log_sent_email") as log,

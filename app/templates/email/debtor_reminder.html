@@ -1,6 +1,9 @@
 <!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
 <body>
 <p>Lieber Bundesbruder {{ name }},</p>
 <p>
@@ -26,6 +29,11 @@ Leider haben wir von dir seit Längerem keinen Eingang feststellen können.
 <p>
 Per <strong>{{ target }}</strong> beträgt Dein Rückstand an Beiträgen
 <strong style="color: red;">{{ debt }} Euro.</strong>
+</p>
+<p>
+Zahlungseingänge bis {{ payments_until }} sind dabei berücksichtigt.
+Solltest Du in den letzten Tagen bereits überwiesen haben, betrachte dieses
+Schreiben bitte als gegenstandslos.
 </p>
 <p>
 Wir bitten Dich, den offenen Betrag an<br>

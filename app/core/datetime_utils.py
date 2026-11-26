@@ -69,3 +69,29 @@ def local_day_bounds_utc(day: date) -> tuple[datetime, datetime]:
     start_local = datetime.combine(day, datetime.min.time(), tzinfo=tz)
     end_local = datetime.combine(next_day, datetime.min.time(), tzinfo=tz)
     return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+
+# German month names as used in Austria ("Jänner"), indexed by month number.
+MONTHS_DE = (
+    "",
+    "Jänner",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+)
+
+# Short German weekday names, indexed by date.weekday() (Monday = 0).
+WEEKDAYS_SHORT_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def format_date_long(value: date) -> str:
+    """A date as the mails write it, e.g. "17. November 2026"."""
+    return f"{value.day}. {MONTHS_DE[value.month]} {value.year}"

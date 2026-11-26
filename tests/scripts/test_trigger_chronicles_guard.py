@@ -16,10 +16,10 @@ def _run(
         patch.object(
             tc,
             "compute_anniversaries",
-            return_value={"vbw": {"lebend": {"geburtsdatum": [1]}}},
+            return_value={"vbw": {"geburtsdatum": [{"deceased": False}]}},
         ),
         patch.object(tc, "get_opted_in_recipients", return_value=["a@b.at", "c@d.at"]),
-        patch.object(tc, "render_template", return_value="<p/>"),
+        patch.object(tc, "render_chronicles", return_value="<p/>"),
         patch.object(tc, "send_to_recipients") as send,
         patch(
             "builtins.input",

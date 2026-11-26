@@ -1,56 +1,99 @@
 <!DOCTYPE html>
-<html>
-<head></head>
-<body>
-<div style="font-size:1em;font-family:Courier;margin:1.5em 0;">
-Mit dieser E-Mail bekommst Du die Jahrestage der kommenden Woche zugesandt.
-</div>
-<div style="font-size:0.8em;font-family:Verdana;border:2px solid #05370C;background-color:#F2E69C;padding:2em;line-height:1.7em;">
-<div style="font-size:20px;color:#05370C;font-style:italic;margin-bottom:10px;">
-Chroniken vom {{ start }} bis zum {{ end }}
-</div>
-{% for org_id, org_label in [("vbw", "II"), ("vbn", "nova")] %}
-  {% set org_data = anniversaries.get(org_id, {}) %}
-  {% if org_data %}
-  <div style="font-size:16px;color:red;margin-top:10px;margin-bottom:10px;">
-    Jahrestage für die K.Ö.St.V. Vindobona {{ org_label }}
-  </div>
-  {% set prefix = "Bbr." if org_id == "vbw" else "Bsr." %}
-  {% set pron_sein = "seinen" if org_id == "vbw" else "ihren" %}
-  {% set pron_seiner = "seiner" if org_id == "vbw" else "ihrer" %}
-  {% for status in ["lebend", "verstorben"] %}
-    {% set status_data = org_data.get(status, {}) %}
-    {% set color = "05370C" if status == "lebend" else "A0AE7F" %}
-    {% for ann_type in ["geburtsdatum", "aufnahmedatum", "burschungsdatum", "philistrierungsdatum"] %}
-      {% for entry in status_data.get(ann_type, []) %}
-      <div style="color:#{{ color }};">
-        {% if ann_type == "geburtsdatum" %}
-          {% if status == "lebend" %}
-        <strong>{{ prefix }} {{ entry.cn }}</strong> begeht am {{ entry.date }} {{ pron_sein }} {{ entry.years }}. <strong>Geburtstag</strong>.
-          {% else %}
-        {% if org_id == "vbw" %}Der{% else %}Die{% endif %} verstorbene <strong>{{ prefix }} {{ entry.cn }}</strong> hätte am {{ entry.date }} {{ pron_sein }} {{ entry.years }}. <strong>Geburtstag</strong>.
-          {% endif %}
-        {% elif ann_type == "aufnahmedatum" %}
-        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>Aufnahme</strong>.
-        {% elif ann_type == "burschungsdatum" %}
-        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>{% if org_id == "vbw" %}Burschung{% else %}Filiierung{% endif %}</strong>.
-        {% elif ann_type == "philistrierungsdatum" %}
-        Bei <strong>{{ prefix }} {{ entry.cn }}</strong> jährt sich am {{ entry.date }} zum {{ entry.years }}. Mal der Tag {{ pron_seiner }} <strong>Philistrierung</strong>.
-        {% endif %}
-        {% if entry.leap_day_note %}
-        <br><span style="font-size:0.85em;font-style:italic;">({{ entry.leap_day_note }})</span>
-        {% endif %}
-      </div>
-      {% endfor %}
-    {% endfor %}
-  {% endfor %}
-  {% endif %}
-{% endfor %}
-</div>
-<div style="font-size:1em;font-family:Courier;margin:1.5em 0;">
-Wenn Du diese wöchentliche Email nicht mehr erhalten möchtest,
-melde Dich bitte im internen Bereich unserer Homepage an und
-deaktiviere den Versand im Bereich "Mein Benutzerkonto".
-</div>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verbindungschroniken</title>
+</head>
+{#- Mail programs drop <style> blocks, so every style is inline, and the
+    layout is built from tables. -#}
+{%- set font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" -%}
+{%- set orgs = [
+  ("vbw", "K.Ö.St.V. Vindobona II", "Bbr.", "seinen", "Burschung", "Burschungen"),
+  ("vbn", "K.Ö.St.V. Vindobona nova", "Bsr.", "ihren", "Filiierung", "Filiierungen"),
+] -%}
+{%- macro years(n) -%}
+{%- if n % 5 == 0 -%}
+<span style="background-color:#F2E69C;color:#05370C;font-weight:700;padding:1px 7px;border-radius:10px;">{{ n }}.</span>
+{%- else -%}
+{{ n }}.
+{%- endif -%}
+{%- endmacro -%}
+<body style="margin:0;padding:0;background-color:#e9ece8;">
+<div style="display:none;max-height:0;overflow:hidden;">{% if anniversaries %}Jahrestage{% else %}Keine Jahrestage{% endif %} vom {{ period }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e9ece8;">
+<tr><td align="center" style="padding:16px 12px 32px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;font-family:{{ font }};">
+
+  <tr><td style="background-color:#05370C;border-radius:10px;padding:24px 24px 22px;">
+    <div style="font-size:24px;line-height:30px;font-weight:700;color:#ffffff;">Verbindungschroniken</div>
+    <div style="font-size:15px;line-height:22px;color:#cfe0d1;padding-top:4px;">{{ period }}</div>
+  </td></tr>
+
+{%- if not anniversaries %}
+  <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+  <tr><td style="background-color:#ffffff;border:1px solid #dfe5de;border-radius:10px;padding:24px 20px;font-size:15px;line-height:22px;color:#3f4a41;">
+    In der Woche vom {{ period }} stehen keine Jahrestage an.
+  </td></tr>
+{%- endif %}
+
+{%- for org_id, org_label, prefix, pronoun, burschung, burschungen in orgs %}
+{%- set org_data = anniversaries.get(org_id, {}) %}
+{%- if org_data %}
+  <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+  <tr><td style="background-color:#ffffff;border:1px solid #dfe5de;border-radius:10px;padding:20px 20px 12px;">
+    <div style="font-size:18px;line-height:24px;font-weight:700;color:#05370C;padding-bottom:10px;border-bottom:3px solid #F2E69C;">{{ org_label }}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+{%- set headings = {
+  "geburtsdatum": "Geburtstage",
+  "aufnahmedatum": "Aufnahmen",
+  "burschungsdatum": burschungen,
+  "philistrierungsdatum": "Philistrierungen",
+  "sterbedatum": "Todestage",
+} %}
+{%- for field in fields %}
+{%- set entries = org_data.get(field, []) %}
+{%- if entries %}
+      <tr><td colspan="2" style="padding:18px 0 2px;font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#05370C;">{{ headings[field] }}</td></tr>
+{%- for entry in entries %}
+{%- set muted = entry.deceased %}
+      <tr>
+        <td width="62" valign="top" style="padding:10px 10px 10px 0;font-size:12px;line-height:17px;color:{{ '#8a938b' if muted else '#5b6b5d' }};white-space:nowrap;">{{ entry.weekday }}<br><span style="font-size:15px;font-weight:700;color:{{ '#7a847b' if muted else '#1d2a1f' }};">{{ entry.day }}</span></td>
+        <td valign="top" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #eef1ed;{% endif %}">
+          <div style="font-size:15px;line-height:21px;font-weight:700;color:{{ '#6b7280' if muted else '#1d2a1f' }};">{% if muted %}&dagger; {% endif %}{{ prefix }} {{ entry.cn }}</div>
+          <div style="font-size:14px;line-height:20px;color:{{ '#6b7280' if muted else '#3f4a41' }};">
+{%- if field == "geburtsdatum" and muted -%}
+hätte {{ pronoun }} {{ years(entry.years) }} Geburtstag begangen
+{%- elif field == "geburtsdatum" -%}
+feiert {{ pronoun }} {{ years(entry.years) }} Geburtstag
+{%- elif field == "aufnahmedatum" -%}
+{{ years(entry.years) }} Jahrestag der Aufnahme
+{%- elif field == "burschungsdatum" -%}
+{{ years(entry.years) }} Jahrestag der {{ burschung }}
+{%- elif field == "philistrierungsdatum" -%}
+{{ years(entry.years) }} Jahrestag der Philistrierung
+{%- else -%}
+{{ years(entry.years) }} Todestag
+{%- endif -%}
+          </div>
+{%- if entry.leap_day_note %}
+          <div style="font-size:12px;line-height:17px;font-style:italic;color:#7a847b;padding-top:2px;">{{ entry.leap_day_note }}</div>
+{%- endif %}
+        </td>
+      </tr>
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+    </table>
+  </td></tr>
+{%- endif %}
+{%- endfor %}
+
+  <tr><td style="padding:20px 8px 0;font-size:12px;line-height:18px;color:#6b7280;">
+    Wenn Du diese wöchentliche E-Mail nicht mehr erhalten möchtest, melde Dich bitte im internen Bereich unserer Homepage an und deaktiviere den Versand im Bereich „Mein Benutzerkonto“.
+  </td></tr>
+</table>
+</td></tr>
+</table>
 </body>
 </html>

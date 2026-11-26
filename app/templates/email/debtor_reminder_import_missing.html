@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<p>Hallo {{ name }},</p>
+<p>
+die Beitragserinnerungen zum Stichtag <strong>{{ target }}</strong> sind
+ausgesetzt:
+{% if latest_booking %}
+Der letzte Kontoimport enthält Buchungen nur bis {{ latest_booking }}.
+{% else %}
+Es ist noch kein Kontoimport vorhanden.
+{% endif %}
+</p>
+{% if last_chance %}
+<p>
+<strong style="color: red;">Letzte Erinnerung:</strong> Ohne Kontoimport
+bis zum {{ deadline }} entfallen die Beitragserinnerungen für dieses Quartal.
+</p>
+{% endif %}
+<p>
+Bitte importiere den aktuellen Kontoauszug. Die Erinnerungen gehen dann
+am selben Abend um 18:30 Uhr automatisch hinaus und berücksichtigen alle
+Zahlungseingänge bis zum letzten Buchungstag des Imports. Das System
+versucht es täglich bis zum {{ deadline }}.
+</p>
+</body>
+</html>

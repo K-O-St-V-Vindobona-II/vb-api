@@ -10,15 +10,20 @@ job body's business logic (already covered by tests/test_scheduled_jobs.py).
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from arq.cron import next_cron
 
 from app.core.config import get_settings
 from app.core.job_schedule_registry import (
     JOB_REGISTRY,
+    _describe_values,
     applicable_entries,
+    cron_option,
     get_scheduled_jobs,
 )
 from app.models.enums import JobId
+
+VIENNA = ZoneInfo("Europe/Vienna")
 
 
 class TestApplicableEntries:
@@ -135,3 +140,91 @@ class TestJobRegistryEntries:
 
         assert next_run.hour == 15
         assert next_run.minute == 53
+
+
+class TestDebtorReminderSchedule:
+    """Quarterly (January, April, July, October), every evening from the
+    15th to the end of the month at 18:30, so a missing bank import can
+    be caught up."""
+
+    ENTRY = next(e for e in JOB_REGISTRY if e.id == JobId.DEBTOR_REMINDER)
+
+    def _next_run(self, after: datetime) -> datetime:
+        return next_cron(
+            after,
+            month=cron_option(self.ENTRY.month),
+            day=cron_option(self.ENTRY.day),
+            weekday=self.ENTRY.weekday,
+            hour=self.ENTRY.hour,
+            minute=self.ENTRY.minute,
+        )
+
+    @pytest.mark.parametrize(
+        ("after", "expected"),
+        [
+            (
+                datetime(2026, 11, 26, 12, 0, tzinfo=VIENNA),
+                datetime(2027, 1, 15, 18, 30, tzinfo=VIENNA),
+            ),
+            (
+                datetime(2027, 1, 15, 18, 30, tzinfo=VIENNA),
+                datetime(2027, 1, 16, 18, 30, tzinfo=VIENNA),
+            ),
+            (
+                datetime(2027, 1, 31, 18, 30, tzinfo=VIENNA),
+                datetime(2027, 4, 15, 18, 30, tzinfo=VIENNA),
+            ),
+            (
+                datetime(2027, 4, 30, 19, 0, tzinfo=VIENNA),
+                datetime(2027, 7, 15, 18, 30, tzinfo=VIENNA),
+            ),
+            (
+                datetime(2027, 7, 31, 19, 0, tzinfo=VIENNA),
+                datetime(2027, 10, 15, 18, 30, tzinfo=VIENNA),
+            ),
+        ],
+    )
+    def test_runs_every_evening_from_the_15th_of_each_quarters_first_month(
+        self, after, expected
+    ):
+        next_run = self._next_run(after)
+
+        # arq fires at a fixed microsecond offset, see arq.cron.cron()
+        assert next_run.replace(microsecond=0) == expected
+
+    def test_trigger_description_names_months_and_days(self, monkeypatch):
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        get_settings.cache_clear()
+
+        jobs = get_scheduled_jobs()
+
+        reminder = next(j for j in jobs if j["id"] == "debtor_reminder")
+        assert reminder["trigger"] == (
+            "cron[month='1,4,7,10', day='15-31', hour='18', minute='30']"
+        )
+
+
+class TestCronOption:
+    def test_a_frozenset_becomes_a_set_arq_understands(self):
+        option = cron_option(frozenset({1, 4}))
+
+        assert option == {1, 4}
+        assert type(option) is set
+
+    @pytest.mark.parametrize("value", [None, 7])
+    def test_single_values_pass_unchanged(self, value):
+        assert cron_option(value) == value
+
+
+class TestDescribeValues:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (5, "5"),
+            (frozenset({3, 1, 2}), "1-3"),
+            (frozenset({1, 2}), "1,2"),
+            (frozenset({10, 1, 7, 4}), "1,4,7,10"),
+        ],
+    )
+    def test_describes_values_runs_and_lists(self, value, expected):
+        assert _describe_values(value) == expected

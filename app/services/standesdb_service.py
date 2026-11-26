@@ -318,11 +318,30 @@ def _build_keys_list(member: Member) -> list[KeyDetailResponse]:
     ]
 
 
-def get_visible_member_or_404(db: Session, member_id: uuid.UUID) -> Member:
-    """Load a member whose data may be shown. A dismissed member counts as
-    absent, in line with the detail page, which shows nothing but a stub."""
+def _administers_org_of(viewer: Member, member: Member) -> bool:
+    """Whether the viewer is an admin of the member's organisation, the same
+    permission that allows editing the member."""
+    if not member.org_id:
+        return False
+    return f"standesdb{member.org_id.capitalize()}Admin" in calculate_permissions(
+        viewer
+    )
+
+
+def _may_see_dismissed(viewer: Member, member: Member) -> bool:
+    """A dismissed member's data is kept from the directory; only the admins
+    of the member's organisation still need it, to correct or edit it."""
+    return not member.entlassen or _administers_org_of(viewer, member)
+
+
+def get_visible_member_or_404(
+    db: Session, member_id: uuid.UUID, viewer: Member
+) -> Member:
+    """Load a member whose data the viewer may see. A dismissed member counts
+    as absent, in line with the detail page, except for the admins of the
+    member's organisation."""
     member = db.get(Member, member_id)
-    if not member or member.entlassen:
+    if not member or not _may_see_dismissed(viewer, member):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Mitglied nicht gefunden.",
@@ -333,13 +352,7 @@ def get_visible_member_or_404(db: Session, member_id: uuid.UUID) -> Member:
 def _may_see_account_status(viewer: Member, member: Member) -> bool:
     """The account status describes the sign-in, not the person: only the
     member and the admins of the member's organisation need it."""
-    if viewer.id == member.id:
-        return True
-    if not member.org_id:
-        return False
-    return f"standesdb{member.org_id.capitalize()}Admin" in calculate_permissions(
-        viewer
-    )
+    return viewer.id == member.id or _administers_org_of(viewer, member)
 
 
 def get_member_detail(
@@ -349,8 +362,10 @@ def get_member_detail(
     # can read any other member's directory entry - the two orgs
     # deliberately share one member directory, including the free-text note
     # `anmerkungen`. Only the account status is restricted, see
-    # _may_see_account_status. Write access (create/update/delete) is
-    # org-restricted, see _require_standesdb_admin.
+    # _may_see_account_status, and a dismissed member is a stub for everyone
+    # but the admins of their organisation, see _may_see_dismissed. Write
+    # access (create/update/delete) is org-restricted, see require_org_admin
+    # in standesdb_entry_service.
     member = db.get(Member, member_id)
     if not member:
         raise HTTPException(
@@ -358,7 +373,7 @@ def get_member_detail(
             detail="Mitglied nicht gefunden.",
         )
 
-    if member.entlassen:
+    if not _may_see_dismissed(viewer, member):
         return MemberDismissedResponse(
             id=member.id,
             cn=member.cn,

@@ -17,13 +17,18 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.datetime_utils import local_today
+from app.core.datetime_utils import (
+    format_date_long,
+    get_app_timezone,
+    local_day_bounds_utc,
+    local_today,
+)
 from app.core.mailer import render_template, send_to_recipients
 from app.core.security import (
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -43,18 +48,24 @@ from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
 from app.services.anniversary_service import (
     compute_anniversaries,
-    format_date_de,
     get_opted_in_recipients,
-    week_window,
+    render_chronicles,
 )
 from app.services.archive_service import get_unsorted_upload_count
 from app.services.backup_service import cleanup_old_backups, run_backup, run_restore
 from app.services.downsync_service import build_prod_storage
 from app.services.p4x_category_service import apply_all_category_filters
-from app.services.p4x_fee_balance_service import calculate_fee_balance, fee_for_month
+from app.services.p4x_fee_balance_service import (
+    calculate_fee_balance,
+    fee_for_month,
+    get_fee_payments_sum,
+)
 from app.services.permission_service import get_emails_with_permission
 from app.services.s3_mirror_service import mirror_light, mirror_prefix
-from app.services.scheduled_task_run_service import record_job_run
+from app.services.scheduled_task_run_service import (
+    has_succeeded_since,
+    record_job_run,
+)
 from app.services.storage_integrity_service import (
     check_archive_integrity,
     check_standesdb_integrity,
@@ -85,23 +96,6 @@ class MailRun:
         if self.failed:
             text += f" {len(self.failed)} failed: {', '.join(self.failed)}."
         return text
-
-
-MONTHS_DE = [
-    "",
-    "Jänner",
-    "Februar",
-    "März",
-    "April",
-    "Mai",
-    "Juni",
-    "Juli",
-    "August",
-    "September",
-    "Oktober",
-    "November",
-    "Dezember",
-]
 
 
 # -------------------------------------------------------------------
@@ -347,30 +341,103 @@ def _get_role_holder_emails(
 
 
 # -------------------------------------------------------------------
-# Task 3: DebtorReminder — monthly on 25th, every 3 months
+# Task 3: DebtorReminder: quarterly, every evening from the 15th until the
+# reminders are out (see the registry entry for the months)
 # -------------------------------------------------------------------
 
+_DEBT_THRESHOLD_EUR = 300
+# From this day on, a still missing import is announced once more as the
+# last chance before the quarter's reminders lapse.
+_LAST_CHANCE_DAY = 25
 
-def _validate_latest_booking(db: Session, today: date) -> bool:
-    latest_tx = (
-        db.query(P4xTransaction)
+
+def _month_start_utc(today: date) -> datetime:
+    return local_day_bounds_utc(today.replace(day=1))[0]
+
+
+def _last_day_of_month(today: date) -> date:
+    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return next_month - timedelta(days=1)
+
+
+def _latest_booking(db: Session) -> date | None:
+    row = (
+        db.query(P4xTransaction.booking)
         .filter(P4xTransaction.deleted_at.is_(None))
         .order_by(P4xTransaction.booking.desc())
         .first()
     )
-    if not latest_tx or not latest_tx.booking:
-        logger.warning("DebtorReminder: no transactions found.")
-        return False
+    return row[0] if row else None
 
-    latest_booking = str(latest_tx.booking)[:7]
-    current_month = today.strftime("%Y-%m")
-    if latest_booking != current_month:
-        logger.warning(
-            "DebtorReminder: latest transaction too old (%s). Import missing.",
-            latest_booking,
-        )
+
+def _imported_this_month(latest_booking: date | None, today: date) -> TypeGuard[date]:
+    """Whether the bank import holds bookings of the current month, so the
+    payments up to the reminder are known."""
+    if latest_booking is None:
         return False
-    return True
+    return (latest_booking.year, latest_booking.month) == (today.year, today.month)
+
+
+def _sent_this_month(db: Session, template_key: str, today: date) -> list[date]:
+    """The local days on which mails of one template went out this month."""
+    tz = get_app_timezone()
+    rows = (
+        db.query(SentEmail.created_at)
+        .filter(
+            SentEmail.headers == template_key,
+            SentEmail.created_at >= _month_start_utc(today),
+        )
+        .order_by(SentEmail.created_at)
+        .all()
+    )
+    return [row[0].astimezone(tz).date() for row in rows]
+
+
+def _reminders_done_this_month(db: Session, today: date) -> bool:
+    """Done once reminders went out, or once a run ended without error (a run
+    without a single debtor sends nothing)."""
+    if _sent_this_month(db, "debtor_reminder", today):
+        return True
+    return has_succeeded_since(db, JobId.DEBTOR_REMINDER, _month_start_utc(today))
+
+
+def _import_notice_due(earlier: list[date], today: date) -> bool:
+    """The first notice, and one more from the last-chance day on if the
+    first one went out before it."""
+    if not earlier:
+        return True
+    return len(earlier) == 1 and earlier[0].day < _LAST_CHANCE_DAY <= today.day
+
+
+def _notify_missing_import(
+    db: Session, today: date, latest_booking: date | None
+) -> str:
+    """Tell the treasurer that the reminders wait for the bank import, and
+    return what happened for the run history."""
+    earlier = _sent_this_month(db, "debtor_reminder_import_missing", today)
+    if not _import_notice_due(earlier, today):
+        return "Notice already sent."
+    recipient = _get_phil_xxxx_email(db)
+    if recipient is None:
+        return "No treasurer with an email address to notify."
+
+    last_chance = bool(earlier)
+    html = render_template(
+        "debtor_reminder_import_missing.html",
+        name=_get_phil_xxxx_name(db),
+        target=format_date_long(_compute_target_date(today)),
+        latest_booking=format_date_long(latest_booking) if latest_booking else None,
+        deadline=format_date_long(_last_day_of_month(today)),
+        last_chance=last_chance,
+    )
+    prefix = "Letzte Erinnerung: " if last_chance else ""
+    send_to_recipients(
+        to_emails=[recipient],
+        subject=f"{prefix}Beitragserinnerungen warten auf den Kontoimport",
+        html_content=html,
+        template_key="debtor_reminder_import_missing",
+    )
+    return "Last-chance notice sent." if last_chance else "Notice sent."
 
 
 def _compute_target_date(today: date) -> date:
@@ -397,16 +464,42 @@ def _payment_account(db: Session) -> P4xAccount:
     return account
 
 
+def _debt(balance: float) -> int:
+    return int(-balance) if balance < 0 else 0
+
+
+def _reminder_debt(
+    db: Session,
+    member: Member,
+    target_str: str,
+    later_payments: tuple[date, date],
+) -> int:
+    """The debt a reminder states, 0 for no reminder: only a debt above the
+    threshold at the cut-off date counts, less the fee payments booked since
+    (from inclusive, to exclusive), so a member who paid in the meantime is
+    not reminded."""
+    balance_data = calculate_fee_balance(db, member, None, target_str)
+    if not balance_data:
+        return 0
+    end_balance = float(balance_data.get("end_balance", 0))
+    if _debt(end_balance) <= _DEBT_THRESHOLD_EUR:
+        return 0
+    paid_since = float(get_fee_payments_sum(db, member, *later_payments))
+    return _debt(end_balance + paid_since)
+
+
 def _send_debtor_reminders(
     db: Session,
     target: date,
     target_str: str,
+    *,
+    payments_until: date,
 ) -> MailRun:
     monthly_fee = fee_for_month(db, target)
     sender_name = _get_phil_xxxx_name(db)
     sender_email = _get_phil_xxxx_email(db)
     bcc_emails = _get_role_holder_emails(db, ["phil-x", "phil-xxxx"], "vbw")
-    target_formatted = f"{target.day}. {MONTHS_DE[target.month]} {target.year}"
+    later_payments = (target + timedelta(days=1), payments_until + timedelta(days=1))
 
     fee_members = (
         db.query(Member)
@@ -422,13 +515,10 @@ def _send_debtor_reminders(
     run = MailRun()
     payment_account: P4xAccount | None = None
     for m in fee_members:
-        balance_data = calculate_fee_balance(db, m, None, target_str)
-        if not balance_data:
+        if not m.email:
             continue
-        end_balance = float(balance_data.get("end_balance", 0))
-        debt = int(-end_balance) if end_balance < 0 else 0
-
-        if debt <= 300 or not m.email:
+        debt = _reminder_debt(db, m, target_str, later_payments)
+        if debt <= _DEBT_THRESHOLD_EUR:
             continue
 
         payment_account = payment_account or _payment_account(db)
@@ -436,8 +526,9 @@ def _send_debtor_reminders(
             "debtor_reminder.html",
             name=_greeting_name(m),
             fee=monthly_fee,
-            target=target_formatted,
+            target=format_date_long(target),
             debt=debt,
+            payments_until=format_date_long(payments_until),
             sender_name=sender_name,
             iban=payment_account.iban,
             bic=payment_account.bic,
@@ -464,29 +555,43 @@ def _send_debtor_reminders(
 
 def job_debtor_reminder() -> None:
     today = local_today()
-    if today.month % 3 == 0:
-        return
-
     db = SessionLocal()
     started = datetime.now(UTC)
     try:
-        if not _validate_latest_booking(db, today):
+        if _reminders_done_this_month(db, today):
+            return
+
+        latest_booking = _latest_booking(db)
+        if not _imported_this_month(latest_booking, today):
+            logger.warning(
+                "DebtorReminder: latest booking %s is before this month.",
+                latest_booking,
+            )
+            note = _notify_missing_import(db, today, latest_booking)
             record_job_run(
                 JobId.DEBTOR_REMINDER,
                 started,
                 exit_code=1,
-                output="Latest transaction booking is too old — import missing.",
+                output=(
+                    f"Latest booking {latest_booking or 'none'} is before this"
+                    f" month, import missing. {note}"
+                ),
             )
             return
 
         target = _compute_target_date(today)
         target_str = target.strftime("%Y-%m-%d")
-        run = _send_debtor_reminders(db, target, target_str)
+        run = _send_debtor_reminders(
+            db, target, target_str, payments_until=latest_booking
+        )
         record_job_run(
             JobId.DEBTOR_REMINDER,
             started,
             exit_code=run.exit_code,
-            output=f"Target date {target_str}: {run.summary('reminder(s)')}",
+            output=(
+                f"Target date {target_str}, payments until {latest_booking}:"
+                f" {run.summary('reminder(s)')}"
+            ),
         )
     except Exception as exc:
         logger.exception("DebtorReminder failed")
@@ -539,22 +644,7 @@ def job_standesdb_chronicles() -> None:
 
         given = local_today()
         anniversaries = compute_anniversaries(db, given)
-        if not anniversaries:
-            record_job_run(
-                JobId.STANDESDB_CHRONICLES,
-                started,
-                exit_code=0,
-                output="No anniversaries this week.",
-            )
-            return
-
-        week_start, week_end = week_window(given)
-        html = render_template(
-            "chronicles.html",
-            anniversaries=anniversaries,
-            start=format_date_de(week_start),
-            end=format_date_de(week_end),
-        )
+        html = render_chronicles(anniversaries, given)
         send_to_recipients(
             to_emails=[],
             bcc_emails=bcc_emails,
@@ -566,11 +656,12 @@ def job_standesdb_chronicles() -> None:
             "Chronicles sent to %d recipients.",
             len(bcc_emails),
         )
+        what = "Chronicles" if anniversaries else "Chronicles without anniversaries"
         record_job_run(
             JobId.STANDESDB_CHRONICLES,
             started,
             exit_code=0,
-            output=f"Chronicles sent to {len(bcc_emails)} recipient(s).",
+            output=f"{what} sent to {len(bcc_emails)} recipient(s).",
         )
     except Exception as exc:
         logger.exception("Chronicles failed")
