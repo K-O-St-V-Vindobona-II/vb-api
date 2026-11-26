@@ -86,6 +86,21 @@ class TestBuildCronJobs:
         names = {j.name for j in jobs}
         assert names == {"task_cleanup", "task_downsync"}
 
+    def test_month_and_day_sets_reach_arq(self, monkeypatch):
+        """arq only reads a set as "one of these values"; the registry's
+        frozensets must arrive converted, or the job would never run."""
+        monkeypatch.setenv("APP_ENVIRONMENT", "production")
+        get_settings.cache_clear()
+
+        reminder = next(
+            j for j in build_cron_jobs() if j.name == "task_debtor_reminder"
+        )
+
+        assert reminder.month == {1, 4, 7, 10}
+        assert type(reminder.month) is set
+        assert reminder.day == set(range(15, 32))
+        assert (reminder.hour, reminder.minute) == (18, 30)
+
     def test_backup_disabled_removes_db_backup_job(self, monkeypatch):
         monkeypatch.setenv("APP_ENVIRONMENT", "production")
         monkeypatch.setenv("BACKUP_ENABLED", "false")

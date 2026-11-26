@@ -125,7 +125,12 @@ class TestDebtorReminder:
             ),
             patch("app.core.scheduler.send_to_recipients") as send,
         ):
-            run = _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            run = _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
         return run, send
 
     def test_the_bank_details_come_from_the_account(self, db_session):
@@ -218,7 +223,12 @@ class TestDebtorReminder:
             ),
             patch("app.core.scheduler.send_to_recipients") as send,
         ):
-            run = _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            run = _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
 
         assert run.sent == 0
         send.assert_not_called()

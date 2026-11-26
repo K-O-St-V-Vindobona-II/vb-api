@@ -41,7 +41,7 @@ from arq.connections import RedisSettings
 import app.db.base  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from app.core.config import get_settings
 from app.core.datetime_utils import get_app_timezone
-from app.core.job_schedule_registry import applicable_entries
+from app.core.job_schedule_registry import applicable_entries, cron_option
 from app.core.job_serialization import deserialize_job, serialize_job
 from app.core.mailer import (
     send_contact_form_email,
@@ -272,7 +272,8 @@ def build_cron_jobs() -> list[CronJob]:
             # trigger endpoint (see task_downsync's own docstring), and
             # keeps every job's name predictable, not just that one.
             name=f"task_{entry.id}",
-            day=entry.day,
+            month=cron_option(entry.month),
+            day=cron_option(entry.day),
             weekday=entry.weekday,
             hour=entry.hour,
             minute=entry.minute,

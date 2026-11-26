@@ -11,6 +11,7 @@ assert on its call args instead.
 
 import smtplib
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
@@ -19,11 +20,19 @@ from app.core.datetime_utils import local_today
 from app.core.scheduler import (
     MailRun,
     _compute_target_date,
+    _format_date_long,
+    _import_notice_due,
+    _imported_this_month,
+    _last_day_of_month,
+    _latest_booking,
+    _notify_missing_import,
     _parse_month_day,
     _parse_year,
+    _reminder_debt,
+    _reminders_done_this_month,
     _run_alembic_upgrade_head,
     _send_debtor_reminders,
-    _validate_latest_booking,
+    _sent_this_month,
     job_archive_health_check,
     job_birthday_mails,
     job_cleanup,
@@ -36,6 +45,7 @@ from app.core.scheduler import (
 )
 from app.models.archive_store_item import ArchiveStoreItem
 from app.models.client_user_agent import ClientUserAgent
+from app.models.enums import JobId
 from app.models.member import Member
 from app.models.member_role import MemberRole
 from app.models.org import Org
@@ -48,9 +58,16 @@ from app.models.p4x_category_filter_hit import (
 from app.models.p4x_transaction import P4xTransaction
 from app.models.request_log import RequestLog
 from app.models.role import Role
+from app.models.scheduled_task_run import ScheduledTaskRun
+from app.models.sent_email import SentEmail
 from app.models.standesdb_image import StandesdbImage
 from app.models.state import State
 from app.services.s3_mirror_service import MirrorResult
+from tests.p4x.test_p4x_fee_balance import (
+    _add_fee_payment,
+    _create_fee_member,
+)
+from tests.p4x.test_p4x_fee_balance import _seed_base as _seed_fee_base
 
 
 @pytest.fixture(autouse=True)
@@ -110,47 +127,302 @@ class TestComputeTargetDate:
         assert _compute_target_date(date(2026, 7, 1)) == date(2026, 6, 30)
 
 
-class TestValidateLatestBooking:
-    def test_no_transactions_returns_false(self, db_session):
-        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
+def _add_transaction(db, booking: date, *, deleted: bool = False) -> None:
+    account = P4xAccount(iban=f"AT94{booking:%Y%m%d}0000000000", bic="GIBAATWWXXX")
+    db.add(account)
+    db.commit()
+    db.add(
+        P4xTransaction(
+            sha256_hash=f"tx-{booking}-{deleted}",
+            p4x_account_id=account.id,
+            booking=booking,
+            valuation=booking,
+            amount=10,
+            subject="booking",
+            iban="AT001",
+            deleted_at=datetime.now(UTC) if deleted else None,
+        )
+    )
+    db.commit()
 
-    def test_stale_booking_returns_false(self, db_session):
-        account = P4xAccount(iban="AT941234567890123456", bic="GIBAATWWXXX")
-        db_session.add(account)
-        db_session.commit()
+
+def _log_mail(db, template_key: str, sent_at: datetime) -> None:
+    db.add(SentEmail(headers=template_key, created_at=sent_at))
+    db.commit()
+
+
+def _seed_treasurer(db) -> Member:
+    db.add(Role(id="phil-xxxx", group="philchc", label="Kassier", sort_order=9))
+    db.commit()
+    treasurer = Member(
+        email="kassier@vbw.at",
+        vorname="Karl",
+        nachname="Kassier",
+        couleurname="Fiscus",
+        org_id="vbw",
+        # not "up", so the treasurer is no fee member who gets a reminder
+        state_id="fu",
+        entlassen=False,
+        verstorben=False,
+    )
+    db.add(treasurer)
+    db.commit()
+    db.add(
+        MemberRole(
+            member_id=treasurer.id,
+            role_id="phil-xxxx",
+            startdate=date(2000, 1, 1),
+            enddate=None,
+        )
+    )
+    db.commit()
+    return treasurer
+
+
+class TestDateHelpers:
+    def test_format_date_long(self):
+        assert _format_date_long(date(2026, 1, 5)) == "5. Jänner 2026"
+
+    @pytest.mark.parametrize(
+        ("today", "expected"),
+        [
+            (date(2026, 1, 15), date(2026, 1, 31)),
+            (date(2026, 4, 30), date(2026, 4, 30)),
+            (date(2028, 2, 1), date(2028, 2, 29)),
+            (date(2026, 12, 31), date(2026, 12, 31)),
+        ],
+    )
+    def test_last_day_of_month(self, today, expected):
+        assert _last_day_of_month(today) == expected
+
+
+class TestLatestBooking:
+    def test_none_without_transactions(self, db_session):
+        assert _latest_booking(db_session) is None
+
+    def test_latest_booking_that_is_not_deleted(self, db_session):
+        _add_transaction(db_session, date(2026, 7, 10))
+        _add_transaction(db_session, date(2026, 6, 20))
+        _add_transaction(db_session, date(2026, 7, 12), deleted=True)
+
+        assert _latest_booking(db_session) == date(2026, 7, 10)
+
+
+class TestImportedThisMonth:
+    @pytest.mark.parametrize(
+        ("latest_booking", "expected"),
+        [
+            (None, False),
+            (date(2026, 6, 30), False),
+            (date(2025, 7, 20), False),
+            (date(2026, 7, 1), True),
+        ],
+    )
+    def test_only_a_booking_of_the_current_month_counts(self, latest_booking, expected):
+        assert _imported_this_month(latest_booking, date(2026, 7, 15)) is expected
+
+
+class TestSentThisMonth:
+    def test_local_days_of_one_template_since_the_local_month_start(self, db_session):
+        # 23:30 on 30 June in Vienna (summer time, UTC+2): last month
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 6, 30, 21, 30, tzinfo=UTC)
+        )
+        # 00:30 on 1 July in Vienna
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 6, 30, 22, 30, tzinfo=UTC)
+        )
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 7, 16, 16, 30, tzinfo=UTC)
+        )
+        _log_mail(db_session, "birthday", datetime(2026, 7, 16, 16, 30, tzinfo=UTC))
+
+        assert _sent_this_month(db_session, "debtor_reminder", date(2026, 7, 20)) == [
+            date(2026, 7, 1),
+            date(2026, 7, 16),
+        ]
+
+
+class TestRemindersDoneThisMonth:
+    def test_not_done_without_mails_or_clean_runs(self, db_session):
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 4, 15, 16, 30, tzinfo=UTC)
+        )
         db_session.add(
-            P4xTransaction(
-                sha256_hash="stale",
-                p4x_account_id=account.id,
-                booking=date(2026, 5, 1),
-                valuation=date(2026, 5, 1),
-                amount=10,
-                subject="old",
-                iban="AT001",
+            ScheduledTaskRun(
+                job_id=JobId.DEBTOR_REMINDER,
+                started_at=datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+                finished_at=datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+                exit_code=1,
             )
         )
         db_session.commit()
 
-        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is False
+        assert _reminders_done_this_month(db_session, date(2026, 7, 16)) is False
 
-    def test_current_month_booking_returns_true(self, db_session):
-        account = P4xAccount(iban="AT941234567890123456", bic="GIBAATWWXXX")
-        db_session.add(account)
-        db_session.commit()
+    def test_done_once_reminders_went_out(self, db_session):
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 7, 15, 16, 30, tzinfo=UTC)
+        )
+
+        assert _reminders_done_this_month(db_session, date(2026, 7, 16)) is True
+
+    def test_done_after_a_clean_run_without_debtors(self, db_session):
         db_session.add(
-            P4xTransaction(
-                sha256_hash="fresh",
-                p4x_account_id=account.id,
-                booking=date(2026, 7, 10),
-                valuation=date(2026, 7, 10),
-                amount=10,
-                subject="current",
-                iban="AT001",
+            ScheduledTaskRun(
+                job_id=JobId.DEBTOR_REMINDER,
+                started_at=datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+                finished_at=datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+                exit_code=0,
             )
         )
         db_session.commit()
 
-        assert _validate_latest_booking(db_session, date(2026, 7, 15)) is True
+        assert _reminders_done_this_month(db_session, date(2026, 7, 16)) is True
+
+
+class TestImportNoticeDue:
+    @pytest.mark.parametrize(
+        ("earlier", "today", "expected"),
+        [
+            ([], date(2026, 7, 15), True),
+            ([], date(2026, 7, 28), True),
+            ([date(2026, 7, 15)], date(2026, 7, 24), False),
+            ([date(2026, 7, 15)], date(2026, 7, 25), True),
+            ([date(2026, 7, 25)], date(2026, 7, 26), False),
+            ([date(2026, 7, 15), date(2026, 7, 25)], date(2026, 7, 26), False),
+        ],
+    )
+    def test_first_notice_and_one_last_chance(self, earlier, today, expected):
+        assert _import_notice_due(earlier, today) is expected
+
+
+class TestNotifyMissingImport:
+    def test_first_notice_goes_to_the_treasurer(self, db_session):
+        _seed_base(db_session)
+        treasurer = _seed_treasurer(db_session)
+
+        with patch("app.core.scheduler.send_to_recipients") as mock_send:
+            note = _notify_missing_import(
+                db_session, date(2026, 7, 15), date(2026, 6, 28)
+            )
+
+        assert note == "Notice sent."
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["to_emails"] == [treasurer.email]
+        assert kwargs["subject"] == "Beitragserinnerungen warten auf den Kontoimport"
+        assert kwargs["template_key"] == "debtor_reminder_import_missing"
+        html = kwargs["html_content"]
+        assert f"Hallo {treasurer.cn}," in html
+        assert "Stichtag <strong>30. Juni 2026</strong>" in html
+        assert "Buchungen nur bis 28. Juni 2026" in html
+        assert "täglich bis zum 31. Juli 2026" in html
+        assert "Letzte Erinnerung" not in html
+
+    def test_no_second_notice_before_the_last_chance_day(self, db_session):
+        _seed_base(db_session)
+        _seed_treasurer(db_session)
+        _log_mail(
+            db_session,
+            "debtor_reminder_import_missing",
+            datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+        )
+
+        with patch("app.core.scheduler.send_to_recipients") as mock_send:
+            note = _notify_missing_import(
+                db_session, date(2026, 7, 24), date(2026, 6, 28)
+            )
+
+        assert note == "Notice already sent."
+        mock_send.assert_not_called()
+
+    def test_last_chance_notice_without_any_import(self, db_session):
+        _seed_base(db_session)
+        _seed_treasurer(db_session)
+        _log_mail(
+            db_session,
+            "debtor_reminder_import_missing",
+            datetime(2026, 7, 15, 16, 30, tzinfo=UTC),
+        )
+
+        with patch("app.core.scheduler.send_to_recipients") as mock_send:
+            note = _notify_missing_import(db_session, date(2026, 7, 25), None)
+
+        assert note == "Last-chance notice sent."
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["subject"] == (
+            "Letzte Erinnerung: Beitragserinnerungen warten auf den Kontoimport"
+        )
+        html = kwargs["html_content"]
+        assert "Es ist noch kein Kontoimport vorhanden." in html
+        assert "Ohne Kontoimport\nbis zum 31. Juli 2026 entfallen" in html
+
+    def test_nothing_sent_without_a_treasurer(self, db_session):
+        _seed_base(db_session)
+
+        with patch("app.core.scheduler.send_to_recipients") as mock_send:
+            note = _notify_missing_import(
+                db_session, date(2026, 7, 15), date(2026, 6, 28)
+            )
+
+        assert note == "No treasurer with an email address to notify."
+        mock_send.assert_not_called()
+
+
+class TestReminderDebt:
+    """Real balances: the debt at the cut-off date 30 June 2026, less the
+    fee payments booked from 1 July up to the latest booking 17 July."""
+
+    WINDOW = (date(2026, 7, 1), date(2026, 7, 18))
+
+    def _member(self, db, init_balance: int):
+        _seed_fee_base(db)
+        # freed from fees, so the balance is the initial one plus payments
+        return _create_fee_member(
+            db,
+            p4x_init_date=date(2026, 1, 1),
+            p4x_init_balance=init_balance,
+            p4x_freed=True,
+        )
+
+    def test_payment_after_the_cut_off_cancels_the_reminder(self, db_session):
+        member = self._member(db_session, -365)
+        _add_fee_payment(db_session, member, date(2026, 7, 10), 395.0)
+
+        assert _reminder_debt(db_session, member, "2026-06-30", self.WINDOW) == 0
+
+    def test_partial_payment_lowers_the_stated_debt(self, db_session):
+        member = self._member(db_session, -500)
+        _add_fee_payment(db_session, member, date(2026, 7, 17), 100.0)
+
+        assert _reminder_debt(db_session, member, "2026-06-30", self.WINDOW) == 400
+
+    def test_payment_after_the_latest_booking_is_not_credited(self, db_session):
+        member = self._member(db_session, -500)
+        _add_fee_payment(db_session, member, date(2026, 7, 18), 100.0)
+
+        assert _reminder_debt(db_session, member, "2026-06-30", self.WINDOW) == 500
+
+    def test_payment_on_the_cut_off_date_counts_once(self, db_session):
+        member = self._member(db_session, -500)
+        _add_fee_payment(db_session, member, date(2026, 6, 30), 100.0)
+
+        assert _reminder_debt(db_session, member, "2026-06-30", self.WINDOW) == 400
+
+    def test_debt_at_the_threshold_is_no_reminder(self, db_session):
+        member = self._member(db_session, -300)
+
+        with patch("app.core.scheduler.get_fee_payments_sum") as mock_sum:
+            debt = _reminder_debt(db_session, member, "2026-06-30", self.WINDOW)
+
+        assert debt == 0
+        mock_sum.assert_not_called()
+
+    def test_no_balance_is_no_reminder(self, db_session):
+        member = self._member(db_session, -500)
+
+        with patch("app.core.scheduler.calculate_fee_balance", return_value=None):
+            assert _reminder_debt(db_session, member, "2026-06-30", self.WINDOW) == 0
 
 
 class TestRefreshCategoryFilterHits:
@@ -1139,14 +1411,29 @@ class TestDebtorReminder:
                 "app.core.scheduler.calculate_fee_balance",
                 return_value={"end_balance": -400.0},
             ),
+            patch(
+                "app.core.scheduler.get_fee_payments_sum", return_value=Decimal(0)
+            ) as mock_paid_since,
             patch("app.core.scheduler.send_to_recipients") as mock_send,
         ):
-            _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
 
+        mock_paid_since.assert_called_once_with(
+            db_session, ANY, date(2026, 7, 1), date(2026, 7, 18)
+        )
         mock_send.assert_called_once()
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == [debtor.email]
         assert kwargs["from_name"] == treasurer.cn
+        html = kwargs["html_content"]
+        assert "Per <strong>30. Juni 2026</strong>" in html
+        assert '<strong style="color: red;">400 Euro.</strong>' in html
+        assert "Zahlungseingänge bis 17. Juli 2026 sind dabei berücksichtigt." in html
 
     def test_falls_back_to_generic_sender_name_without_a_treasurer(self, db_session):
         """_get_phil_xxxx_name()'s "no role holder found" branch: with no
@@ -1175,7 +1462,12 @@ class TestDebtorReminder:
             ),
             patch("app.core.scheduler.send_to_recipients") as mock_send,
         ):
-            _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
 
         assert mock_send.call_args.kwargs["from_name"] == "Philisterkassier"
 
@@ -1201,12 +1493,24 @@ class TestDebtorReminder:
             entlassen=False,
             verstorben=False,
         )
-        db_session.add_all([no_balance, below_threshold])
+        no_email = Member(
+            email=None,
+            vorname="Ohne",
+            nachname="Adresse",
+            couleurname="Mutus",
+            org_id="vbw",
+            state_id="up",
+            entlassen=False,
+            verstorben=False,
+        )
+        db_session.add_all([no_balance, below_threshold, no_email])
         db_session.commit()
 
         def fake_balance(_db, member, *_args, **_kwargs):
             if member.id == no_balance.id:
                 return None
+            if member.id == no_email.id:
+                return {"end_balance": -400.0}
             return {"end_balance": -50.0}  # below the 300 threshold
 
         with (
@@ -1217,47 +1521,104 @@ class TestDebtorReminder:
             ),
             patch("app.core.scheduler.send_to_recipients") as mock_send,
         ):
-            _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
 
         mock_send.assert_not_called()
 
-    def test_quarter_skip_month_not_tracked(self, mock_record_job_run):
-        """June (%3==0) is a skip month by design — this early return
-        happens before a DB session even opens, so it's deliberately not
-        recorded as a run (see job_debtor_reminder's instrumentation)."""
-        with patch("app.core.scheduler.local_today", return_value=date(2026, 6, 15)):
-            job_debtor_reminder()
-
-        mock_record_job_run.assert_not_called()
-
-    def test_stale_booking_records_exit_code_one(self, db_session, mock_record_job_run):
+    def test_done_this_month_is_not_tracked(self, db_session, mock_record_job_run):
+        """Every later evening of the month only finds the job done: no
+        second round of reminders and no entry in the run history."""
+        _log_mail(
+            db_session, "debtor_reminder", datetime(2026, 7, 15, 16, 30, tzinfo=UTC)
+        )
         with (
-            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 16)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
-            patch("app.core.scheduler._validate_latest_booking", return_value=False),
+            patch("app.core.scheduler._send_debtor_reminders") as mock_send_reminders,
         ):
             job_debtor_reminder()
 
-        mock_record_job_run.assert_called_once_with(
-            "debtor_reminder", ANY, exit_code=1, output=ANY
-        )
+        mock_send_reminders.assert_not_called()
+        mock_record_job_run.assert_not_called()
 
-    def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
+    def test_missing_import_notifies_and_records_exit_code_one(
+        self, db_session, mock_record_job_run
+    ):
+        _add_transaction(db_session, date(2026, 6, 28))
         with (
             patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
-            patch("app.core.scheduler._validate_latest_booking", return_value=True),
+            patch(
+                "app.core.scheduler._notify_missing_import",
+                return_value="Notice sent.",
+            ) as mock_notify,
+            patch("app.core.scheduler._send_debtor_reminders") as mock_send_reminders,
+        ):
+            job_debtor_reminder()
+
+        mock_notify.assert_called_once_with(
+            db_session, date(2026, 7, 15), date(2026, 6, 28)
+        )
+        mock_send_reminders.assert_not_called()
+        mock_record_job_run.assert_called_once_with(
+            "debtor_reminder",
+            ANY,
+            exit_code=1,
+            output=(
+                "Latest booking 2026-06-28 is before this month, import missing."
+                " Notice sent."
+            ),
+        )
+
+    def test_no_import_at_all_is_recorded_as_none(
+        self, db_session, mock_record_job_run
+    ):
+        with (
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
+            patch(
+                "app.core.scheduler._notify_missing_import",
+                return_value="Notice sent.",
+            ),
+        ):
+            job_debtor_reminder()
+
+        output = mock_record_job_run.call_args.kwargs["output"]
+        assert output.startswith("Latest booking none is before this month")
+
+    def test_success_records_exit_code_zero(self, db_session, mock_record_job_run):
+        _add_transaction(db_session, date(2026, 7, 10))
+        with (
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
+            patch("app.core.scheduler.SessionLocal", return_value=db_session),
+            patch.object(db_session, "close"),
             patch(
                 "app.core.scheduler._send_debtor_reminders", return_value=MailRun()
             ) as mock_send_reminders,
         ):
             job_debtor_reminder()
 
-        mock_send_reminders.assert_called_once()
+        mock_send_reminders.assert_called_once_with(
+            db_session,
+            date(2026, 6, 30),
+            "2026-06-30",
+            payments_until=date(2026, 7, 10),
+        )
         mock_record_job_run.assert_called_once_with(
-            "debtor_reminder", ANY, exit_code=0, output=ANY
+            "debtor_reminder",
+            ANY,
+            exit_code=0,
+            output=(
+                "Target date 2026-06-30, payments until 2026-07-10: 0 reminder(s) sent."
+            ),
         )
 
     def test_one_refused_reminder_does_not_stop_the_others(self, db_session):
@@ -1295,7 +1656,12 @@ class TestDebtorReminder:
                 "app.core.scheduler.send_to_recipients", side_effect=deliver
             ) as mock_send,
         ):
-            run = _send_debtor_reminders(db_session, date(2026, 6, 30), "2026-06-30")
+            run = _send_debtor_reminders(
+                db_session,
+                date(2026, 6, 30),
+                "2026-06-30",
+                payments_until=date(2026, 7, 17),
+            )
 
         assert mock_send.call_count == 2
         assert run.sent == 1
@@ -1304,13 +1670,11 @@ class TestDebtorReminder:
     def test_failed_reminders_record_exit_code_one_with_a_summary(
         self, db_session, mock_record_job_run
     ):
-        today = date(2026, 7, 15)
-        target = _compute_target_date(today).strftime("%Y-%m-%d")
+        _add_transaction(db_session, date(2026, 7, 10))
         with (
-            patch("app.core.scheduler.local_today", return_value=today),
+            patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
-            patch("app.core.scheduler._validate_latest_booking", return_value=True),
             patch(
                 "app.core.scheduler._send_debtor_reminders",
                 return_value=MailRun(sent=1, failed=["Anton"]),
@@ -1322,7 +1686,10 @@ class TestDebtorReminder:
             "debtor_reminder",
             ANY,
             exit_code=1,
-            output=f"Target date {target}: 1 reminder(s) sent. 1 failed: Anton.",
+            output=(
+                "Target date 2026-06-30, payments until 2026-07-10:"
+                " 1 reminder(s) sent. 1 failed: Anton."
+            ),
         )
 
     def test_send_reminders_failure_records_exit_code_one(
@@ -1332,7 +1699,7 @@ class TestDebtorReminder:
             patch("app.core.scheduler.local_today", return_value=date(2026, 7, 15)),
             patch("app.core.scheduler.SessionLocal", return_value=db_session),
             patch.object(db_session, "close"),
-            patch("app.core.scheduler._validate_latest_booking", return_value=True),
+            patch("app.core.scheduler._latest_booking", return_value=date(2026, 7, 10)),
             patch(
                 "app.core.scheduler._send_debtor_reminders",
                 side_effect=RuntimeError("mailer down"),

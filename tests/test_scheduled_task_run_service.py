@@ -28,6 +28,7 @@ from app.models.enums import JobId
 from app.models.scheduled_task_run import ScheduledTaskRun
 from app.services.scheduled_task_run_service import (
     get_latest_run_per_job,
+    has_succeeded_since,
     list_job_runs,
     record_job_run,
 )
@@ -291,6 +292,22 @@ class TestGetLatestRunPerJob:
         assert len(small_result) == 1
         assert len(large_result) == 9
         assert large.count == small.count
+
+
+class TestHasSucceededSince:
+    def test_a_clean_run_since_the_instant_counts(self, db_session):
+        since = datetime(2026, 7, 1, tzinfo=UTC)
+        _make_run(db_session, JobId.DEBTOR_REMINDER, since)
+
+        assert has_succeeded_since(db_session, JobId.DEBTOR_REMINDER, since) is True
+
+    def test_failed_earlier_or_other_job_runs_do_not_count(self, db_session):
+        since = datetime(2026, 7, 1, tzinfo=UTC)
+        _make_run(db_session, JobId.DEBTOR_REMINDER, since, exit_code=1)
+        _make_run(db_session, JobId.DEBTOR_REMINDER, since - timedelta(microseconds=1))
+        _make_run(db_session, JobId.CLEANUP, since)
+
+        assert has_succeeded_since(db_session, JobId.DEBTOR_REMINDER, since) is False
 
 
 class TestScheduledTaskRunUuidDefault:

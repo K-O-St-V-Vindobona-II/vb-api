@@ -290,7 +290,7 @@ def _count_months(start_date: date, end_date: date) -> int:
     )
 
 
-def _get_fee_payments_sum(
+def get_fee_payments_sum(
     db: Session,
     member: Member,
     from_date: date,
@@ -456,7 +456,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
             month_starts, month_fees, init_date, n_months
         )
 
-    start_balance += _get_fee_payments_sum(
+    start_balance += get_fee_payments_sum(
         db,
         member,
         init_date,
@@ -740,7 +740,7 @@ def _attribute_payment(
     only applies when no delegation is set at all.
 
     Deliberate quirk, replicated for exact parity with
-    _get_fee_payments_sum/_get_fee_payments_list: those helpers return
+    get_fee_payments_sum/_get_fee_payments_list: those helpers return
     early with zero payments for any member with NO P4xPartner row at
     all, BEFORE even checking delegating_member_id - so a member without
     a single registered iban of their own never receives credit for a

@@ -61,7 +61,15 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
         "fee": "15,00",
         "debt": "90,00",
         "target": "30. Juni 2026",
+        "payments_until": "17. Juli 2026",
         "sender_name": "Franz Beispiel v/o Musterknabe",
+    },
+    "debtor_reminder_import_missing": {
+        "name": "Franz Beispiel v/o Musterknabe",
+        "target": "30. Juni 2026",
+        "latest_booking": "28. Juni 2026",
+        "deadline": "31. Juli 2026",
+        "last_chance": True,
     },
     "chronicles": {
         "start": "30. Juni 2026",

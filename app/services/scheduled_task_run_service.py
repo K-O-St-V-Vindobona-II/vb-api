@@ -96,3 +96,18 @@ def get_latest_run_per_job(db: Session) -> dict[str, ScheduledTaskRun]:
         .all()
     )
     return {str(row.job_id): row for row in rows}
+
+
+def has_succeeded_since(db: Session, job_id: JobId, since: datetime) -> bool:
+    """Whether the job finished at least one run without error since the
+    given instant."""
+    return (
+        db.query(ScheduledTaskRun.id)
+        .filter(
+            ScheduledTaskRun.job_id == job_id,
+            ScheduledTaskRun.exit_code == 0,
+            ScheduledTaskRun.started_at >= since,
+        )
+        .first()
+        is not None
+    )

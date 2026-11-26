@@ -62,6 +62,12 @@ EMAIL_TEMPLATE_REGISTRY: list[dict[str, str]] = [
         "file": "debtor_reminder.html",
     },
     {
+        "key": "debtor_reminder_import_missing",
+        "name": "Schuldner-Erinnerung: Kontoimport fehlt",
+        "source": "scheduler.py → job_debtor_reminder()",
+        "file": "debtor_reminder_import_missing.html",
+    },
+    {
         "key": "chronicles",
         "name": "Standesdb-Chronik",
         "source": "scheduler.py → job_standesdb_chronicles()",
