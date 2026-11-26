@@ -1,6 +1,7 @@
 """Mail templates: greeting, payment details and capped lists."""
 
 from datetime import date
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -39,6 +40,33 @@ class TestBirthdayMail:
         html = render_template("birthday.html", name="Kater", age=40)
 
         assert '<meta charset="utf-8">' in html
+
+
+_TEMPLATES = sorted(
+    path.name
+    for path in (Path(__file__).parent.parent / "app/templates/email").glob("*.html")
+)
+
+
+class TestEveryTemplateHead:
+    """What mail programs need to show a mail right: language, charset and
+    a viewport, so phones do not scale the mail down to unreadable size."""
+
+    @pytest.mark.parametrize("name", _TEMPLATES)
+    def test_language_charset_and_viewport(self, name):
+        source = (
+            Path(__file__).parent.parent / "app/templates/email" / name
+        ).read_text()
+        head = source[: source.index("</head>")]
+
+        assert source.startswith("<!DOCTYPE html>")
+        assert '<html lang="de">' in head
+        assert 'charset="utf-8"' in head
+        assert 'name="viewport"' in head
+
+    def test_all_templates_are_checked(self):
+        assert "chronicles.html" in _TEMPLATES
+        assert len(_TEMPLATES) >= 12
 
 
 class TestBirthdayJobMail:

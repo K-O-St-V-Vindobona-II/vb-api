@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from app.core.config import get_settings
 from app.core.datetime_utils import (
+    format_date_long,
     get_app_timezone,
     local_day_bounds_utc,
     local_today,
@@ -47,9 +48,8 @@ from app.models.request_log import RequestLog
 from app.models.sent_email import SentEmail
 from app.services.anniversary_service import (
     compute_anniversaries,
-    format_date_de,
     get_opted_in_recipients,
-    week_window,
+    render_chronicles,
 )
 from app.services.archive_service import get_unsorted_upload_count
 from app.services.backup_service import cleanup_old_backups, run_backup, run_restore
@@ -96,23 +96,6 @@ class MailRun:
         if self.failed:
             text += f" {len(self.failed)} failed: {', '.join(self.failed)}."
         return text
-
-
-MONTHS_DE = [
-    "",
-    "Jänner",
-    "Februar",
-    "März",
-    "April",
-    "Mai",
-    "Juni",
-    "Juli",
-    "August",
-    "September",
-    "Oktober",
-    "November",
-    "Dezember",
-]
 
 
 # -------------------------------------------------------------------
@@ -368,11 +351,6 @@ _DEBT_THRESHOLD_EUR = 300
 _LAST_CHANCE_DAY = 25
 
 
-def _format_date_long(value: date) -> str:
-    """A date as the mails write it, e.g. "17. November 2026"."""
-    return f"{value.day}. {MONTHS_DE[value.month]} {value.year}"
-
-
 def _month_start_utc(today: date) -> datetime:
     return local_day_bounds_utc(today.replace(day=1))[0]
 
@@ -447,9 +425,9 @@ def _notify_missing_import(
     html = render_template(
         "debtor_reminder_import_missing.html",
         name=_get_phil_xxxx_name(db),
-        target=_format_date_long(_compute_target_date(today)),
-        latest_booking=_format_date_long(latest_booking) if latest_booking else None,
-        deadline=_format_date_long(_last_day_of_month(today)),
+        target=format_date_long(_compute_target_date(today)),
+        latest_booking=format_date_long(latest_booking) if latest_booking else None,
+        deadline=format_date_long(_last_day_of_month(today)),
         last_chance=last_chance,
     )
     prefix = "Letzte Erinnerung: " if last_chance else ""
@@ -548,9 +526,9 @@ def _send_debtor_reminders(
             "debtor_reminder.html",
             name=_greeting_name(m),
             fee=monthly_fee,
-            target=_format_date_long(target),
+            target=format_date_long(target),
             debt=debt,
-            payments_until=_format_date_long(payments_until),
+            payments_until=format_date_long(payments_until),
             sender_name=sender_name,
             iban=payment_account.iban,
             bic=payment_account.bic,
@@ -666,22 +644,7 @@ def job_standesdb_chronicles() -> None:
 
         given = local_today()
         anniversaries = compute_anniversaries(db, given)
-        if not anniversaries:
-            record_job_run(
-                JobId.STANDESDB_CHRONICLES,
-                started,
-                exit_code=0,
-                output="No anniversaries this week.",
-            )
-            return
-
-        week_start, week_end = week_window(given)
-        html = render_template(
-            "chronicles.html",
-            anniversaries=anniversaries,
-            start=format_date_de(week_start),
-            end=format_date_de(week_end),
-        )
+        html = render_chronicles(anniversaries, given)
         send_to_recipients(
             to_emails=[],
             bcc_emails=bcc_emails,
@@ -693,11 +656,12 @@ def job_standesdb_chronicles() -> None:
             "Chronicles sent to %d recipients.",
             len(bcc_emails),
         )
+        what = "Chronicles" if anniversaries else "Chronicles without anniversaries"
         record_job_run(
             JobId.STANDESDB_CHRONICLES,
             started,
             exit_code=0,
-            output=f"Chronicles sent to {len(bcc_emails)} recipient(s).",
+            output=f"{what} sent to {len(bcc_emails)} recipient(s).",
         )
     except Exception as exc:
         logger.exception("Chronicles failed")

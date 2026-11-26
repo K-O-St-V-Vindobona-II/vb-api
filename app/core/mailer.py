@@ -4,8 +4,10 @@ import smtplib
 import ssl
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.headerregistry import Address
+from email.message import EmailMessage, Message
+from email.policy import SMTP
+from email.utils import format_datetime, make_msgid
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlencode
@@ -14,8 +16,9 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings, require_setting
-from app.core.datetime_utils import get_app_timezone, local_today
+from app.core.datetime_utils import get_app_timezone, local_now, local_today
 from app.core.field_labels import field_label
+from app.core.mail_text import html_to_text
 from app.db.database import SessionLocal
 from app.models.sent_email import SentEmail
 
@@ -42,11 +45,65 @@ _SMTPS_PORT = 465
 CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
 
 
-def _build_from_header() -> tuple[str, str]:
+# The To header of a mail that only goes to bcc recipients (RFC 5322 group
+# syntax for "no visible recipients").
+_UNDISCLOSED_RECIPIENTS = "Undisclosed-Recipients:;"
+
+
+@dataclass(frozen=True)
+class _Sender:
+    email: str
+    name: str
+
+    @property
+    def log_header(self) -> str:
+        """The sender as the sent-mail log has always shown it."""
+        return f'"{self.name}" <{self.email}>'
+
+
+def _default_sender() -> _Sender:
     settings = get_settings()
-    from_email = require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL")
-    from_name = settings.smtp_from_name
-    return from_email, f'"{from_name}" <{from_email}>'
+    return _Sender(
+        email=require_setting(settings.smtp_from_email, "SMTP_FROM_EMAIL"),
+        name=settings.smtp_from_name,
+    )
+
+
+@dataclass(frozen=True)
+class _Mail:
+    """What one outgoing mail consists of, before it becomes a message."""
+
+    subject: str
+    sender: _Sender
+    to_emails: list[str]
+    html: str
+    text: str
+    reply_to: str | None = None
+
+
+def _build_message(mail: _Mail) -> EmailMessage:
+    """The message as mail standards expect it: only the sender's name is
+    encoded (the address stays readable for filters), a date and a message
+    id from the sender's domain are set, and text and HTML go out as
+    quoted-printable alternatives. Bcc recipients never appear in it, they
+    only get the message through the SMTP envelope."""
+    msg = EmailMessage(policy=SMTP)
+    # A line break in a subject (from a contact form name, say) would end
+    # the header; whitespace runs collapse to single spaces instead.
+    msg["Subject"] = " ".join(mail.subject.split())
+    msg["From"] = Address(display_name=mail.sender.name, addr_spec=mail.sender.email)
+    msg["To"] = ", ".join(mail.to_emails) or _UNDISCLOSED_RECIPIENTS
+    if mail.reply_to:
+        msg["Reply-To"] = mail.reply_to
+    msg["Date"] = format_datetime(local_now())
+    msg["Message-ID"] = make_msgid(domain=mail.sender.email.rpartition("@")[2])
+    # Tells vacation and other auto-responders not to answer (RFC 3834).
+    msg["Auto-Submitted"] = "auto-generated"
+    msg.set_content(mail.text, charset="utf-8", cte="quoted-printable")
+    msg.add_alternative(
+        mail.html, subtype="html", charset="utf-8", cte="quoted-printable"
+    )
+    return msg
 
 
 def _uses_smtp_login(smtp_user: str) -> bool:
@@ -68,7 +125,7 @@ def _login_and_send(server: smtplib.SMTP, delivery: _Delivery) -> None:
     server.sendmail(delivery.from_email, delivery.recipients, delivery.message)
 
 
-def _send_message(msg: MIMEMultipart, recipients: str | list[str]) -> None:
+def _send_message(msg: Message, recipients: str | list[str]) -> None:
     settings = get_settings()
     smtp_host = require_setting(settings.smtp_host, "SMTP_HOST")
     smtp_port = require_setting(settings.smtp_port, "SMTP_PORT")
@@ -166,20 +223,21 @@ def send_to_recipients(
     from_email = from_addr or require_setting(
         settings.smtp_from_email, "SMTP_FROM_EMAIL"
     )
-    resolved_from_name = from_name or settings.smtp_from_name
-    from_header = f'"{resolved_from_name}" <{from_email}>'
+    sender = _Sender(email=from_email, name=from_name or settings.smtp_from_name)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_header
-    msg["To"] = ", ".join(to_emails) if to_emails else "Undisclosed-Recipients:;"
-    if reply_to:
-        msg["Reply-To"] = reply_to
-    # Bcc is deliberately never attached as a header on the sent message —
-    # bcc must stay envelope-only (SMTP RCPT TO via `all_recipients` below).
-    # A "Bcc" header on the actual message would leak the full bcc list to
-    # anyone who views raw message headers, defeating the point of bcc.
-    msg.attach(MIMEText(html_content, "html", "utf-8"))
+    # Bcc stays envelope-only (SMTP RCPT TO via `all_recipients` below): a
+    # "Bcc" header on the message would show the whole list to anyone who
+    # views the raw headers.
+    msg = _build_message(
+        _Mail(
+            subject=subject,
+            sender=sender,
+            to_emails=to_emails,
+            html=html_content,
+            text=html_to_text(html_content),
+            reply_to=reply_to,
+        )
+    )
 
     all_recipients = list(to_emails)
     if bcc_emails:
@@ -191,7 +249,7 @@ def send_to_recipients(
         subject,
         html_content,
         template_key,
-        from_addr=from_header,
+        from_addr=sender.log_header,
         bcc_str=", ".join(bcc_emails) if bcc_emails else None,
     )
 
@@ -204,7 +262,7 @@ def _reset_link(frontend_url: str, token: str, email: str) -> str:
 
 
 def send_reset_email(to_email: str, token: str) -> None:
-    _from_email, from_header = _build_from_header()
+    sender = _default_sender()
     frontend_url = require_setting(
         get_settings().frontend_reset_url, "FRONTEND_RESET_URL"
     )
@@ -225,20 +283,24 @@ def send_reset_email(to_email: str, token: str) -> None:
         f" fuer 20 Minuten gueltig."
     )
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Passwort zurücksetzen - Vindobona"
-    msg["From"] = from_header
-    msg["To"] = to_email
-    msg.attach(MIMEText(text_content, "plain", "utf-8"))
-    msg.attach(MIMEText(html_content, "html", "utf-8"))
+    subject = "Passwort zurücksetzen - Vindobona"
+    msg = _build_message(
+        _Mail(
+            subject=subject,
+            sender=sender,
+            to_emails=[to_email],
+            html=html_content,
+            text=text_content,
+        )
+    )
 
     _send_message(msg, to_email)
     _log_sent_email(
         to_email,
-        msg["Subject"],
+        subject,
         logged_html,
         "password-reset",
-        from_addr=from_header,
+        from_addr=sender.log_header,
     )
 
 
@@ -272,14 +334,16 @@ def _send_to_multiple(
     if not to_emails:
         return
 
-    _, from_header = _build_from_header()
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_header
-    msg["To"] = ", ".join(to_emails)
-    msg.attach(MIMEText(text_content, "plain", "utf-8"))
-    msg.attach(MIMEText(html_content, "html", "utf-8"))
+    sender = _default_sender()
+    msg = _build_message(
+        _Mail(
+            subject=subject,
+            sender=sender,
+            to_emails=to_emails,
+            html=html_content,
+            text=text_content,
+        )
+    )
 
     _send_message(msg, to_emails)
     _log_sent_email(
@@ -287,7 +351,7 @@ def _send_to_multiple(
         subject,
         html_content,
         template_key,
-        from_addr=from_header,
+        from_addr=sender.log_header,
     )
 
 

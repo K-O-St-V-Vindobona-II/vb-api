@@ -148,9 +148,11 @@ JOB_REGISTRY: tuple[JobScheduleEntry, ...] = (
             "Versendet die wöchentliche"
             " Jubiläums-Chronik (Geburtstage,"
             " Aufnahmen, Burschungen,"
-            " Philistrierungen) an alle"
-            " Mitglieder, die den Versand"
-            " aktiviert haben."
+            " Philistrierungen, Todestage) der"
+            " Folgewoche an alle Mitglieder, die"
+            " den Versand aktiviert haben. Auch in"
+            " einer Woche ohne Jahrestage geht eine"
+            " kurze Mail hinaus."
         ),
     ),
     JobScheduleEntry(

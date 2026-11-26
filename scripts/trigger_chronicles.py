@@ -28,13 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import app.db.base  # noqa: F401 — registers all models  # pyright: ignore[reportUnusedImport]
 from app.core.config import get_settings
 from app.core.datetime_utils import local_today
-from app.core.mailer import render_template, send_to_recipients
+from app.core.mailer import send_to_recipients
 from app.db.database import SessionLocal
 from app.services.anniversary_service import (
     AnniversaryResult,
     compute_anniversaries,
-    format_date_de,
     get_opted_in_recipients,
+    render_chronicles,
     week_window,
 )
 
@@ -50,10 +50,12 @@ def _email_address(value: str) -> str:
 
 def print_summary(anniversaries: AnniversaryResult, recipients: list[str]) -> None:
     print(f"Recipients: {len(recipients)}")
-    for org, statuses in anniversaries.items():
-        for status, fields in statuses.items():
-            for field, entries in fields.items():
-                print(f"  {org}/{status}/{field}: {len(entries)}")
+    if not anniversaries:
+        print("  No anniversaries in this window, the short mail says so.")
+    for org, fields in anniversaries.items():
+        for field, entries in fields.items():
+            deceased = sum(1 for e in entries if e["deceased"])
+            print(f"  {org}/{field}: {len(entries)} ({deceased} deceased)")
 
 
 def _confirm_mass_mail(recipient_count: int, week_start: date, week_end: date) -> bool:
@@ -124,21 +126,13 @@ def main() -> None:
         if not recipients:
             print("No recipients — nothing sent.", file=sys.stderr)
             return
-        if not anniversaries:
-            print("No anniversaries in this window — nothing sent.")
-            return
         if args.all_members and not _confirm_mass_mail(
             len(recipients), week_start, week_end
         ):
             print("Aborted.")
             sys.exit(1)
 
-        html = render_template(
-            "chronicles.html",
-            anniversaries=anniversaries,
-            start=format_date_de(week_start),
-            end=format_date_de(week_end),
-        )
+        html = render_chronicles(anniversaries, args.date)
         send_to_recipients(
             to_emails=[],
             bcc_emails=recipients,

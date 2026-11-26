@@ -16,11 +16,10 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from app.core.datetime_utils import local_today
+from app.core.datetime_utils import format_date_long, local_today
 from app.core.scheduler import (
     MailRun,
     _compute_target_date,
-    _format_date_long,
     _import_notice_due,
     _imported_this_month,
     _last_day_of_month,
@@ -180,8 +179,8 @@ def _seed_treasurer(db) -> Member:
 
 
 class TestDateHelpers:
-    def test_format_date_long(self):
-        assert _format_date_long(date(2026, 1, 5)) == "5. Jänner 2026"
+    def testformat_date_long(self):
+        assert format_date_long(date(2026, 1, 5)) == "5. Jänner 2026"
 
     @pytest.mark.parametrize(
         ("today", "expected"),
@@ -907,8 +906,14 @@ class TestStandesdbChronicles:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["to_emails"] == []
         assert kwargs["bcc_emails"] == ["chronik@vbw.at"]
+        assert kwargs["subject"] == "Verbindungschroniken"
+        assert kwargs["template_key"] == "chronicles"
+        assert "feiert seinen" in kwargs["html_content"]
         mock_record_job_run.assert_called_once_with(
-            "standesdb_chronicles", ANY, exit_code=0, output=ANY
+            "standesdb_chronicles",
+            ANY,
+            exit_code=0,
+            output="Chronicles sent to 1 recipient(s).",
         )
 
     def test_no_send_when_no_recipients(self, db_session, mock_record_job_run):
@@ -926,7 +931,7 @@ class TestStandesdbChronicles:
             "standesdb_chronicles", ANY, exit_code=0, output=ANY
         )
 
-    def test_no_send_when_no_anniversaries(self, db_session, mock_record_job_run):
+    def test_short_mail_when_no_anniversaries(self, db_session, mock_record_job_run):
         _seed_base(db_session)
         db_session.add(
             Member(
@@ -950,9 +955,15 @@ class TestStandesdbChronicles:
         ):
             job_standesdb_chronicles()
 
-        mock_send.assert_not_called()
+        mock_send.assert_called_once()
+        assert (
+            "stehen keine Jahrestage an" in mock_send.call_args.kwargs["html_content"]
+        )
         mock_record_job_run.assert_called_once_with(
-            "standesdb_chronicles", ANY, exit_code=0, output=ANY
+            "standesdb_chronicles",
+            ANY,
+            exit_code=0,
+            output="Chronicles without anniversaries sent to 1 recipient(s).",
         )
 
     def test_send_failure_records_exit_code_one(self, db_session, mock_record_job_run):

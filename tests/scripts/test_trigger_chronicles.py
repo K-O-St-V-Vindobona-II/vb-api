@@ -2,8 +2,8 @@
 
 The anniversary-computation logic itself is covered by
 tests/test_anniversary_service.py — these tests only exercise the CLI
-wrapper's own control flow (dry-run vs --send, --to override, empty-result
-short-circuits).
+wrapper's own control flow (dry-run vs --send, --to override, no
+recipients).
 """
 
 from datetime import date, datetime
@@ -65,7 +65,7 @@ def test_dry_run_prints_summary_without_sending(capsys, db_session) -> None:
     mock_send.assert_not_called()
     out = capsys.readouterr().out
     assert "Recipients: 1" in out
-    assert "vbw/lebend/geburtsdatum: 1" in out
+    assert "vbw/geburtsdatum: 1 (0 deceased)" in out
     assert "Dry run only" in out
 
 
@@ -139,7 +139,7 @@ def test_no_recipients_skips_send(capsys, db_session) -> None:
     assert "No recipients" in err
 
 
-def test_no_anniversaries_skips_send(capsys, db_session) -> None:
+def test_no_anniversaries_still_sends_the_short_mail(capsys, db_session) -> None:
     _seed_base(db_session)
 
     with (
@@ -160,9 +160,11 @@ def test_no_anniversaries_skips_send(capsys, db_session) -> None:
     ):
         trigger_chronicles.main()
 
-    mock_send.assert_not_called()
+    mock_send.assert_called_once()
+    assert mock_send.call_args.kwargs["bcc_emails"] == ["test@vindobona2.at"]
+    assert "stehen keine Jahrestage an" in mock_send.call_args.kwargs["html_content"]
     out = capsys.readouterr().out
-    assert "No anniversaries in this window" in out
+    assert "No anniversaries in this window, the short mail says so." in out
 
 
 class TestDefaultReferenceDate:
