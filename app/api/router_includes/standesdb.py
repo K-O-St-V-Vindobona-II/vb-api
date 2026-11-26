@@ -73,7 +73,7 @@ async def _enqueue_entry_changed_email(
         notification.to_emails,
         notification.entry_type,
         notification.entry_cn,
-        notification.diff,
+        notification.changes,
         change_type=notification.change_type,
         modifier_cn=notification.modifier_cn,
     )
@@ -318,7 +318,8 @@ async def create_member(
     member, notification = await run_in_threadpool(
         standesdb_entry_service.create_member, db, data, current_user
     )
-    await _enqueue_entry_changed_email(arq_pool, notification)
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
     return StatusIdResponse(status="ok", id=member.id)
 
 
@@ -433,7 +434,8 @@ async def create_contact(
     contact, notification = await run_in_threadpool(
         standesdb_entry_service.create_contact, db, data, current_user
     )
-    await _enqueue_entry_changed_email(arq_pool, notification)
+    if notification:
+        await _enqueue_entry_changed_email(arq_pool, notification)
     return StatusIdResponse(status="ok", id=contact.id)
 
 

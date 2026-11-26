@@ -43,6 +43,39 @@ _DATE_ACCURACY_DESCRIPTION = (
 )
 
 
+# The member dates that carry their own accuracy.
+_MEMBER_FUZZY_DATES = (
+    "geburtsdatum",
+    "aufnahmedatum",
+    "branderdatum",
+    "burschungsdatum",
+    "philistrierungsdatum",
+    "entlassungsdatum",
+    "sterbedatum",
+)
+
+
+def _consistent_fuzzy_date(
+    value: date | None, accuracy: int
+) -> tuple[date | None, int]:
+    """A date and its accuracy that agree: an unknown date keeps no value
+    (unticking "year known" in the form leaves the old value behind), and a
+    missing value is unknown."""
+    if value is None or accuracy == 0:
+        return None, 0
+    return value, accuracy
+
+
+def _make_fuzzy_dates_consistent(model: BaseModel, fields: tuple[str, ...]) -> None:
+    for field in fields:
+        accuracy_field = f"{field}_accuracy"
+        value, accuracy = _consistent_fuzzy_date(
+            getattr(model, field), getattr(model, accuracy_field)
+        )
+        setattr(model, field, value)
+        setattr(model, accuracy_field, accuracy)
+
+
 # --- Reference Data ---
 
 # The reference tables store the display position as sort_order (order is an
@@ -119,7 +152,14 @@ class RoleHistoryResponse(BaseModel):
 class BadgeEntry(BaseModel):
     id: uuid.UUID
     presentationdate: date | None = None
-    presentationdate_accuracy: int = 0
+    presentationdate_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def consistent_presentationdate(self) -> Self:
+        _make_fuzzy_dates_consistent(self, ("presentationdate",))
+        return self
 
 
 class BadgeDetailResponse(BaseModel):
@@ -134,7 +174,14 @@ class BadgeDetailResponse(BaseModel):
 class KeyEntry(BaseModel):
     id: uuid.UUID
     presentationdate: date | None = None
-    presentationdate_accuracy: int = 0
+    presentationdate_accuracy: int = Field(
+        default=0, ge=0, le=3, description=_DATE_ACCURACY_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def consistent_presentationdate(self) -> Self:
+        _make_fuzzy_dates_consistent(self, ("presentationdate",))
+        return self
 
 
 class KeyDetailResponse(BaseModel):
@@ -535,6 +582,11 @@ class MemberSaveRequest(TrimmedInputModel):
         _require_nachname_or_couleurname(self.nachname, self.couleurname)
         return self
 
+    @model_validator(mode="after")
+    def consistent_fuzzy_dates(self) -> Self:
+        _make_fuzzy_dates_consistent(self, _MEMBER_FUZZY_DATES)
+        return self
+
 
 class MemberSelfServiceSaveRequest(TrimmedInputModel):
     """Self-service subset of MemberSaveRequest - "echte Stammdaten" only.
@@ -697,6 +749,11 @@ class ContactSaveRequest(TrimmedInputModel):
             msg = "Maximal 64 Zeichen."
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def consistent_datum(self) -> Self:
+        _make_fuzzy_dates_consistent(self, ("datum",))
+        return self
 
     @field_validator("anrede")
     @classmethod

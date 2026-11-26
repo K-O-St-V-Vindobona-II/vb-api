@@ -391,7 +391,23 @@ def _get_fee_payments_list(
     ]
 
 
-def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
+# The philistrierung date only stands in for a missing fee start when its
+# month is known; a year alone would start the fees in an arbitrary month.
+_FEE_START_MIN_ACCURACY = 2
+
+
+def fee_start_date(member: Member) -> date | None:
+    """The first month that owes a fee: the set fee start, else the
+    philistrierung date if known at least to the month, else none (the
+    member has no balance until a fee start is set)."""
+    if member.p4x_init_date is not None:
+        return member.p4x_init_date
+    if (member.philistrierungsdatum_accuracy or 0) < _FEE_START_MIN_ACCURACY:
+        return None
+    return member.philistrierungsdatum
+
+
+def calculate_fee_balance(  # noqa: C901, PLR0912
     db: Session,
     member: Member,
     start_date_str: str | None = None,
@@ -401,10 +417,7 @@ def calculate_fee_balance(  # noqa: C901, PLR0912, PLR0915
     if not is_fee_member(member):
         return None
 
-    if member.p4x_init_date is None and member.philistrierungsdatum is None:
-        return None
-
-    init_date = member.p4x_init_date or member.philistrierungsdatum
+    init_date = fee_start_date(member)
     if init_date is None:
         return None
     init_date = init_date.replace(day=1)
@@ -603,11 +616,11 @@ def _build_member_states(
     default_end_date: date,
 ) -> dict[uuid.UUID, _MemberFeeState]:
     """One entry per fee-eligible member with a usable init_date. Members
-    without p4x_init_date/philistrierungsdatum are silently skipped
-    (mirrors calculate_fee_balance's `return None` for them)."""
+    without a fee start (see fee_start_date) are silently skipped (mirrors
+    calculate_fee_balance's `return None` for them)."""
     states: dict[uuid.UUID, _MemberFeeState] = {}
     for member in fee_members:
-        init_date_raw = member.p4x_init_date or member.philistrierungsdatum
+        init_date_raw = fee_start_date(member)
         if init_date_raw is None:
             continue
         init_date = init_date_raw.replace(day=1)

@@ -44,6 +44,7 @@ from app.core.datetime_utils import get_app_timezone
 from app.core.job_schedule_registry import applicable_entries, cron_option
 from app.core.job_serialization import deserialize_job, serialize_job
 from app.core.mailer import (
+    FieldChange,
     send_contact_form_email,
     send_entry_changed_email,
     send_member_change_request_resolved_email,
@@ -190,7 +191,7 @@ async def task_send_entry_changed_email(
     to_emails: list[str],
     entry_type: str,
     entry_cn: str,
-    diff: dict[str, dict[str, object]],
+    changes: dict[str, FieldChange],
     *,
     change_type: str,
     modifier_cn: str,
@@ -200,7 +201,7 @@ async def task_send_entry_changed_email(
         to_emails,
         entry_type,
         entry_cn,
-        diff,
+        changes,
         change_type=change_type,
         modifier_cn=modifier_cn,
     )
