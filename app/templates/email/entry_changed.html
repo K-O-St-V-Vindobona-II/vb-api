@@ -19,14 +19,12 @@
 
   <hr>
 
-  {% for key, values in diff.items() %}
-    {% if not key.endswith('_accuracy') %}
+  {% for key, change in changes.items() %}
     <div style="margin-top: 1em;">
       <strong>{{ field_label(key) }}</strong><br>
-      alt:&nbsp; {{ format_value(key, values.get('old'), diff) }}<br>
-      neu:&nbsp; {{ format_value(key, values.get('new'), diff) }}
+      alt:&nbsp; {{ change.old }}<br>
+      neu:&nbsp; {{ change.new }}
     </div>
-    {% endif %}
   {% endfor %}
 </body>
 </html>

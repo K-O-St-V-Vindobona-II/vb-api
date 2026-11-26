@@ -25,11 +25,18 @@ TEMPLATE_PREVIEW_DATA: dict[str, dict[str, object]] = {
         "entry_type": "member",
         "entry_cn": "Franz Beispiel v/o Musterknabe",
         "change_type": "update",
-        "diff": {
+        "changes": {
             "nachname": {"old": "Beispiel", "new": "Beispiel-Neu"},
-            "email": {"old": "alt@example.com", "new": "neu@example.com"},
+            "geburtsdatum": {"old": "1990", "new": "3. Mai 1990"},
+            "badges": {
+                "old": "Fuxenband",
+                "new": "Fuxenband (17. Mai 2020)",
+            },
+            "roles_history": {
+                "old": "-",
+                "new": "Senior (seit 1. Februar 2026)",
+            },
         },
-        "format_value": _format_preview_value,
     },
     "member-change-request-submitted": {
         "member_cn": "Franz Beispiel v/o Musterknabe",

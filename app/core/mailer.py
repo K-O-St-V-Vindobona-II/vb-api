@@ -9,14 +9,19 @@ from email.message import EmailMessage, Message
 from email.policy import SMTP
 from email.utils import format_datetime, make_msgid
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 from urllib.parse import urlencode
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings, require_setting
-from app.core.datetime_utils import get_app_timezone, local_now, local_today
+from app.core.datetime_utils import (
+    format_fuzzy_date,
+    get_app_timezone,
+    local_now,
+    local_today,
+)
 from app.core.field_labels import field_label
 from app.core.mail_text import html_to_text
 from app.db.database import SessionLocal
@@ -43,6 +48,13 @@ cast("dict[str, object]", _jinja_env.globals)["field_label"] = field_label
 _LOG_REDACTION = "[redacted]"
 _SMTPS_PORT = 465
 CONTACT_RECIPIENTS = ["philchc@vindobona2.at", "vindoboneninfo@gmail.com"]
+
+
+class FieldChange(TypedDict):
+    """One field of a changed directory entry as the change mail shows it."""
+
+    old: str
+    new: str
 
 
 # The To header of a mail that only goes to bcc recipients (RFC 5322 group
@@ -355,23 +367,6 @@ def _send_to_multiple(
     )
 
 
-_MONTHS_DE = [
-    "",
-    "Jänner",
-    "Februar",
-    "März",
-    "April",
-    "Mai",
-    "Juni",
-    "Juli",
-    "August",
-    "September",
-    "Oktober",
-    "November",
-    "Dezember",
-]
-
-
 def _resolve_date_accuracy(key: str, diff: dict[str, dict[str, object]]) -> int:
     acc_key = key + "_accuracy"
     if acc_key not in diff:
@@ -379,16 +374,6 @@ def _resolve_date_accuracy(key: str, diff: dict[str, dict[str, object]]) -> int:
     acc_val = diff[acc_key]
     raw = acc_val.get("new", 0)
     return int(raw) if isinstance(raw, (int, float)) else 0
-
-
-def _format_date_by_accuracy(value: date, accuracy: int) -> str:
-    if accuracy == 0:
-        return "-"
-    if accuracy == 1:
-        return str(value.year)
-    if accuracy == 2:
-        return f"{_MONTHS_DE[value.month]} {value.year}"
-    return f"{value.day}. {_MONTHS_DE[value.month]} {value.year}"
 
 
 def _as_date(value: object) -> date | None:
@@ -415,19 +400,22 @@ def _format_diff_value(
     parsed = _as_date(value)
     if parsed is None:
         return str(value)
-    return _format_date_by_accuracy(parsed, _resolve_date_accuracy(key, diff))
+    return format_fuzzy_date(parsed, _resolve_date_accuracy(key, diff))
 
 
 def send_entry_changed_email(
     to_emails: list[str],
     entry_type: str,
     entry_cn: str,
-    diff: dict[str, dict[str, object]],
+    changes: dict[str, FieldChange],
     *,
     change_type: str,
     modifier_cn: str,
 ) -> None:
-    if not to_emails or not diff:
+    """Tell the administrators about a saved entry. `changes` holds the
+    readable old and new value of every changed field, see
+    change_description_service.describe_changes."""
+    if not to_emails or not changes:
         return
 
     now = datetime.now(get_app_timezone())
@@ -441,8 +429,7 @@ def send_entry_changed_email(
         entry_type=entry_type,
         entry_cn=entry_cn,
         change_type=change_type,
-        diff=diff,
-        format_value=_format_diff_value,
+        changes=changes,
     )
 
     text_lines = [
@@ -455,12 +442,10 @@ def send_entry_changed_email(
         f"Art: {'Neuanlage' if change_type == 'store' else 'Änderung'}",
         "",
     ]
-    for key, values in diff.items():
-        if key.endswith("_accuracy"):
-            continue
+    for key, change in changes.items():
         text_lines.append(f"{field_label(key)}:")
-        text_lines.append(f"  alt: {_format_diff_value(key, values.get('old'), diff)}")
-        text_lines.append(f"  neu: {_format_diff_value(key, values.get('new'), diff)}")
+        text_lines.append(f"  alt: {change['old']}")
+        text_lines.append(f"  neu: {change['new']}")
         text_lines.append("")
 
     _send_to_multiple(

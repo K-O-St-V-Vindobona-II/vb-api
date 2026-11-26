@@ -78,7 +78,7 @@ class TestFormatDiffValue:
     def test_date_with_accuracy_0(self):
         diff = {"sterbedatum_accuracy": {"new": 0}}
         result = _format_diff_value("sterbedatum", date(2020, 1, 1), diff)
-        assert result == "-"
+        assert result == "unbekannt"
 
     def test_non_date_field_with_date_value(self):
         result = _format_diff_value("vorname", date(2020, 1, 1), {})
@@ -148,20 +148,24 @@ class TestSendEntryChangedEmail:
         assert "Neuanlage" in html
 
     @patch("app.core.mailer._send_to_multiple")
-    def test_accuracy_fields_skipped_in_text(self, mock_send):
+    def test_the_readable_changes_are_shown_as_given(self, mock_send):
         send_entry_changed_email(
             ["a@b.at"],
             "member",
             "Test",
             {
-                "geburtsdatum": {"old": None, "new": "1978-07-05"},
-                "geburtsdatum_accuracy": {"old": 0, "new": 3},
+                "geburtsdatum": {"old": "1978", "new": "5. Juli 1978"},
+                "badges": {"old": "-", "new": "Fuxenband (17. Mai 2020)"},
             },
             change_type="update",
             modifier_cn="Admin",
         )
-        text = mock_send.call_args[0][3]
-        assert "geburtsdatum_accuracy" not in text
+        _, _, html, text = mock_send.call_args[0][:4]
+        assert "Geburtsdatum:\n  alt: 1978\n  neu: 5. Juli 1978" in text
+        assert "  neu: Fuxenband (17. Mai 2020)" in text
+        assert "alt:&nbsp; 1978<br>" in html
+        assert "neu:&nbsp; 5. Juli 1978" in html
+        assert "neu:&nbsp; Fuxenband (17. Mai 2020)" in html
 
     @patch("app.core.mailer._send_to_multiple")
     def test_subject_timestamp_uses_configured_app_timezone(

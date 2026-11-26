@@ -21,6 +21,7 @@ from app.schemas.standesdb import (
     MyChangeRequestResponse,
 )
 from app.services import member_change_request_service, standesdb_service
+from app.services.change_description_service import describe_changes
 from app.services.permission_service import (
     calculate_permissions,
     get_emails_with_permission,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
+    from app.core.mailer import FieldChange
     from app.models.member_change_request import MemberChangeRequest
     from app.schemas.standesdb import (
         ContactSaveRequest,
@@ -44,16 +46,42 @@ _NO_ORG_DETAIL = "Mitglied hat keine Verbindung zugewiesen."
 
 class EntryChangedNotification(NamedTuple):
     """Arguments of the "task_send_entry_changed_email" queue task: the admin
-    addresses, the "member" or "contact" literal, the entry's cn, the field
-    diff and the change_type/modifier_cn pair. The last two are keyword-only on
-    the task itself, so the router passes the fields explicitly."""
+    addresses, the "member" or "contact" literal, the entry's cn, the readable
+    changes and the change_type/modifier_cn pair. The last two are
+    keyword-only on the task itself, so the router passes the fields
+    explicitly."""
 
     to_emails: list[str]
     entry_type: str
     entry_cn: str
-    diff: dict[str, dict[str, object]]
+    changes: dict[str, FieldChange]
     change_type: str
     modifier_cn: str
+
+
+def _notification(
+    db: Session,
+    entry: Member | Contact,
+    diff: dict[str, dict[str, object]],
+    *,
+    permission: str,
+    change_type: str,
+    modifier_cn: str,
+) -> EntryChangedNotification | None:
+    """The change mail for the admins, or None when nothing changed that a
+    reader could see (a day changed at year accuracy, say)."""
+    changes = describe_changes(db, diff, entry)
+    if not changes:
+        return None
+    entry_type = "member" if isinstance(entry, Member) else "contact"
+    return EntryChangedNotification(
+        get_emails_with_permission(db, permission),
+        entry_type,
+        entry.cn,
+        changes,
+        change_type,
+        modifier_cn,
+    )
 
 
 class ChangeRequestSubmittedNotification(NamedTuple):
@@ -148,7 +176,7 @@ def get_assigned_member_for_org_admin(
 
 def create_member(
     db: Session, data: MemberSaveRequest, current_user: Member
-) -> tuple[Member, EntryChangedNotification]:
+) -> tuple[Member, EntryChangedNotification | None]:
     require_org_admin(current_user, data.org_id)
     standesdb_service.validate_member_org(data, current_user)
     standesdb_service.validate_member_uniqueness(db, data)
@@ -159,11 +187,14 @@ def create_member(
     member = Member()
     diff = standesdb_service.apply_member_input(db, member, data, current_user)
 
-    recipients = get_emails_with_permission(db, _org_admin_permission(data.org_id))
-    notification = EntryChangedNotification(
-        recipients, "member", member.cn, diff, "store", current_user.cn
+    return member, _notification(
+        db,
+        member,
+        diff,
+        permission=_org_admin_permission(data.org_id),
+        change_type="store",
+        modifier_cn=current_user.cn,
     )
-    return member, notification
 
 
 def update_member(
@@ -183,14 +214,14 @@ def update_member(
 
     diff = standesdb_service.apply_member_input(db, member, data, current_user)
 
-    if not diff:
-        return member, None
-
-    recipients = get_emails_with_permission(db, _org_admin_permission(org_id))
-    notification = EntryChangedNotification(
-        recipients, "member", member.cn, diff, "update", current_user.cn
+    return member, _notification(
+        db,
+        member,
+        diff,
+        permission=_org_admin_permission(org_id),
+        change_type="update",
+        modifier_cn=current_user.cn,
     )
-    return member, notification
 
 
 # --- Contacts ---
@@ -198,7 +229,7 @@ def update_member(
 
 def create_contact(
     db: Session, data: ContactSaveRequest, current_user: Member
-) -> tuple[Contact, EntryChangedNotification]:
+) -> tuple[Contact, EntryChangedNotification | None]:
     standesdb_service.validate_contact_uniqueness(db, data.name)
 
     # A new record always differs from the empty one, so the diff is never empty.
@@ -207,11 +238,14 @@ def create_contact(
         db, contact, data.model_dump(), current_user
     )
 
-    recipients = get_emails_with_permission(db, "standesdbContactAdmin")
-    notification = EntryChangedNotification(
-        recipients, "contact", contact.cn, diff, "store", current_user.cn
+    return contact, _notification(
+        db,
+        contact,
+        diff,
+        permission="standesdbContactAdmin",
+        change_type="store",
+        modifier_cn=current_user.cn,
     )
-    return contact, notification
 
 
 def update_contact(
@@ -228,14 +262,14 @@ def update_contact(
         db, contact, data.model_dump(), current_user
     )
 
-    if not diff:
-        return contact, None
-
-    recipients = get_emails_with_permission(db, "standesdbContactAdmin")
-    notification = EntryChangedNotification(
-        recipients, "contact", contact.cn, diff, "update", current_user.cn
+    return contact, _notification(
+        db,
+        contact,
+        diff,
+        permission="standesdbContactAdmin",
+        change_type="update",
+        modifier_cn=current_user.cn,
     )
-    return contact, notification
 
 
 def delete_contact(db: Session, contact_id: uuid.UUID, current_user: Member) -> None:

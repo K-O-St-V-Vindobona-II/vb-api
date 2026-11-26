@@ -95,3 +95,15 @@ WEEKDAYS_SHORT_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 def format_date_long(value: date) -> str:
     """A date as the mails write it, e.g. "17. November 2026"."""
     return f"{value.day}. {MONTHS_DE[value.month]} {value.year}"
+
+
+def format_fuzzy_date(value: date | None, accuracy: int | None) -> str:
+    """A date at the precision it is known to: "unbekannt", "1990",
+    "Mai 1990" or "3. Mai 1990" for accuracy 0 to 3."""
+    if value is None or not accuracy:
+        return "unbekannt"
+    if accuracy == 1:
+        return str(value.year)
+    if accuracy == 2:
+        return f"{MONTHS_DE[value.month]} {value.year}"
+    return format_date_long(value)

@@ -309,10 +309,74 @@ class TestMemberUpdateNotification:
         )
 
         args = mock_arq_pool.enqueue_job.call_args
-        diff = args[0][4]
-        assert "vorname" in diff
-        assert diff["vorname"]["old"] == "Alt"
-        assert diff["vorname"]["new"] == "Neu"
+        changes = args[0][4]
+        assert changes["vorname"] == {"old": "Alt", "new": "Neu"}
+
+    def test_a_changed_date_reads_as_a_date(self, client, db_session, mock_arq_pool):
+        """The date changes, its accuracy stays: the mail still shows both
+        dates, each as precise as it is known."""
+        _setup(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        target = Member(
+            email="target@vbw.at",
+            org_id="vbw",
+            vorname="Max",
+            nachname="Muster",
+            geburtsdatum=date(1990, 5, 3),
+            geburtsdatum_accuracy=3,
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        client.put(
+            f"/api/standesdb/members/{target.id}",
+            json=_member_payload(
+                email="target@vbw.at",
+                geburtsdatum="1990-06-12",
+                geburtsdatum_accuracy=3,
+            ),
+            headers=headers,
+        )
+
+        changes = mock_arq_pool.enqueue_job.call_args[0][4]
+        assert changes == {
+            "geburtsdatum": {"old": "3. Mai 1990", "new": "12. Juni 1990"}
+        }
+
+    def test_a_change_nobody_can_see_sends_no_mail(
+        self, client, db_session, mock_arq_pool
+    ):
+        """An old record holding a date at accuracy "unknown" is cleaned up
+        on save; it reads "unbekannt" before and after, so no mail."""
+        _setup(db_session)
+        headers = _headers(client, db_session, _admin(db_session))
+        target = Member(
+            email="target@vbw.at",
+            org_id="vbw",
+            vorname="Max",
+            nachname="Muster",
+            gruender=False,
+            entlassen=False,
+            verstorben=False,
+            zustellungen="deaktiviert",
+            chroniclemail=False,
+            auth_locked=True,
+            geburtsdatum=date(2021, 1, 1),
+            geburtsdatum_accuracy=0,
+        )
+        db_session.add(target)
+        db_session.commit()
+
+        resp = client.put(
+            f"/api/standesdb/members/{target.id}",
+            json=_member_payload(email="target@vbw.at", geburtsdatum="2021-01-01"),
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        db_session.refresh(target)
+        assert target.geburtsdatum is None
+        mock_arq_pool.enqueue_job.assert_not_called()
 
 
 # ─── Contact Notifications ─────────────────────────────
