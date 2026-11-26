@@ -380,7 +380,7 @@ def build_fee_member_response(
             ],
         )
 
-    init_date_raw = member.p4x_init_date or member.philistrierungsdatum
+    init_date_raw = p4x_fee_balance_service.fee_start_date(member)
     init_date_str: str | None = None
     if init_date_raw:
         init_date_str = str(init_date_raw.replace(day=1))

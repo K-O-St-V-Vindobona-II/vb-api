@@ -28,9 +28,11 @@ from app.services.p4x_fee_balance_service import (
     _end_of_month,
     _iban_to_member_id_map,
     calculate_fee_balance,
+    fee_start_date,
     get_fee_balances,
     is_fee_member,
 )
+from app.services.p4x_response_builders import build_fee_member_response
 
 
 def _now() -> datetime:
@@ -1048,7 +1050,13 @@ class TestFeeBalanceEdgeCases:
         # end_date adjusted to last day of start_date's month
         assert balance["end_date"] == "2026-06-30"
 
-    def test_philistrierungsdatum_fallback(self, db_session):
+    @pytest.mark.parametrize(
+        ("accuracy", "start"),
+        [(3, "2020-01-01"), (2, "2020-01-01"), (1, None), (0, None)],
+    )
+    def test_philistrierungsdatum_fallback(self, db_session, accuracy, start):
+        """Without a fee start of its own, the philistrierung date stands in
+        only when at least its month is known."""
         _seed_base(db_session)
         member = _create_fee_member(
             db_session,
@@ -1057,6 +1065,7 @@ class TestFeeBalanceEdgeCases:
             email="phil@t.at",
         )
         member.philistrierungsdatum = date(2020, 1, 15)
+        member.philistrierungsdatum_accuracy = accuracy
         db_session.commit()
 
         balance = calculate_fee_balance(
@@ -1065,9 +1074,30 @@ class TestFeeBalanceEdgeCases:
             "2020-01-01",
             "2020-03-31",
         )
+        bulk = {row["id"] for row in get_fee_balances(db_session)}
+        # The fee page shows the same start as the one the balance uses.
+        shown_start = build_fee_member_response(db_session, member).p4x_init_date
+        assert shown_start == start
+
+        if start is None:
+            assert balance is None
+            assert member.id not in bulk
+            return
         assert balance is not None
         # init_date derived from philistrierungsdatum, floored to first of month
-        assert balance["start_date"] == "2020-01-01"
+        assert balance["start_date"] == start
+        assert member.id in bulk
+
+    def test_an_own_fee_start_wins_over_the_philistrierung_date(self, db_session):
+        _seed_base(db_session)
+        member = _create_fee_member(
+            db_session, p4x_init_date=date(2021, 3, 9), email="own@t.at"
+        )
+        member.philistrierungsdatum = date(2020, 1, 15)
+        member.philistrierungsdatum_accuracy = 3
+        db_session.commit()
+
+        assert fee_start_date(member) == date(2021, 3, 9)
 
     def test_december_end_date(self, db_session):
         """End date in December crosses year boundary correctly."""
